@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "waddleml"
 version = "0.2.0"
-description = "Local Weights & Biases — git-native ML experiment tracker with DuckDB."
+description = "Lightweight, SQL-native ML experiment tracking with DuckDB."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
@@ -49,9 +49,9 @@ all = ["psutil>=5.9.0", "pynvml>=11.5.0"]
 waddle = "waddle.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/briangu/waddleml"
-Repository = "https://github.com/briangu/waddleml"
-Issues = "https://github.com/briangu/waddleml/issues"
+Homepage = "https://github.com/Sentient-X/waddleml"
+Repository = "https://github.com/Sentient-X/waddleml"
+Issues = "https://github.com/Sentient-X/waddleml/issues"
 
 [tool.setuptools.packages.find]
 include = ["waddle", "waddle.*"]

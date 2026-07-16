@@ -31,7 +31,19 @@ CREATE TABLE IF NOT EXISTS runs (
     ended_at DOUBLE,
     env JSON,
     config JSON,
-    notes VARCHAR
+    notes VARCHAR,
+    lineage JSON
+);
+
+CREATE TABLE IF NOT EXISTS run_workers (
+    run_id VARCHAR NOT NULL REFERENCES runs(id),
+    rank INTEGER NOT NULL,
+    local_rank INTEGER NOT NULL,
+    world_size INTEGER NOT NULL,
+    node_id VARCHAR NOT NULL,
+    attempt INTEGER NOT NULL,
+    started_at DOUBLE NOT NULL,
+    PRIMARY KEY (run_id, rank, attempt)
 );
 
 CREATE TABLE IF NOT EXISTS params (
@@ -53,7 +65,10 @@ CREATE TABLE IF NOT EXISTS metrics (
     key VARCHAR NOT NULL,
     step INTEGER NOT NULL,
     ts DOUBLE NOT NULL,
-    value DOUBLE NOT NULL
+    value DOUBLE NOT NULL,
+    rank INTEGER NOT NULL DEFAULT 0,
+    node_id VARCHAR NOT NULL DEFAULT 'localhost',
+    attempt INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_metrics_run_key ON metrics(run_id, key, step);
@@ -69,4 +84,16 @@ CREATE TABLE IF NOT EXISTS artifacts (
     size_bytes BIGINT,
     inline_bytes BLOB
 );
+
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS lineage JSON;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS rank INTEGER DEFAULT 0;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS node_id VARCHAR DEFAULT 'localhost';
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS attempt INTEGER DEFAULT 0;
+
+
+CREATE OR REPLACE VIEW evidence_run_metrics AS
+SELECT r.project, r.id AS run_id, r.name AS run_name, r.status,
+       r.started_at, r.ended_at, r.config, r.lineage,
+       m.key, m.step, m.ts, m.value, m.rank, m.node_id, m.attempt
+FROM runs r JOIN metrics m ON r.id = m.run_id;
 """

@@ -12,6 +12,7 @@ import uuid
 from typing import Any, Dict, Optional
 
 from ._db import WaddleDB
+from ._types import WorkerInfo
 
 
 class Run:
@@ -26,6 +27,8 @@ class Run:
         repo_id: Optional[str] = None,
         commit_sha: Optional[str] = None,
         system_metrics: bool = True,
+        worker: WorkerInfo = WorkerInfo(),
+        lineage: Optional[Dict[str, str]] = None,
     ):
         self._db = db
         self.id = run_id
@@ -34,6 +37,7 @@ class Run:
         self.commit_sha = commit_sha
         self._step = 0
         self._finished = False
+        self._worker = worker
         self._sysmon: Any = None
 
         # create run record
@@ -47,10 +51,18 @@ class Run:
         env_json = json.dumps(env, ensure_ascii=False, sort_keys=True)
         db.execute(
             """INSERT INTO runs (id, project, repo_id, commit_sha, name, status,
-                                 started_at, env, config, notes)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+                                 started_at, env, config, notes, lineage)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)""",
             [run_id, project, repo_id, commit_sha, self.name,
-             "running", time.time(), env_json, config_json, None],
+             "running", time.time(), env_json, config_json, None,
+             json.dumps(lineage or {}, sort_keys=True)],
+        )
+        db.execute(
+            """INSERT INTO run_workers
+               (run_id, rank, local_rank, world_size, node_id, attempt, started_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            [run_id, worker.rank, worker.local_rank, worker.world_size,
+             worker.node_id, worker.attempt, time.time()],
         )
 
         # log config as params
@@ -120,8 +132,11 @@ class Run:
         ts = time.time()
         for key, value in metrics.items():
             self._db.execute(
-                "INSERT INTO metrics (run_id, key, step, ts, value) VALUES ($1, $2, $3, $4, $5)",
-                [self.id, key, step, ts, float(value)],
+                """INSERT INTO metrics
+                   (run_id, key, step, ts, value, rank, node_id, attempt)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                [self.id, key, step, ts, float(value), self._worker.rank,
+                 self._worker.node_id, self._worker.attempt],
             )
             self._broadcast_metric(key, step, ts, float(value))
 
@@ -153,8 +168,11 @@ class Run:
         if ts is None:
             ts = time.time()
         self._db.execute(
-            "INSERT INTO metrics (run_id, key, step, ts, value) VALUES ($1, $2, $3, $4, $5)",
-            [self.id, key, step, ts, float(value)],
+            """INSERT INTO metrics
+               (run_id, key, step, ts, value, rank, node_id, attempt)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+            [self.id, key, step, ts, float(value), self._worker.rank,
+             self._worker.node_id, self._worker.attempt],
         )
 
     def log_artifact(

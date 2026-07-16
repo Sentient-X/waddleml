@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-import time
 from typing import Optional
 
 
@@ -78,12 +77,12 @@ def get_head_sha(repo_path: str) -> Optional[str]:
         return None
 
 
-def auto_snapshot(repo_path: str) -> Optional[str]:
-    """Auto-commit dirty tree and return HEAD sha. Returns None on failure."""
+def working_tree_digest(repo_path: str) -> Optional[str]:
+    """Hash the observed dirty patch without ever mutating the repository."""
     try:
-        if is_dirty(repo_path):
-            sh(repo_path, "add", "-A")
-            sh(repo_path, "commit", "-m", f"waddle: auto snapshot {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        return get_head_sha(repo_path)
+        import hashlib
+
+        patch = sh(repo_path, "diff", "--binary", "HEAD")
+        return hashlib.sha256(patch.encode()).hexdigest() if patch else None
     except Exception:
-        return get_head_sha(repo_path)
+        return None

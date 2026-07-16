@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import socket
 import uuid
 from typing import Any, Dict, Optional
 
 from ._db import WaddleDB
 from ._run import Run
 from . import _state
+from ._types import WorkerInfo
 
 
 def init(
@@ -18,6 +20,9 @@ def init(
     tags: Optional[Dict[str, Any]] = None,
     db_path: Optional[str] = None,
     system_metrics: bool = True,
+    run_id: Optional[str] = None,
+    worker: Optional[WorkerInfo] = None,
+    lineage: Optional[Dict[str, str]] = None,
 ) -> Run:
     """Initialize a new run.
 
@@ -28,7 +33,7 @@ def init(
     commit_sha: Optional[str] = None
 
     # try to detect git repo (optional)
-    from ._git import detect_repo_root, get_origin, detect_default_branch, auto_snapshot
+    from ._git import detect_repo_root, get_origin, detect_default_branch, get_head_sha, working_tree_digest
     repo_root = detect_repo_root(os.getcwd())
 
     if repo_root:
@@ -44,9 +49,12 @@ def init(
         repo = db.upsert_repo(repo_name, repo_root, origin, branch)
         repo_id = repo.id
 
-        commit_sha = auto_snapshot(repo_root)
+        commit_sha = get_head_sha(repo_root)
         if commit_sha:
             db.record_commit(repo.id, commit_sha, repo_root)
+        dirty_digest = working_tree_digest(repo_root)
+        if dirty_digest:
+            lineage = {**(lineage or {}), "source_patch_sha256": dirty_digest}
     else:
         # no git — just use a local .waddle/ in cwd
         if db_path is None:
@@ -54,7 +62,8 @@ def init(
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         db = WaddleDB(db_path)
 
-    run_id = uuid.uuid4().hex
+    run_id = run_id or uuid.uuid4().hex
+    worker = worker or WorkerInfo(node_id=socket.gethostname())
     run = Run(
         db=db,
         run_id=run_id,
@@ -65,6 +74,8 @@ def init(
         repo_id=repo_id,
         commit_sha=commit_sha,
         system_metrics=system_metrics,
+        worker=worker,
+        lineage=lineage,
     )
     _state.set_active_run(run)
     return run
