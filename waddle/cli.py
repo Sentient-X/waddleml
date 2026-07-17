@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Waddle CLI: init, serve, ls."""
+"""Waddle CLI: init, ls, dashboard.
+
+`dashboard` launches the Evidence.dev dashboard (packages/waddleml/evidence/)
+against a snapshot of a run's DuckDB, refreshed on an interval so the dashboard
+tracks a running job without ever contending for DuckDB's single-writer lock.
+"""
 
 from __future__ import annotations
 
 import argparse
-import json
-import os
+import shutil
+import subprocess
 import sys
+import threading
 from pathlib import Path
-from typing import Any, Dict
 
 GITIGNORE_LINES = [".waddle/"]
 
@@ -54,7 +59,6 @@ def cmd_ls(a: argparse.Namespace) -> int:
             print("no runs found")
             return 0
 
-        # header
         print(f"{'ID':>8}  {'Project':<15} {'Name':<20} {'Status':<10} {'Duration':>10} {'Commit':>8}")
         print("-" * 85)
         for row in rows:
@@ -62,10 +66,7 @@ def cmd_ls(a: argparse.Namespace) -> int:
             duration = ""
             if started and ended:
                 secs = ended - started
-                if secs < 60:
-                    duration = f"{secs:.1f}s"
-                else:
-                    duration = f"{secs / 60:.1f}m"
+                duration = f"{secs:.1f}s" if secs < 60 else f"{secs / 60:.1f}m"
             elif started:
                 duration = "running"
             commit_str = (commit or "")[:8]
@@ -75,42 +76,124 @@ def cmd_ls(a: argparse.Namespace) -> int:
     return 0
 
 
-# ---------- serve ----------
+# ---------- dashboard ----------
 
-def cmd_serve(a: argparse.Namespace) -> int:
+def cmd_dashboard(a: argparse.Namespace) -> int:
     db_path = _find_db(a.db)
     if not db_path:
-        print("no .waddle/waddle.duckdb found. run a training script with waddle.init() first.", file=sys.stderr)
+        print("no waddle.duckdb found. run a training script with waddle.init() first, "
+              "or pass --db <path>.", file=sys.stderr)
+        return 1
+    live = Path(db_path)
+
+    evidence_dir = Path(a.evidence_dir) if a.evidence_dir else _evidence_dir()
+    if not (evidence_dir / "package.json").exists():
+        print(f"Evidence project not found at {evidence_dir}. The dashboard ships with the "
+              "waddleml source tree; run from a checkout or pass --evidence-dir.", file=sys.stderr)
         return 1
 
-    static_dir = a.static_dir or str((Path(__file__).parent / "static").resolve())
+    npm = shutil.which("npm")
+    if npm is None:
+        print("npm not found. The Evidence dashboard needs Node.js (>=18).", file=sys.stderr)
+        return 1
 
+    if not (evidence_dir / "node_modules").exists():
+        if a.no_install:
+            print(f"dependencies not installed. run `npm install` in {evidence_dir}.", file=sys.stderr)
+            return 1
+        print(f"[waddle] installing dashboard dependencies in {evidence_dir} (first run only)…")
+        if subprocess.run([npm, "install"], cwd=evidence_dir).returncode != 0:
+            print("npm install failed.", file=sys.stderr)
+            return 1
+
+    snapshot = evidence_dir / "sources" / "waddle" / "waddle.duckdb"
+    _snapshot_db(live, snapshot)
+    _ensure_views(snapshot)
+    print(f"[waddle] dashboard for {live}")
+    print(f"[waddle] snapshot -> {snapshot} (refresh every {a.refresh}s)")
+
+    stop = threading.Event()
+    watcher = threading.Thread(
+        target=_refresh_loop, args=(live, snapshot, evidence_dir, npm, a.refresh, stop), daemon=True
+    )
+    watcher.start()
+
+    proc = subprocess.Popen(
+        [npm, "run", "dev", "--", "--port", str(a.port), "--host", a.host],
+        cwd=evidence_dir,
+    )
     try:
-        from ._server import create_app
-        import uvicorn
-    except ImportError as e:
-        print(f"Dashboard requires starlette and uvicorn: {e}", file=sys.stderr)
-        return 1
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+    finally:
+        stop.set()
+    return proc.returncode or 0
 
-    print(f"[waddle] serving {db_path}")
-    app = create_app(db_path, static_dir)
-    uvicorn.run(app, host=a.host, port=a.port, log_level="info")
-    return 0
+
+def _snapshot_db(live: Path, dest: Path) -> None:
+    """Copy the live DB (and its WAL) so Evidence reads a consistent, lock-free copy.
+
+    DuckDB replays a copied .wal on open, so copying both files captures state up
+    to the last flushed write even while training holds the file open.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(live, dest)
+    live_wal = Path(str(live) + ".wal")
+    dest_wal = Path(str(dest) + ".wal")
+    if live_wal.exists():
+        shutil.copy2(live_wal, dest_wal)
+    elif dest_wal.exists():
+        dest_wal.unlink()
+
+
+def _ensure_views(snapshot: Path) -> None:
+    """Apply the current schema (idempotent) to the snapshot so the evidence_*
+    views exist even for DBs written by an older waddle. Safe: the snapshot is our
+    private copy, so this write never contends with the live training process."""
+    import duckdb
+
+    from ._schema import SCHEMA_DDL
+
+    conn = duckdb.connect(str(snapshot))
+    try:
+        conn.execute(SCHEMA_DDL)
+    finally:
+        conn.close()
+
+
+def _refresh_loop(
+    live: Path, dest: Path, evidence_dir: Path, npm: str, interval: float, stop: threading.Event
+) -> None:
+    last_mtime: float | None = None
+    while not stop.wait(interval):
+        try:
+            mtime = live.stat().st_mtime
+        except OSError:
+            continue
+        if mtime == last_mtime:
+            continue
+        last_mtime = mtime
+        _snapshot_db(live, dest)
+        _ensure_views(dest)
+        subprocess.run([npm, "run", "sources"], cwd=evidence_dir, capture_output=True)
 
 
 # ---------- helpers ----------
 
+def _evidence_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "evidence"
+
+
 def _find_db(explicit: str | None = None) -> str | None:
-    """Find the DuckDB file. Checks explicit path, then cwd, then walks up to git root."""
+    """Find the DuckDB file: explicit path, then cwd, then walk up to the git root."""
     if explicit and Path(explicit).exists():
         return str(Path(explicit).resolve())
 
-    # check cwd
     local = Path.cwd() / ".waddle" / "waddle.duckdb"
     if local.exists():
         return str(local)
 
-    # walk up to find .waddle/
     p = Path.cwd()
     for _ in range(10):
         candidate = p / ".waddle" / "waddle.duckdb"
@@ -139,12 +222,14 @@ def build() -> argparse.ArgumentParser:
     pl.add_argument("-n", "--limit", type=int, default=20, help="max runs to show")
     pl.set_defaults(func=cmd_ls)
 
-    ps = sub.add_parser("serve", help="Start the dashboard server")
-    ps.add_argument("--host", default="127.0.0.1")
-    ps.add_argument("--port", type=int, default=8080)
-    ps.add_argument("--db", help="path to waddle.duckdb")
-    ps.add_argument("--static-dir")
-    ps.set_defaults(func=cmd_serve)
+    pd = sub.add_parser("dashboard", help="Launch the Evidence.dev dashboard")
+    pd.add_argument("--db", help="path to waddle.duckdb (default: nearest .waddle/)")
+    pd.add_argument("--host", default="localhost")
+    pd.add_argument("--port", type=int, default=3000)
+    pd.add_argument("--refresh", type=float, default=10.0, help="snapshot refresh interval, seconds")
+    pd.add_argument("--evidence-dir", help="override the Evidence project location")
+    pd.add_argument("--no-install", action="store_true", help="fail instead of running npm install")
+    pd.set_defaults(func=cmd_dashboard)
 
     return p
 

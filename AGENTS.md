@@ -11,14 +11,16 @@ Core package resides in `waddle/` with a modular architecture:
 | `_run.py` | `Run` class — metric batching, context manager, atexit |
 | `_state.py` | Thread-safe global run state |
 | `_db.py` | `WaddleDB` — DuckDB connection + thread-safe queries |
-| `_schema.py` | DuckDB DDL (7 tables: repos, commits, runs, params, tags, metrics, artifacts) |
+| `_schema.py` | DuckDB DDL (7 tables + the `evidence_*` dashboard views) |
 | `_git.py` | Git detection + auto-snapshot (optional, never required) |
 | `_sysmetrics.py` | `SystemMonitor` background thread (CPU/mem/GPU) |
 | `_types.py` | `RepoInfo` dataclass |
-| `_dashboard_api.py` | Read-only queries for the dashboard API |
-| `_server.py` | Starlette app + WebSocket live updates |
-| `cli.py` | CLI entry point: `init`, `ls`, `serve` |
-| `static/index.html` | Dashboard frontend (vanilla JS + Plotly.js) |
+| `cli.py` | CLI entry point: `init`, `ls`, `dashboard` |
+
+The dashboard is an Evidence.dev project in `evidence/` (SQL + markdown over the
+`evidence_*` views), launched by `waddle dashboard`. There is no in-process web server —
+the old Starlette/WebSocket + Plotly dashboard (`_server.py`, `_dashboard_api.py`,
+`static/index.html`) was retired.
 
 Examples live in `examples/` and tests in `tests/`. Runtime artifacts (`.waddle/waddle.duckdb`) are generated during runs and should remain untracked.
 
@@ -29,7 +31,7 @@ Examples live in `examples/` and tests in `tests/`. Runtime artifacts (`.waddle/
 - `pytest tests/` — run the test suite.
 - `python examples/quickstart.py` — emit sample runs for manual verification.
 - `waddle ls` — list recent runs in terminal.
-- `waddle serve` — start the dashboard at http://127.0.0.1:8080.
+- `waddle dashboard` — snapshot the DuckDB and serve the Evidence dashboard (Node ≥18; first run installs `evidence/node_modules`).
 
 ## Coding Style & Naming Conventions
 

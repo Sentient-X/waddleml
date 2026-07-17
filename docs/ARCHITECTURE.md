@@ -12,5 +12,11 @@ increments `attempt`; it must never overwrite an earlier attempt.
 
 The local DuckDB file is the supported initial deployment. Quack remote transport is planned
 behind the same writer API after its beta protocol stabilizes. It is not required for local
-durability. Evidence dashboards query the `evidence_run_metrics` view; the example under
-`evidence/` is intentionally separate from the Python package and its built-in live view.
+durability.
+
+The dashboard is the Evidence.dev project under `evidence/`, querying the `evidence_*` views
+(`_schema.py`): the runs overview, a per-run deep dive generated for every run, and multi-run
+comparison. `waddle dashboard` snapshots the DuckDB and serves it, refreshing the snapshot on
+an interval so the dashboard tracks a running job without contending for DuckDB's writer lock.
+Dashboards are replaceable projections over the views — the built-in Starlette/Plotly server
+that once played this role was retired in favor of this SQL-native surface.

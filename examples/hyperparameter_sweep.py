@@ -6,7 +6,7 @@ producing multiple runs you can compare side-by-side.
 Usage:
     python examples/hyperparameter_sweep.py
     waddle ls                    # see all 4 runs
-    waddle serve                 # select multiple runs → "Compare Selected"
+    waddle dashboard             # open /compare and select runs
 """
 
 import random
@@ -67,7 +67,7 @@ def main():
     print("-" * 50)
     best = min(results, key=lambda r: r[3])
     print(f"Best: lr={best[0]} with MSE={best[3]:.4f}")
-    print(f"\nRun 'waddle serve' to compare all runs in the dashboard.")
+    print("\nRun 'waddle dashboard' to compare all runs in the dashboard.")
 
 
 if __name__ == "__main__":

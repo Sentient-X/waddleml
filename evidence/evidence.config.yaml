@@ -1,0 +1,27 @@
+appearance:
+  default: system
+  switcher: true
+
+theme:
+  colors:
+    primary:
+      light: "#2563eb"
+      dark: "#3b82f6"
+    accent:
+      light: "#c2410c"
+      dark: "#fdba74"
+    positive:
+      light: "#16a34a"
+      dark: "#4ade80"
+    warning:
+      light: "#f8c900"
+      dark: "#fbbf24"
+    negative:
+      light: "#dc2626"
+      dark: "#f87171"
+
+plugins:
+  components:
+    "@evidence-dev/core-components": {}
+  datasources:
+    "@evidence-dev/duckdb": {}

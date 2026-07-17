@@ -13,9 +13,11 @@
 | `_git.py` | Git detection + auto-snapshot (optional, never required) |
 | `_sysmetrics.py` | `SystemMonitor` background thread |
 | `_types.py` | `RepoInfo` dataclass |
-| `_dashboard_api.py` | Read-only queries for dashboard API |
-| `_server.py` | Starlette app + WebSocket |
-| `cli.py` | CLI: `init`, `ls`, `serve` |
+| `cli.py` | CLI: `init`, `ls`, `dashboard` |
+
+The dashboard is Evidence.dev (`../evidence/`), reading the `evidence_*` views in
+`_schema.py`. `waddle dashboard` snapshots the DuckDB and launches it; there is no
+in-process web server (the old Starlette/WebSocket dashboard was retired).
 
 ## Data Flow
 
@@ -25,6 +27,6 @@ waddle.init() → _api.py → _db.py (DuckDB) → _run.py (Run object)
              _git.py (optional)           _sysmetrics.py
              auto-detect + snapshot       background thread
 
-waddle.log()  → _state.py (active run) → _run.py → DuckDB metrics table
-waddle.serve  → cli.py → _server.py → _dashboard_api.py → DuckDB (read-only)
+waddle.log()      → _state.py (active run) → _run.py → DuckDB metrics table
+waddle dashboard  → cli.py → snapshot DuckDB → Evidence.dev over evidence_* views
 ```

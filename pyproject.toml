@@ -36,8 +36,6 @@ classifiers = [
 ]
 dependencies = [
     "duckdb>=0.9.0",
-    "starlette>=0.27.0",
-    "uvicorn>=0.23.0",
 ]
 
 [project.optional-dependencies]
@@ -53,7 +51,8 @@ Homepage = "https://github.com/Sentient-X/waddleml"
 Repository = "https://github.com/Sentient-X/waddleml"
 Issues = "https://github.com/Sentient-X/waddleml/issues"
 
-# Hatchling ships the whole package dir (static/ and py.typed included) and
-# emits path-based editables that pyright can resolve — the workspace norm.
+# Hatchling ships the whole package dir (py.typed included) and emits path-based
+# editables that pyright can resolve — the workspace norm. The Evidence dashboard
+# (evidence/) is a dev tool that lives beside the package, not shipped in the wheel.
 [tool.hatch.build.targets.wheel]
 packages = ["waddle"]

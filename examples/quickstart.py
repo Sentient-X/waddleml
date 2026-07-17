@@ -3,7 +3,7 @@
 Usage:
     python examples/quickstart.py
     waddle ls            # see your run in the terminal
-    waddle serve         # open http://127.0.0.1:8080
+    waddle dashboard     # open http://localhost:3000
 """
 
 import random

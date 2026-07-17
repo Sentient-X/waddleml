@@ -1,0 +1,15 @@
+# Everything under .evidence/ is generated (template, meta, default customization).
+.evidence/
+.svelte-kit
+build
+node_modules
+.DS_Store
+static/data
+*.options.yaml
+.vscode/settings.json
+.env
+
+# The Evidence source reads a snapshot of a live waddle.duckdb that the
+# `waddle dashboard` CLI refreshes on an interval — never commit run data.
+sources/waddle/waddle.duckdb
+sources/waddle/waddle.duckdb.wal
