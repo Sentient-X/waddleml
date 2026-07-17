@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "waddleml"
@@ -53,8 +53,7 @@ Homepage = "https://github.com/Sentient-X/waddleml"
 Repository = "https://github.com/Sentient-X/waddleml"
 Issues = "https://github.com/Sentient-X/waddleml/issues"
 
-[tool.setuptools.packages.find]
-include = ["waddle", "waddle.*"]
-
-[tool.setuptools.package-data]
-waddle = ["static/*"]
+# Hatchling ships the whole package dir (static/ and py.typed included) and
+# emits path-based editables that pyright can resolve — the workspace norm.
+[tool.hatch.build.targets.wheel]
+packages = ["waddle"]
