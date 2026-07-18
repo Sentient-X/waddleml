@@ -17,6 +17,7 @@ class SystemMonitor:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._step = 0
+        self._prev_io: tuple | None = None  # (ts, disk_io_counters, net_io_counters) for rate deltas
 
         # probe capabilities
         self._has_psutil = False
@@ -65,6 +66,9 @@ class SystemMonitor:
             self._stop_event.wait(self._interval)
 
     def _sample(self) -> Dict[str, float]:
+        # Key suffixes carry the unit (_percent, _temp_c, _gb, _w, _mhz, _mbps):
+        # the dashboard groups system charts by suffix, so a new key with a known
+        # suffix lands on the right chart with no page change.
         metrics: Dict[str, float] = {}
 
         if self._has_psutil:
@@ -74,6 +78,19 @@ class SystemMonitor:
                 mem = psutil.virtual_memory()
                 metrics["system/memory_percent"] = mem.percent
                 metrics["system/memory_used_gb"] = mem.used / (1024 ** 3)
+                metrics["system/proc_memory_gb"] = psutil.Process().memory_info().rss / (1024 ** 3)
+                now = time.time()
+                disk = psutil.disk_io_counters()
+                net = psutil.net_io_counters()
+                if self._prev_io is not None:
+                    p_ts, p_disk, p_net = self._prev_io
+                    dt = max(1e-9, now - p_ts)
+                    mb = 1024 ** 2
+                    metrics["system/disk_read_mbps"] = (disk.read_bytes - p_disk.read_bytes) / mb / dt
+                    metrics["system/disk_write_mbps"] = (disk.write_bytes - p_disk.write_bytes) / mb / dt
+                    metrics["system/net_sent_mbps"] = (net.bytes_sent - p_net.bytes_sent) / mb / dt
+                    metrics["system/net_recv_mbps"] = (net.bytes_recv - p_net.bytes_recv) / mb / dt
+                self._prev_io = (now, disk, net)
             except Exception:
                 pass
 
@@ -84,14 +101,24 @@ class SystemMonitor:
                     handle = pynvml.nvmlDeviceGetHandleByIndex(i)
                     util = pynvml.nvmlDeviceGetUtilizationRates(handle)
                     mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                    try:
-                        temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-                    except Exception:
-                        temp = 0
                     prefix = f"system/gpu{i}"
                     metrics[f"{prefix}_util_percent"] = float(util.gpu)
                     metrics[f"{prefix}_memory_used_gb"] = mem_info.used / (1024 ** 3)
-                    metrics[f"{prefix}_temp_c"] = float(temp)
+                    metrics[f"{prefix}_memory_percent"] = 100.0 * mem_info.used / max(1, mem_info.total)
+                    try:
+                        metrics[f"{prefix}_temp_c"] = float(
+                            pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU))
+                    except Exception:
+                        pass
+                    try:
+                        metrics[f"{prefix}_power_w"] = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
+                    except Exception:
+                        pass
+                    try:
+                        metrics[f"{prefix}_sm_clock_mhz"] = float(
+                            pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_SM))
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
