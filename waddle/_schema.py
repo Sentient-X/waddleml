@@ -105,6 +105,111 @@ SELECT r.project, r.id AS run_id, r.name AS run_name, r.status,
        m.key, m.step, m.ts, m.value, m.rank, m.node_id, m.attempt
 FROM runs r JOIN metrics m ON r.id = m.run_id;
 
+-- Chart-ready training metrics: superseded pre-resume rows dropped, decimated to
+-- <=600 min/max-preserving buckets per (run, key), with a trailing moving-average
+-- smooth. Dashboards chart THIS, never the raw stream — a 100k-step run stays a
+-- few hundred points per chart. system/* is excluded (its step is a sample
+-- counter, not the training step — see evidence_system_metrics).
+CREATE OR REPLACE VIEW evidence_run_metrics_ds AS
+WITH successor AS (
+    SELECT run_id, key, attempt, min(step) AS resume_step
+    FROM metrics GROUP BY run_id, key, attempt
+),
+dedup AS (
+    SELECT m.run_id, m.key, m.attempt, m.step, m.ts, m.value
+    FROM metrics m
+    LEFT JOIN successor n
+      ON n.run_id = m.run_id AND n.key = m.key AND n.attempt = m.attempt + 1
+    WHERE m.key NOT LIKE 'system/%'
+      AND (n.resume_step IS NULL OR m.step < n.resume_step)
+),
+width AS (
+    SELECT run_id, key,
+           greatest(1, ((max(step) - min(step)) / 600)::BIGINT) AS w
+    FROM dedup GROUP BY run_id, key
+),
+bucketed AS (
+    SELECT d.run_id, d.key,
+           (d.step // s.w) * s.w AS step,
+           avg(d.value) AS value,
+           min(d.value) AS value_min,
+           max(d.value) AS value_max,
+           max(d.ts) AS ts
+    FROM dedup d JOIN width s USING (run_id, key)
+    GROUP BY d.run_id, d.key, (d.step // s.w) * s.w
+)
+SELECT r.project, r.name AS run_name, b.*,
+       avg(b.value) OVER (PARTITION BY b.run_id, b.key ORDER BY b.step
+                          ROWS BETWEEN 20 PRECEDING AND CURRENT ROW) AS value_smooth
+FROM bucketed b JOIN runs r ON r.id = b.run_id;
+
+-- system/* metrics on the wall-clock axis (their step column is the sampler's own
+-- counter). Time-bucketed to <=400 points per (run, key).
+CREATE OR REPLACE VIEW evidence_system_metrics AS
+WITH sysm AS (
+    SELECT m.run_id, r.name AS run_name, r.project, m.key, m.ts, m.value
+    FROM metrics m JOIN runs r ON r.id = m.run_id
+    WHERE m.key LIKE 'system/%'
+),
+width AS (
+    SELECT run_id, key, greatest(15.0, (max(ts) - min(ts)) / 400) AS w
+    FROM sysm GROUP BY run_id, key
+)
+SELECT s.project, s.run_name, s.run_id, s.key,
+       to_timestamp(floor(s.ts / p.w) * p.w) AS t,
+       avg(s.value) AS value,
+       min(s.value) AS value_min,
+       max(s.value) AS value_max
+FROM sysm s JOIN width p USING (run_id, key)
+GROUP BY ALL;
+
+-- One row per (run, attempt): the resume seams. start_step of attempt N>0 is
+-- where run N resumed — dashboards draw it as a reference line.
+CREATE OR REPLACE VIEW evidence_attempts AS
+SELECT m.run_id, m.attempt,
+       min(m.step) AS start_step, max(m.step) AS end_step,
+       min(m.ts) AS started_ts, max(m.ts) AS ended_ts,
+       'resume #' || m.attempt AS label
+FROM metrics m WHERE m.key NOT LIKE 'system/%'
+GROUP BY m.run_id, m.attempt;
+
+-- Live-monitoring vitals per run: progress toward the 'steps' param, trailing
+-- 3-minute throughput, ETA, and staleness. live_status upgrades 'running' to
+-- 'stalled' when no metric landed for >120s — a crashed loop never flips its own
+-- status row, so staleness is the only honest liveness signal.
+CREATE OR REPLACE VIEW evidence_run_progress AS
+WITH tgt AS (
+    SELECT run_id, try_cast(value ->> '$' AS BIGINT) AS steps_target
+    FROM params WHERE key = 'steps'
+),
+core AS (
+    SELECT run_id, max(step) AS last_step, max(ts) AS last_ts
+    FROM metrics WHERE key NOT LIKE 'system/%' GROUP BY run_id
+),
+recent AS (
+    SELECT m.run_id,
+           (max(m.step) - min(m.step)) / greatest(1e-9, max(m.ts) - min(m.ts))
+               AS steps_per_second
+    FROM metrics m JOIN core c USING (run_id)
+    WHERE m.key NOT LIKE 'system/%' AND m.ts >= c.last_ts - 180
+    GROUP BY m.run_id
+)
+SELECT r.id AS run_id, r.name AS run_name, r.project, r.status,
+       t.steps_target, c.last_step, c.last_ts,
+       epoch(now()) - c.last_ts AS staleness_seconds,
+       CASE WHEN r.status = 'running' AND epoch(now()) - c.last_ts > 120
+            THEN 'stalled' ELSE r.status END AS live_status,
+       re.steps_per_second,
+       CASE WHEN t.steps_target > 0
+            THEN least(1.0, (c.last_step + 1.0) / t.steps_target) END AS progress,
+       CASE WHEN r.status = 'running' AND re.steps_per_second > 0 AND t.steps_target > 0
+            THEN (t.steps_target - 1 - c.last_step) / re.steps_per_second
+            END AS eta_seconds
+FROM runs r
+LEFT JOIN tgt t ON t.run_id = r.id
+LEFT JOIN core c ON c.run_id = r.id
+LEFT JOIN recent re ON re.run_id = r.id;
+
 -- One row per run: the overview-table and KPI grain. Duration falls back to the
 -- last metric timestamp while a run is still running (no ended_at yet).
 CREATE OR REPLACE VIEW evidence_runs AS

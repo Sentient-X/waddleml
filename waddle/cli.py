@@ -111,6 +111,9 @@ def cmd_dashboard(a: argparse.Namespace) -> int:
     _ensure_views(snapshot)
     print(f"[waddle] dashboard for {live}")
     print(f"[waddle] snapshot -> {snapshot} (refresh every {a.refresh}s)")
+    # Run sources once up front so the first page load is already fresh instead of
+    # waiting out the first refresh interval.
+    subprocess.run([npm, "run", "sources"], cwd=evidence_dir, capture_output=True)
 
     stop = threading.Event()
     watcher = threading.Thread(
@@ -226,7 +229,7 @@ def build() -> argparse.ArgumentParser:
     pd.add_argument("--db", help="path to waddle.duckdb (default: nearest .waddle/)")
     pd.add_argument("--host", default="localhost")
     pd.add_argument("--port", type=int, default=3000)
-    pd.add_argument("--refresh", type=float, default=10.0, help="snapshot refresh interval, seconds")
+    pd.add_argument("--refresh", type=float, default=30.0, help="snapshot refresh interval, seconds")
     pd.add_argument("--evidence-dir", help="override the Evidence project location")
     pd.add_argument("--no-install", action="store_true", help="fail instead of running npm install")
     pd.set_defaults(func=cmd_dashboard)

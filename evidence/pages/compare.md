@@ -10,7 +10,7 @@ select run_id, run_name, project, status from waddle.runs order by started_at de
 <Dropdown name=runs data={all_runs} value=run_id label=run_name title="Runs to compare" multiple=true selectAllByDefault=true />
 
 ```sql metric_options
-select distinct key from waddle.metric_keys order by key
+select distinct key from waddle.metric_keys where category != 'system' order by key
 ```
 
 <Dropdown name=metric data={metric_options} value=key defaultValue="loss" title="Metric" />
@@ -18,28 +18,30 @@ select distinct key from waddle.metric_keys order by key
 ## {inputs.metric.value} across runs
 
 ```sql overlay
-select r.run_name, m.step, m.value
-from waddle.run_metrics m
-inner join waddle.runs r on m.run_id = r.run_id
-where m.key = '${inputs.metric.value}'
-  and m.run_id in ${inputs.runs.value}
-order by r.run_name, m.step
+select run_name, step, value_smooth as value
+from waddle.run_metrics_ds
+where key = '${inputs.metric.value}'
+  and run_id in ${inputs.runs.value}
+order by run_name, step
 ```
 
-<LineChart data={overlay} x=step y=value series=run_name chartAreaHeight=320 />
+<LineChart data={overlay} x=step y=value series=run_name chartAreaHeight=320 emptySet=pass emptyMessage="Select runs above." />
 
 ## Summary
 
 ```sql summary
-select run_name, status, total_steps, latest_loss, avg_samples_per_second, peak_reserved_gb, node_id
-from waddle.runs
-where run_id in ${inputs.runs.value}
-order by latest_loss
+select r.run_name, p.live_status as status, r.total_steps, r.latest_loss,
+       p.steps_per_second, r.avg_samples_per_second, r.peak_reserved_gb, r.node_id
+from waddle.runs r
+left join waddle.progress p using (run_id)
+where r.run_id in ${inputs.runs.value}
+order by r.latest_loss
 ```
 
-<DataTable data={summary} rows=all emptyMessage="Select one or more runs above.">
+<DataTable data={summary} rows=all emptySet=pass emptyMessage="Select one or more runs above.">
     <Column id=run_name title="Run" />
     <Column id=status title="Status" />
+    <Column id=steps_per_second title="Steps/s" fmt='0.00' align=right />
     <Column id=total_steps title="Steps" fmt='#,##0' align=right />
     <Column id=latest_loss title="Loss" fmt='0.0000' align=right />
     <Column id=avg_samples_per_second title="Samples/s" fmt='0.00' align=right />
@@ -63,7 +65,7 @@ having count(distinct value) > 1
 order by key
 ```
 
-<DataTable data={param_diff} rows=all search=true emptyMessage="No differing parameters (or no runs selected).">
+<DataTable data={param_diff} rows=all search=true emptySet=pass emptyMessage="No differing parameters (or no runs selected).">
     <Column id=key title="Parameter" />
     <Column id=values title="Distinct values" wrap=true />
 </DataTable>

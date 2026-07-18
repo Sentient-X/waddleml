@@ -53,14 +53,13 @@ class SystemMonitor:
             try:
                 metrics = self._sample()
                 if metrics:
+                    # log_metric (not a raw INSERT) so rank/node_id/attempt are
+                    # attributed to this worker — a resumed run logs its own attempt.
                     ts = time.time()
                     step = self._step
                     self._step += 1
                     for key, value in metrics.items():
-                        self._run._db.execute(
-                            "INSERT INTO metrics (run_id, key, step, ts, value) VALUES ($1, $2, $3, $4, $5)",
-                            [self._run.id, key, step, ts, float(value)],
-                        )
+                        self._run.log_metric(key, step, float(value), ts)
             except Exception:
                 pass
             self._stop_event.wait(self._interval)
