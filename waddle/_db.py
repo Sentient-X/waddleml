@@ -28,17 +28,11 @@ class WaddleDB:
         self.path = os.path.abspath(path)
         _ensure_dir(self.path)
         self._lock = threading.Lock()
-        try:
-            self._conn = duckdb.connect(self.path)
-        except duckdb.IOException:
-            # Stale lock from crashed process — remove WAL and retry
-            import glob
-            for f in glob.glob(self.path + ".*"):
-                try:
-                    os.remove(f)
-                except OSError:
-                    pass
-            self._conn = duckdb.connect(self.path)
+        # A lock conflict propagates as duckdb.IOException: the holder is a live
+        # process (OS file locks die with their owner, so "stale lock" is not a
+        # thing) and the WAL is its committed-but-unmerged data — never delete
+        # either. A crashed run's WAL is replayed by this very connect call.
+        self._conn = duckdb.connect(self.path)
         self._init()
 
     def _init(self) -> None:

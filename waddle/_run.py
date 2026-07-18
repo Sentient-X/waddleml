@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import uuid
+from dataclasses import replace
 from typing import Any, Dict, Optional
 
 from ._db import WaddleDB
@@ -29,7 +30,21 @@ class Run:
         system_metrics: bool = True,
         worker: WorkerInfo = WorkerInfo(),
         lineage: Optional[Dict[str, str]] = None,
+        resume: bool = False,
     ):
+        # resume=True reopens an existing run id (e.g. continuing from a
+        # checkpoint after a crash): the run row is upserted back to running
+        # and this process gets the next free attempt number, so the metrics
+        # of every attempt stay distinguishable.
+        if resume:
+            row = db.fetchone(
+                "SELECT COALESCE(MAX(attempt) + 1, 0) FROM run_workers"
+                " WHERE run_id = $1 AND rank = $2",
+                [run_id, worker.rank],
+            )
+            next_attempt = row[0] if row and row[0] is not None else 0
+            if next_attempt > worker.attempt:
+                worker = replace(worker, attempt=next_attempt)
         self._db = db
         self.id = run_id
         self.project = project
@@ -49,10 +64,22 @@ class Run:
         }
         config_json = json.dumps(config or {}, ensure_ascii=False, sort_keys=True)
         env_json = json.dumps(env, ensure_ascii=False, sort_keys=True)
-        db.execute(
-            """INSERT INTO runs (id, project, repo_id, commit_sha, name, status,
+        insert_run = """INSERT INTO runs (id, project, repo_id, commit_sha, name, status,
                                  started_at, env, config, notes, lineage)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)""",
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"""
+        if resume:
+            # Keep the original started_at and notes; refresh what describes
+            # the current process.
+            insert_run += """
+               ON CONFLICT (id) DO UPDATE SET
+                   status = EXCLUDED.status,
+                   ended_at = NULL,
+                   commit_sha = EXCLUDED.commit_sha,
+                   env = EXCLUDED.env,
+                   config = EXCLUDED.config,
+                   lineage = EXCLUDED.lineage"""
+        db.execute(
+            insert_run,
             [run_id, project, repo_id, commit_sha, self.name,
              "running", time.time(), env_json, config_json, None,
              json.dumps(lineage or {}, sort_keys=True)],

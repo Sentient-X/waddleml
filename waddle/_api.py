@@ -23,11 +23,15 @@ def init(
     run_id: Optional[str] = None,
     worker: Optional[WorkerInfo] = None,
     lineage: Optional[Dict[str, str]] = None,
+    resume: bool = False,
 ) -> Run:
     """Initialize a new run.
 
     Works anywhere. If inside a git repo, automatically captures the commit SHA
     and repo info. If not, the run still works — just without git metadata.
+
+    With resume=True an existing run_id is reopened as a new attempt instead of
+    failing on the duplicate id (use when continuing from a checkpoint).
     """
     repo_id: Optional[str] = None
     commit_sha: Optional[str] = None
@@ -76,6 +80,7 @@ def init(
         system_metrics=system_metrics,
         worker=worker,
         lineage=lineage,
+        resume=resume,
     )
     _state.set_active_run(run)
     return run

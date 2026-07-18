@@ -181,3 +181,56 @@ def test_log_param_and_tag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert json.loads(p[0]) == 32
     t = db.fetchone("SELECT value FROM tags WHERE run_id = $1 AND key = 'experiment'", [run.id])
     assert json.loads(t[0]) == "baseline"
+
+
+def test_init_duplicate_run_id_without_resume_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    no_git_dir = tmp_path / "no_git"
+    no_git_dir.mkdir()
+    monkeypatch.chdir(no_git_dir)
+
+    waddle.init(project="dup", run_id="run-1", system_metrics=False)
+    waddle.finish()
+
+    import duckdb
+
+    with pytest.raises(duckdb.ConstraintException):
+        waddle.init(project="dup", run_id="run-1", system_metrics=False)
+
+
+def test_init_resume_reopens_run_as_new_attempt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """resume=True continues an existing run id: one run row, next attempt."""
+    no_git_dir = tmp_path / "no_git"
+    no_git_dir.mkdir()
+    monkeypatch.chdir(no_git_dir)
+
+    waddle.init(project="res", run_id="run-1", config={"lr": 0.01}, system_metrics=False)
+    waddle.log({"loss": 1.0}, step=0)
+    waddle.finish()
+
+    resumed = waddle.init(
+        project="res", run_id="run-1", config={"lr": 0.01}, system_metrics=False, resume=True
+    )
+    db = resumed._db
+    row = db.fetchone("SELECT status, ended_at FROM runs WHERE id = $1", ["run-1"])
+    assert row[0] == "running"
+    assert row[1] is None
+
+    waddle.log({"loss": 0.5}, step=1)
+    waddle.finish()
+
+    assert db.fetchone("SELECT count(*) FROM runs WHERE id = $1", ["run-1"])[0] == 1
+    attempts = [
+        r[0]
+        for r in db.fetchall(
+            "SELECT attempt FROM run_workers WHERE run_id = $1 ORDER BY attempt", ["run-1"]
+        )
+    ]
+    assert attempts == [0, 1]
+    metric_attempts = [
+        r[0]
+        for r in db.fetchall(
+            "SELECT attempt FROM metrics WHERE run_id = $1 AND key = 'loss' ORDER BY step",
+            ["run-1"],
+        )
+    ]
+    assert metric_attempts == [0, 1]
