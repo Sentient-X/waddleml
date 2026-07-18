@@ -19,17 +19,20 @@ select
          when p.eta_seconds >= 3600 then printf('%dh %02dm', (p.eta_seconds // 3600)::int, ((p.eta_seconds % 3600) // 60)::int)
          else printf('%dm %02ds', (p.eta_seconds // 60)::int, (p.eta_seconds % 60)::int)
     end as eta_pretty,
-    case when p.staleness_seconds < 90 then printf('%ds ago', p.staleness_seconds::int)
+    case when r.status != 'running' then '—'
+         when p.staleness_seconds < 90 then printf('%ds ago', p.staleness_seconds::int)
          else printf('%dm ago', (p.staleness_seconds // 60)::int)
-    end as last_seen
+    end as last_seen,
+    coalesce(r.node_id, '—') as node_disp,
+    coalesce(r.commit_sha, '—') as commit_disp
 from waddle.runs r
 left join waddle.progress p using (run_id)
 where r.run_id = '${params.run_id}'
 ```
 
-# {run.run_name}
+# {run[0].run_name}
 
-<span class="text-sm text-gray-500">{run.run_id} · {run.project} · node {run.node_id} · commit {run.commit_sha}</span>
+<span class="text-sm text-gray-500">{run[0].run_id} · {run[0].project} · node {run[0].node_disp} · commit {run[0].commit_disp}</span>
 
 <BigValue data={run} value=live_status title="Status" />
 <BigValue data={run} value=progress title="Progress" fmt='0.0%' />

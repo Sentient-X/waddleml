@@ -6,30 +6,12 @@ description: SQL-native training dashboard over WaddleML runs.
 <Details title="About this dashboard">
 
 Every panel below is a SQL query over a snapshot of your `waddle.duckdb`, refreshed
-live by `waddle dashboard`. Filter the runs, then open any run for its full deep dive.
-Pages are generated from data — a new run needs no new code.
+live by `waddle dashboard`. Use the table search to filter runs; open any run for its
+full deep dive. Pages are generated from data — a new run needs no new code.
 
 </Details>
 
-```sql projects
-select distinct project from waddle.runs order by project
-```
-
-```sql statuses
-select distinct live_status as status from waddle.progress order by 1
-```
-
-<Dropdown name=project data={projects} value=project title="Project">
-    <DropdownOption value="%" valueLabel="All projects" />
-</Dropdown>
-
-<Dropdown name=status data={statuses} value=status title="Status">
-    <DropdownOption value="%" valueLabel="Any status" />
-</Dropdown>
-
-<TextInput name=search title="Search run name" placeholder="filter by name…" />
-
-```sql filtered_runs
+```sql runs_table
 select
     r.*,
     p.live_status, p.progress, p.last_step, p.steps_per_second, p.staleness_seconds,
@@ -40,52 +22,27 @@ select
     '/runs/' || r.run_id as run_url
 from waddle.runs r
 left join waddle.progress p using (run_id)
-where r.project like '${inputs.project.value}'
-  and p.live_status like '${inputs.status.value}'
-  and r.run_name ilike '%' || '${inputs.search.value}' || '%'
 order by r.started_at desc
 ```
 
-<BigValue
-    data={filtered_runs}
-    value=run_id
-    title="Runs"
-    agg=count
-/>
+```sql kpis
+select count(*) as n_runs,
+       count(*) filter (live_status = 'running') as n_running,
+       sum(total_steps) as total_steps,
+       min(latest_loss) as best_loss,
+       median(avg_samples_per_second) as med_sps
+from (${runs_table})
+```
 
-<BigValue
-    data={filtered_runs}
-    value=total_steps
-    title="Total steps"
-    agg=sum
-    fmt='#,##0'
-/>
-
-<BigValue
-    data={filtered_runs}
-    value=latest_loss
-    title="Best latest loss"
-    agg=min
-    fmt='0.0000'
-/>
-
-<BigValue
-    data={filtered_runs}
-    value=avg_samples_per_second
-    title="Median samples/s"
-    agg=median
-    fmt='0.00'
-/>
+<BigValue data={kpis} value=n_runs title="Runs" />
+<BigValue data={kpis} value=n_running title="Running now" />
+<BigValue data={kpis} value=total_steps title="Total steps" fmt='#,##0' />
+<BigValue data={kpis} value=best_loss title="Best latest loss" fmt='0.0000' />
+<BigValue data={kpis} value=med_sps title="Median samples/s" fmt='0.00' />
 
 ## Runs
 
-<!-- DataTable row links are client-side; these hidden anchors make /runs/[run_id]
-     pages discoverable by the static build's crawler. -->
-{#each filtered_runs as r}
-<a href="{r.run_url}" style="display:none" aria-hidden="true">{r.run_name}</a>
-{/each}
-
-<DataTable data={filtered_runs} rows=15 search=false rowShading=true link=run_url>
+<DataTable data={runs_table} rows=15 search=true rowShading=true link=run_url>
     <Column id=run_name title="Run" wrap=true />
     <Column id=live_status title="Status" contentType=colorCategory colorPalette={['#4ade80','#f8c900','#94a3b8','#f87171']} />
     <Column id=progress title="Progress" contentType=bar barColor=#2563eb fmt='0%' align=right />
@@ -98,17 +55,13 @@ order by r.started_at desc
     <Column id=node_id title="Node" />
 </DataTable>
 
-## Loss across selected runs
+## Loss across runs
 
 ```sql loss_curves
-select
-    m.run_name,
-    m.step,
-    m.value_smooth as loss
-from waddle.run_metrics_ds m
-inner join (${filtered_runs}) r on m.run_id = r.run_id
-where m.key = 'loss'
-order by m.run_name, m.step
+select run_name, step, value_smooth as loss
+from waddle.run_metrics_ds
+where key = 'loss'
+order by run_name, step
 ```
 
 <LineChart
@@ -123,7 +76,7 @@ order by m.run_name, m.step
 
 ## Throughput and hardware
 
-<DataTable data={filtered_runs} rows=15 search=false>
+<DataTable data={runs_table} rows=15 search=false>
     <Column id=run_name title="Run" wrap=true />
     <Column id=avg_samples_per_second title="Samples/s" fmt='0.00' contentType=bar barColor=#3b82f6 align=right />
     <Column id=peak_reserved_gb title="Peak reserved (GB)" fmt='0.0' contentType=bar barColor=#c2410c align=right />
