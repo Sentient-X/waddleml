@@ -116,30 +116,49 @@ System metrics are sampled on wall-clock (not the training step); gaps are time
 between attempts.
 
 ```sql sys_pct
-select t, key, value from waddle.system_metrics
-where run_id = '${params.run_id}'
-  and key in ('system/gpu0_util_percent', 'system/cpu_percent')
-order by t
+select t, replace(key, 'system/', '') as key, value from waddle.system_metrics
+where run_id = '${params.run_id}' and key like '%_percent' order by t
 ```
 
 ```sql sys_temp
-select t, value as temp_c from waddle.system_metrics
-where run_id = '${params.run_id}' and key = 'system/gpu0_temp_c' order by t
+select t, replace(key, 'system/', '') as key, value from waddle.system_metrics
+where run_id = '${params.run_id}' and key like '%_temp_c' order by t
 ```
 
-```sql sys_mem
-select t, key, value from waddle.system_metrics
-where run_id = '${params.run_id}'
-  and key in ('system/gpu0_memory_used_gb', 'system/memory_used_gb')
-order by t
+```sql sys_gb
+select t, replace(key, 'system/', '') as key, value from waddle.system_metrics
+where run_id = '${params.run_id}' and key like '%_gb' order by t
+```
+
+```sql sys_power
+select t, replace(key, 'system/', '') as key, value from waddle.system_metrics
+where run_id = '${params.run_id}' and key like '%_w' order by t
+```
+
+```sql sys_clock
+select t, replace(key, 'system/', '') as key, value from waddle.system_metrics
+where run_id = '${params.run_id}' and key like '%_mhz' order by t
+```
+
+```sql sys_io
+select t, replace(key, 'system/', '') as key, value from waddle.system_metrics
+where run_id = '${params.run_id}' and key like '%_mbps' order by t
 ```
 
 <Grid cols=2>
-<LineChart data={sys_pct} x=t y=value series=key title="GPU / CPU utilization (%)" chartAreaHeight=200 />
-<LineChart data={sys_temp} x=t y=temp_c title="GPU temperature (°C)" chartAreaHeight=200 />
+<LineChart data={sys_pct} x=t y=value series=key title="Utilization (%)" chartAreaHeight=200
+    emptySet=pass emptyMessage="No utilization samples." />
+<LineChart data={sys_temp} x=t y=value series=key title="Temperature (°C)" chartAreaHeight=200
+    emptySet=pass emptyMessage="No temperature samples." />
+<LineChart data={sys_gb} x=t y=value series=key title="Memory (GB)" chartAreaHeight=200
+    emptySet=pass emptyMessage="No memory samples." />
+<LineChart data={sys_power} x=t y=value series=key title="Power draw (W)" chartAreaHeight=200
+    emptySet=pass emptyMessage="No power samples (older waddle run)." />
+<LineChart data={sys_clock} x=t y=value series=key title="SM clock (MHz)" chartAreaHeight=200
+    emptySet=pass emptyMessage="No clock samples (older waddle run)." />
+<LineChart data={sys_io} x=t y=value series=key title="Disk / network (MB/s)" chartAreaHeight=200
+    emptySet=pass emptyMessage="No I/O samples (older waddle run)." />
 </Grid>
-
-<LineChart data={sys_mem} x=t y=value series=key title="Memory used (GB)" chartAreaHeight=200 />
 
 ## Any metric
 

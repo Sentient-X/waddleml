@@ -74,6 +74,17 @@ order by run_name, step
     chartAreaHeight=280
 />
 
+## GPU utilization across runs
+
+```sql gpu_util
+select run_name, t, value from waddle.system_metrics
+where key like '%gpu%_util_percent' order by run_name, t
+```
+
+<LineChart data={gpu_util} x=t y=value series=run_name yMax=100
+    title="GPU utilization (%)" chartAreaHeight=200
+    emptySet=pass emptyMessage="No GPU samples yet." />
+
 ## Throughput and hardware
 
 <DataTable data={runs_table} rows=15 search=false>
