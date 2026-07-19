@@ -43,6 +43,11 @@ MAX_POINTS_PER_BATCH = 5000
 GZIP_THRESHOLD_BYTES = 4096
 BACKOFF_MAX_S = 60.0
 
+
+class SyncStateError(Exception):
+    """A synchronous backfill received an unsupported terminal state."""
+
+
 SYNC_DDL = """\
 CREATE TABLE IF NOT EXISTS sync_cursor (
     run_id VARCHAR PRIMARY KEY,
@@ -87,7 +92,7 @@ class SyncConfig:
 
 
 class SyncEngine:
-    """One daemon uploader per Run. Public methods never raise."""
+    """One uploader per run; background-facing methods never raise."""
 
     def __init__(
         self,
@@ -148,6 +153,12 @@ class SyncEngine:
         with self._mutex:
             self._ensure_run_registered()
             self._drain(deadline=None)
+
+    def finish_once(self, state: str) -> None:
+        """Synchronously mirror one terminal spool state; raises on failure."""
+        if state not in {"completed", "failed", "aborted"}:
+            raise SyncStateError(f"unsupported terminal run state {state!r}")
+        self._post_json(f"/api/v1/runs/{self._run_id}/finish", {"state": state})
 
     def upload_artifact(
         self, name: str, path: str, kind: str, sha256: str, size_bytes: int

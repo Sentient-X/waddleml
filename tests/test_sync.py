@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import json
 import threading
+from argparse import Namespace
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -15,6 +16,7 @@ import waddle
 from waddle import ResearchGoal, ResearchTrial
 from waddle._db import WaddleDB
 from waddle._sync import SyncConfig, SyncEngine
+from waddle.cli import cmd_sync
 
 
 class FakeServer:
@@ -310,3 +312,43 @@ def test_url_alone_activates_keyless_sync(tmp_path, server, monkeypatch):
     run.finish()
     assert [p["value"] for p in server.delivered_points()] == [1.0]
     assert set(server.auth_headers) == {None}
+
+
+def test_cli_backfill_preserves_research_contract(tmp_path, server, monkeypatch):
+    db_path = tmp_path / "w.duckdb"
+    run = waddle.init(
+        project="edge-inference",
+        db_path=str(db_path),
+        research=ResearchTrial(
+            campaign="m10-5090",
+            trial_index=4,
+            objective_name="latency/p50_ms",
+            goal=ResearchGoal.MINIMIZE,
+            hypothesis="stable cache",
+            parent_run_id="a" * 32,
+        ),
+        system_metrics=False,
+        sync=False,
+    )
+    run.log({"latency/p50_ms": 11.2})
+    run.finish()
+
+    monkeypatch.setenv("WADDLE_API_URL", server.url)
+    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    assert cmd_sync(Namespace(db=str(db_path), run=run.id)) == 0
+
+    created = json.loads(server.requests[0][1])
+    assert created["group_name"] == "m10-5090"
+    assert created["job_type"] == "autoresearch"
+    assert created["research"] == {
+        "trial_index": 4,
+        "objective_name": "latency/p50_ms",
+        "goal": "minimize",
+        "hypothesis": "stable cache",
+        "parent_run_id": "a" * 32,
+    }
+    assert "_waddle_research" not in created["config"]
+    assert created["environment"]["hostname"]
+    finish_path, finish_body = server.requests[-1]
+    assert finish_path.endswith("/finish")
+    assert json.loads(finish_body) == {"state": "completed"}

@@ -8,9 +8,30 @@ import sys
 from pathlib import Path
 
 GITIGNORE_LINES = [".waddle/"]
+SYNC_ENVIRONMENT_KEYS = frozenset(
+    {
+        "hostname",
+        "os",
+        "python_version",
+        "executable",
+        "command",
+        "cwd",
+        "cpu_count",
+        "gpu",
+        "git_remote",
+        "git_branch",
+        "git_commit",
+        "git_dirty",
+    }
+)
+
+
+class SyncSpoolError(Exception):
+    """A local run cannot be reconstructed for hosted backfill."""
 
 
 # ---------- init ----------
+
 
 def cmd_init(a: argparse.Namespace) -> int:
     root = Path(a.path or ".").resolve()
@@ -35,6 +56,7 @@ def cmd_init(a: argparse.Namespace) -> int:
 
 # ---------- ls ----------
 
+
 def cmd_ls(a: argparse.Namespace) -> int:
     db_path = _find_db(a.db)
     if not db_path:
@@ -42,6 +64,7 @@ def cmd_ls(a: argparse.Namespace) -> int:
         return 1
 
     import duckdb
+
     conn = duckdb.connect(db_path, read_only=True)
     try:
         limit = a.limit or 20
@@ -51,7 +74,9 @@ def cmd_ls(a: argparse.Namespace) -> int:
             print("no runs found")
             return 0
 
-        print(f"{'ID':>8}  {'Project':<15} {'Name':<20} {'Status':<10} {'Duration':>10} {'Commit':>8}")
+        print(
+            f"{'ID':>8}  {'Project':<15} {'Name':<20} {'Status':<10} {'Duration':>10} {'Commit':>8}"
+        )
         print("-" * 85)
         for row in rows:
             rid, project, name, status, started, ended, commit = row
@@ -62,7 +87,9 @@ def cmd_ls(a: argparse.Namespace) -> int:
             elif started:
                 duration = "running"
             commit_str = (commit or "")[:8]
-            print(f"{rid[:8]}  {(project or ''):<15} {(name or ''):<20} {(status or ''):<10} {duration:>10} {commit_str:>8}")
+            print(
+                f"{rid[:8]}  {(project or ''):<15} {(name or ''):<20} {(status or ''):<10} {duration:>10} {commit_str:>8}"
+            )
     finally:
         conn.close()
     return 0
@@ -70,16 +97,21 @@ def cmd_ls(a: argparse.Namespace) -> int:
 
 # ---------- sync ----------
 
+
 def cmd_sync(a: argparse.Namespace) -> int:
     """Backfill a spool DB to the hosted platform (robot nodes that trained
     offline). Uses the same engine as live sync, so replays stay idempotent."""
     from ._db import WaddleDB
+    from ._run import RESEARCH_CONFIG_KEY
     from ._sync import SyncConfig, SyncEngine
 
     config = SyncConfig.from_env()
     if config is None:
-        print("WADDLE_API_URL must be set (plus WADDLE_API_KEY outside the "
-              "auth-optional dev server).", file=sys.stderr)
+        print(
+            "WADDLE_API_URL must be set (plus WADDLE_API_KEY outside the "
+            "auth-optional dev server).",
+            file=sys.stderr,
+        )
         return 1
     db_path = _find_db(a.db)
     if not db_path:
@@ -88,30 +120,66 @@ def cmd_sync(a: argparse.Namespace) -> int:
     db = WaddleDB(db_path)
     try:
         rows = db.fetchall(
-            "SELECT id, project, name, status, started_at, commit_sha, config FROM runs"
+            "SELECT id, project, name, status, started_at, commit_sha, config,"
+            " env, group_name, job_type FROM runs"
             + (" WHERE id = $1" if a.run else ""),
             [a.run] if a.run else None,
         )
         if not rows:
             print("no matching runs in the spool", file=sys.stderr)
             return 1
-        for run_id, project, name, status, started_at, commit_sha, config_json in rows:
+        for (
+            run_id,
+            project,
+            name,
+            status,
+            started_at,
+            commit_sha,
+            config_json,
+            environment_json,
+            group_name,
+            job_type,
+        ) in rows:
             import json as _json
 
+            config_dict = _json.loads(config_json or "{}")
+            environment_dict = _json.loads(environment_json or "{}")
+            if not isinstance(config_dict, dict):
+                raise SyncSpoolError(f"run {run_id} config is not an object")
+            if not isinstance(environment_dict, dict):
+                raise SyncSpoolError(f"run {run_id} environment is not an object")
+            environment_dict = {
+                key: value
+                for key, value in environment_dict.items()
+                if key in SYNC_ENVIRONMENT_KEYS
+            }
+            research_dict = config_dict.pop(RESEARCH_CONFIG_KEY, None)
+            if research_dict is not None and not isinstance(research_dict, dict):
+                raise SyncSpoolError(f"run {run_id} research record is not an object")
             engine = SyncEngine(
                 db,
                 config,
                 run_id=run_id,
                 project=project or "default",
                 name=name or run_id[:8],
-                config_dict=_json.loads(config_json or "{}"),
+                config_dict=config_dict,
+                group_name=group_name,
+                job_type=job_type,
+                research_dict=research_dict,
                 commit_sha=commit_sha,
                 started_at=started_at,
                 resume=False,
-                rank=0, local_rank=0, world_size=1, node_id="backfill", attempt=0,
+                rank=0,
+                local_rank=0,
+                world_size=1,
+                node_id="backfill",
+                attempt=0,
+                environment=environment_dict,
                 start_thread=False,
             )
             engine.drain_once()
+            if status in {"completed", "failed", "aborted"}:
+                engine.finish_once(status)
             print(f"synced {run_id[:8]} ({project}/{name}, {status})")
     finally:
         db.close()
@@ -119,6 +187,7 @@ def cmd_sync(a: argparse.Namespace) -> int:
 
 
 # ---------- helpers ----------
+
 
 def _find_db(explicit: str | None = None) -> str | None:
     """Find the DuckDB file: explicit path, then cwd, then walk up to the git root."""
@@ -144,8 +213,11 @@ def _find_db(explicit: str | None = None) -> str | None:
 
 # ---------- parser ----------
 
+
 def build() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="waddle", description="WaddleML: local experiment tracker")
+    p = argparse.ArgumentParser(
+        prog="waddle", description="WaddleML: local experiment tracker"
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("init", help="Initialize .waddle/ directory")
