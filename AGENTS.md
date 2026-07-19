@@ -21,8 +21,8 @@ Core package resides in `waddle/` with a modular architecture:
 There is no local dashboard and no in-process web server. The `evidence_*` views in
 `_schema.py` are the SQL analysis contract over a spool DB, consumed by agents (the
 glued `waddle-dashboard` skill). The Evidence.dev dashboard that originally read them
-was retired 2026-07-19 to `archive/evidence/` (its `waddle dashboard` CLI command was
-deleted); the older Starlette/WebSocket + Plotly dashboard was retired before that.
+was retired and deleted 2026-07-19 along with its `waddle dashboard` CLI command; the
+older Starlette/WebSocket + Plotly dashboard was retired before that.
 
 The repo's second half is the **hosted platform**: `waddle_server/` (FastAPI control
 plane :8400 over Postgres + ClickHouse + R2, the compaction worker, the org-jailed

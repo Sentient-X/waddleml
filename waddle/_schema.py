@@ -96,9 +96,9 @@ ALTER TABLE metrics ADD COLUMN IF NOT EXISTS attempt INTEGER DEFAULT 0;
 -- Views prefixed evidence_ are the analysis read contract over a spool DB:
 -- agents (the glued `waddle-dashboard` skill above all) query them instead of
 -- re-deriving joins, decimation, and JSON extraction from the raw tables.
--- The name is historical — they were born as the read contract for the retired
--- Evidence.dev dashboard (now archive/evidence/). Renaming them would break
--- every existing spool snapshot, so they keep the prefix.
+-- The name is historical — they were born as the read contract for the
+-- Evidence.dev dashboard (deleted 2026-07-19, in git history). Renaming them
+-- would break every existing spool snapshot, so they keep the prefix.
 -- (NB: _db.py naively splits this DDL on the semicolon character — never use
 -- one inside a comment.)
 

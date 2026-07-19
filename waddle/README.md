@@ -17,8 +17,8 @@
 
 There is no in-process web server and no local dashboard command. The `evidence_*`
 views in `_schema.py` are the SQL analysis contract over a spool DB (consumed by the
-glued `waddle-dashboard` agent skill). The Evidence.dev dashboard was retired to
-`../archive/evidence/` (2026-07-19), the old Starlette/WebSocket one before that.
+glued `waddle-dashboard` agent skill). The Evidence.dev dashboard was deleted
+2026-07-19, the old Starlette/WebSocket one before that.
 
 ## Data Flow
 

@@ -1,7 +1,0 @@
-name: waddle
-type: duckdb
-options:
-  # A snapshot of a live waddle.duckdb, copied here by `waddle dashboard` and
-  # re-copied whenever the run writes new metrics. Kept separate from the live
-  # file so DuckDB's single-writer lock never collides with training.
-  filename: waddle.duckdb

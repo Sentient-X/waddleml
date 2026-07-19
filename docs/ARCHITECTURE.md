@@ -16,7 +16,7 @@ durability.
 
 Dashboards are replaceable projections over the `evidence_*` views (`_schema.py`), which
 remain the SQL analysis contract over a spool DB. Two projections have already been
-replaced: the built-in Starlette/Plotly server, then the Evidence.dev project (retired
-2026-07-19, kept in `archive/evidence/`). Today the projections are the hosted console
+replaced: the built-in Starlette/Plotly server, then the Evidence.dev project (deleted
+2026-07-19). Today the projections are the hosted console
 (`ui/`) over the synced platform data, and — laptop-local — agents querying the views
 directly over a lock-free snapshot (the glued `waddle-dashboard` skill).

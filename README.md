@@ -186,8 +186,8 @@ views from DuckDB. In the glued workspace, the `waddle-dashboard` agent skill do
 exactly this and publishes an insight-first HTML report.
 
 The Evidence.dev local dashboard that these views were originally built for was
-retired 2026-07-19 — kept for reference in `archive/evidence/`; the hosted console
-(`ui/`) is the passive always-on dashboard.
+retired and deleted 2026-07-19 (git history has it); the hosted console (`ui/`) is
+the passive always-on dashboard.
 
 ## Git Integration (Optional)
 
@@ -240,7 +240,6 @@ waddle/
     _sysmetrics.py       # System monitor thread
     _types.py            # RepoInfo dataclass
     cli.py               # CLI: init, ls, sync
-archive/                 # retired surfaces kept for reference (Evidence.dev dashboard)
 ```
 
 ## License
