@@ -75,6 +75,19 @@ CREATE TABLE IF NOT EXISTS metrics (
 
 CREATE INDEX IF NOT EXISTS idx_metrics_run_key ON metrics(run_id, key, step);
 
+CREATE TABLE IF NOT EXISTS log_lines (
+    run_id VARCHAR NOT NULL,
+    ts DOUBLE NOT NULL,
+    level VARCHAR NOT NULL DEFAULT 'info',
+    source VARCHAR NOT NULL DEFAULT '',
+    message VARCHAR NOT NULL,
+    rank INTEGER NOT NULL DEFAULT 0,
+    node_id VARCHAR NOT NULL DEFAULT 'localhost',
+    attempt INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_log_lines_run ON log_lines(run_id);
+
 CREATE TABLE IF NOT EXISTS artifacts (
     id VARCHAR PRIMARY KEY,
     run_id VARCHAR NOT NULL REFERENCES runs(id),

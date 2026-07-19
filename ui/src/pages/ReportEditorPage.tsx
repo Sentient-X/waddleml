@@ -22,6 +22,7 @@ import {
 
 import { waddleApi, WaddleApiError } from "@/api/client";
 import type { RenderReport } from "@/api/types";
+import { REPORT_DRAFT_KEY } from "@/components/MetricPanel";
 import { BlockRenderer } from "@/components/report/BlockRenderer";
 import { reportInputNames } from "@/components/report/registry";
 import { ErrorBanner } from "@/components/report/ErrorBanner";
@@ -84,7 +85,24 @@ export function ReportEditorPage({ isNew = false }: { isNew?: boolean }) {
   const queryClient = useQueryClient();
 
   const [name, setName] = useState("");
-  const [draft, setDraft] = useState(isNew ? NEW_TEMPLATE : "");
+  // A chart panel's "Open in report editor" seeds the draft via sessionStorage.
+  // The initializer stays pure (StrictMode double-invokes it); the one-shot
+  // consumption happens in the mount effect below.
+  const [draft, setDraft] = useState(() => {
+    if (!isNew) return "";
+    try {
+      return sessionStorage.getItem(REPORT_DRAFT_KEY) ?? NEW_TEMPLATE;
+    } catch {
+      return NEW_TEMPLATE;
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(REPORT_DRAFT_KEY);
+    } catch {
+      // storage unavailable — nothing to consume
+    }
+  }, []);
   const [params, setParams] = useState<Record<string, string>>({});
   const [rendered, setRendered] = useState<RenderReport | null>(null);
   const [previewError, setPreviewError] = useState<WaddleApiError | null>(null);

@@ -119,6 +119,64 @@ def test_create_or_attach_and_detail(rig: tuple[TestClient, FakeMetricStore]) ->
         assert detail["config"] == {"lr": 0.01}
 
 
+def test_environment_roundtrip(rig: tuple[TestClient, FakeMetricStore]) -> None:
+    client, _ = rig
+    with client:
+        run_id = uuid4().hex
+        resp = client.post(
+            "/api/v1/runs",
+            headers={"x-api-key": "key-a-writer"},
+            json={
+                "run_id": run_id,
+                "project": "demo",
+                "name": "env-run",
+                "config": {},
+                "environment": {
+                    "hostname": "trainbox",
+                    "python_version": "3.12.4",
+                    "command": "python train.py +exp=libero",
+                    "cpu_count": 32,
+                    "gpu": "NVIDIA RTX 4090",
+                    "git_remote": "git@github.com:Sentient-X/train.git",
+                    "git_commit": "a" * 40,
+                    "git_dirty": True,
+                },
+                "started_at": "2026-07-19T00:00:00Z",
+                "resume": False,
+                "worker": {
+                    "rank": 0,
+                    "local_rank": 0,
+                    "world_size": 1,
+                    "node_id": "node0",
+                    "attempt": 0,
+                    "writer_id": str(uuid4()),
+                },
+            },
+        )
+        assert resp.status_code == 200
+        detail = client.get(
+            f"/api/v1/runs/{run_id}", headers={"x-api-key": "key-a-reader"}
+        ).json()
+        env = detail["environment"]
+        assert env["hostname"] == "trainbox" and env["git_dirty"] is True
+        assert env["os"] is None  # absent facts stay absent, never defaulted
+
+        # A rank>0 attach without environment must not clobber rank 0's capture.
+        assert _create_run(client, "key-a-writer", run_id, rank=1).status_code == 200
+        again = client.get(
+            f"/api/v1/runs/{run_id}", headers={"x-api-key": "key-a-reader"}
+        ).json()
+        assert again["environment"]["hostname"] == "trainbox"
+
+        # Runs created without one report null, not an empty shell.
+        bare_id = uuid4().hex
+        _create_run(client, "key-a-writer", bare_id)
+        bare = client.get(
+            f"/api/v1/runs/{bare_id}", headers={"x-api-key": "key-a-reader"}
+        ).json()
+        assert bare["environment"] is None
+
+
 def test_batch_idempotency_and_digest_mismatch(
     rig: tuple[TestClient, FakeMetricStore],
 ) -> None:

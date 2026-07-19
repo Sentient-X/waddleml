@@ -16,7 +16,8 @@ import {
   StatusDot,
 } from "@sx/ui";
 
-import { MetricChart, type ChartSeries } from "@/components/MetricChart";
+import { type ChartSeries } from "@/components/MetricChart";
+import { MetricPanel } from "@/components/MetricPanel";
 import { waddleApi } from "@/api/client";
 import { formatScalar, runStateTone } from "@/lib/format";
 
@@ -156,7 +157,12 @@ export function ComparePage() {
               ) : chartSeries.length === 0 ? (
                 <EmptyState icon={<GitCompare />} title="No points for this metric" />
               ) : (
-                <MetricChart series={chartSeries} height={280} />
+                <MetricPanel
+                  metric={metric}
+                  project={byId.get(selected[0])?.project ?? ""}
+                  series={chartSeries}
+                  height={280}
+                />
               )}
             </CardContent>
           </Card>

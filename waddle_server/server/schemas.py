@@ -36,6 +36,26 @@ class HealthOut(BaseModel):
     ok: bool
 
 
+class RunEnvironment(BaseModel):
+    """The reproduce-this-run snapshot the SDK captures once at init. Every
+    field is best-effort: absent facts stay ``None``, never placeholders."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hostname: str | None = None
+    os: str | None = None
+    python_version: str | None = None
+    executable: str | None = None
+    command: str | None = None
+    cwd: str | None = None
+    cpu_count: int | None = None
+    gpu: str | None = None
+    git_remote: str | None = None
+    git_branch: str | None = None
+    git_commit: str | None = None
+    git_dirty: bool | None = None
+
+
 class WorkerIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -64,6 +84,7 @@ class CreateRunIn(BaseModel):
     )
     config: dict[str, object] = Field(default_factory=dict)
     commit_sha: str | None = None
+    environment: RunEnvironment | None = None  # none-ok: old SDKs don't send it
     started_at: datetime
     resume: bool = False
     worker: WorkerIn
@@ -97,6 +118,7 @@ class RunOut(BaseModel):
     config: dict[str, object]
     summary: dict[str, object]
     commit_sha: str | None
+    environment: RunEnvironment | None  # none-ok: absent for pre-capture runs
     created_at: datetime
     started_at: datetime
     finished_at: datetime | None

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import platform
+import shlex
 import socket
+import sys
 import uuid
 from typing import Any, Dict, Optional
 
@@ -11,6 +14,53 @@ from ._db import WaddleDB
 from ._run import Run
 from . import _state
 from ._types import ResearchTrial, WorkerInfo
+
+
+def _gpu_name() -> Optional[str]:
+    try:
+        import pynvml  # type: ignore[import-untyped]
+
+        pynvml.nvmlInit()
+        count = pynvml.nvmlDeviceGetCount()
+        if count == 0:
+            return None
+        name = pynvml.nvmlDeviceGetName(pynvml.nvmlDeviceGetHandleByIndex(0))
+        label = name.decode() if isinstance(name, bytes) else str(name)
+        return f"{count}x {label}" if count > 1 else label
+    except Exception:
+        return None
+
+
+def _capture_environment(
+    repo_root: Optional[str],
+    origin: Optional[str],
+    branch: Optional[str],
+    commit_sha: Optional[str],
+    dirty: bool,
+) -> Dict[str, Any]:
+    """The reproduce-this-run snapshot, taken once at init. Every field is
+    best-effort; a missing fact is absent, never a placeholder."""
+    env: Dict[str, Any] = {
+        "hostname": socket.gethostname(),
+        "os": platform.platform(),
+        "python_version": platform.python_version(),
+        "executable": sys.executable,
+        "command": shlex.join(sys.argv),
+        "cwd": os.getcwd(),
+        "cpu_count": os.cpu_count(),
+    }
+    gpu = _gpu_name()
+    if gpu:
+        env["gpu"] = gpu
+    if repo_root:
+        if origin:
+            env["git_remote"] = origin
+        if branch:
+            env["git_branch"] = branch
+        if commit_sha:
+            env["git_commit"] = commit_sha
+        env["git_dirty"] = dirty
+    return env
 
 
 def init(
@@ -26,11 +76,18 @@ def init(
     research: Optional[ResearchTrial] = None,
     resume: bool = False,
     sync: Optional[bool] = None,
+    capture_logging: bool = True,
 ) -> Run:
     """Initialize a new run.
 
     Works anywhere. If inside a git repo, automatically captures the commit SHA
     and repo info. If not, the run still works — just without git metadata.
+    An environment snapshot (host, python, command, git state) is captured once
+    for the run page's reproduce-this-run view.
+
+    Lines emitted through the standard ``logging`` tree are spooled beside the
+    metrics (capture_logging=False opts out); ``waddle.log_line`` records a
+    line explicitly.
 
     With resume=True an existing run_id is reopened as a new attempt instead of
     failing on the duplicate id (use when continuing from a checkpoint).
@@ -52,6 +109,9 @@ def init(
     )
 
     repo_root = detect_repo_root(os.getcwd())
+    origin: Optional[str] = None
+    branch: Optional[str] = None
+    dirty_digest: Optional[str] = None
 
     if repo_root:
         # we're in a git repo — capture info as a bonus
@@ -96,6 +156,10 @@ def init(
         research=research,
         resume=resume,
         sync=sync,
+        environment=_capture_environment(
+            repo_root, origin, branch, commit_sha, dirty_digest is not None
+        ),
+        capture_logging=capture_logging,
     )
     _state.set_active_run(run)
     return run
@@ -121,6 +185,14 @@ def log_tag(key: str, value: Any) -> None:
     if run is None:
         raise RuntimeError("No active run. Call waddle.init() first.")
     run.log_tag(key, value)
+
+
+def log_line(message: str, level: str = "info", source: str = "") -> None:
+    """Record one log line on the active run (no-op without one — safe to call
+    from library code)."""
+    run = _state.get_active_run()
+    if run is not None:
+        run.log_line(message, level=level, source=source)
 
 
 def log_artifact(

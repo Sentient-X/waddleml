@@ -82,6 +82,7 @@ from waddle_server.server.schemas import (
     ReportVersionDetailOut,
     ReportVersionOut,
     RunDetailOut,
+    RunEnvironment,
     RunLineageOut,
     RunOut,
     RunRef,
@@ -192,6 +193,11 @@ def build_app(
             config=config,
             summary=row.summary,
             commit_sha=row.commit_sha,
+            environment=(
+                RunEnvironment.model_validate(row.environment)
+                if row.environment
+                else None
+            ),
             created_at=row.created_at,
             started_at=row.started_at,
             finished_at=row.finished_at,
@@ -304,6 +310,11 @@ def build_app(
             job_type=body.job_type,
             config=run_config,
             commit_sha=body.commit_sha,
+            environment=(
+                body.environment.model_dump(exclude_none=True)
+                if body.environment is not None
+                else {}
+            ),
             created_by=pr.principal_id,
             started_at=body.started_at,
             resume=body.resume,

@@ -48,9 +48,11 @@ function align(series: readonly ChartSeries[]): AlignedData {
 export function MetricChart({
   series,
   height = 200,
+  yLog = false,
 }: {
   series: readonly ChartSeries[];
   height?: number;
+  yLog?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
@@ -58,8 +60,11 @@ export function MetricChart({
   const data = useMemo(() => align(series), [series]);
   // Structural signature — a change here means the plot must be rebuilt.
   const signature = useMemo(
-    () => `${height}|${series.map((s) => `${s.label}:${s.kind ?? "line"}`).join("\u0000")}`,
-    [series, height],
+    () =>
+      `${height}|${yLog}|${series
+        .map((s) => `${s.label}:${s.kind ?? "line"}`)
+        .join("\u0000")}`,
+    [series, height, yLog],
   );
 
   useEffect(() => {
@@ -68,7 +73,7 @@ export function MetricChart({
     const options: Options = {
       width: el.clientWidth || 600,
       height,
-      scales: { x: { time: false } },
+      scales: { x: { time: false }, y: yLog ? { distr: 3, log: 10 } : {} },
       legend: { show: series.length > 1 && !series.some((item) => item.kind === "points") },
       cursor: { points: { size: 5 } },
       axes: [

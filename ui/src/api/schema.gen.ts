@@ -537,6 +537,7 @@ export interface components {
             };
             /** Display Name */
             display_name?: string | null;
+            environment?: components["schemas"]["RunEnvironment"] | null;
             /** Group Name */
             group_name?: string | null;
             /** Job Type */
@@ -878,6 +879,7 @@ export interface components {
             created_at: string;
             /** Display Name */
             display_name: string | null;
+            environment: components["schemas"]["RunEnvironment"] | null;
             /** Finished At */
             finished_at: string | null;
             /** Group Name */
@@ -905,6 +907,37 @@ export interface components {
             };
             /** Workers */
             workers: components["schemas"]["WorkerOut"][];
+        };
+        /**
+         * RunEnvironment
+         * @description The reproduce-this-run snapshot the SDK captures once at init. Every
+         *     field is best-effort: absent facts stay ``None``, never placeholders.
+         */
+        RunEnvironment: {
+            /** Command */
+            command?: string | null;
+            /** Cpu Count */
+            cpu_count?: number | null;
+            /** Cwd */
+            cwd?: string | null;
+            /** Executable */
+            executable?: string | null;
+            /** Git Branch */
+            git_branch?: string | null;
+            /** Git Commit */
+            git_commit?: string | null;
+            /** Git Dirty */
+            git_dirty?: boolean | null;
+            /** Git Remote */
+            git_remote?: string | null;
+            /** Gpu */
+            gpu?: string | null;
+            /** Hostname */
+            hostname?: string | null;
+            /** Os */
+            os?: string | null;
+            /** Python Version */
+            python_version?: string | null;
         };
         /** RunLineageOut */
         RunLineageOut: {
@@ -937,6 +970,7 @@ export interface components {
             created_at: string;
             /** Display Name */
             display_name: string | null;
+            environment: components["schemas"]["RunEnvironment"] | null;
             /** Finished At */
             finished_at: string | null;
             /** Group Name */

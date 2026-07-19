@@ -5,8 +5,10 @@ import {
   ArrowLeft,
   ArrowRight,
   Boxes,
+  Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   FileDown,
   Search,
 } from "lucide-react";
@@ -24,9 +26,9 @@ import {
   cn,
 } from "@sx/ui";
 
-import { MetricChart } from "@/components/MetricChart";
+import { MetricPanel } from "@/components/MetricPanel";
 import { waddleApi } from "@/api/client";
-import type { ArtifactVersion, LogLine, MetricSeries, RunLineage } from "@/api/types";
+import type { ArtifactVersion, LogLine, MetricSeries, RunDetail, RunLineage } from "@/api/types";
 import { formatDateTime, formatScalar, runDuration, runStateTone, shortHash } from "@/lib/format";
 
 /* ── config tree (the W&B metadata-tree pattern: nested keys, collapsible
@@ -138,6 +140,110 @@ function KeyTree({ title, data }: { title: string; data: Record<string, unknown>
   );
 }
 
+/* ── overview: run facts + the reproduce-this-run block ─────────────────── */
+
+function CopyableCode({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5">
+      <code className="min-w-0 flex-1 break-all font-mono text-xs">{text}</code>
+      <button
+        type="button"
+        className="shrink-0 text-muted-foreground hover:text-foreground"
+        onClick={() => {
+          void navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        }}
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+function FactRow({ label, value }: { label: string; value: React.ReactNode }) {
+  if (value === null || value === undefined || value === "") return null;
+  return (
+    <div className="flex items-baseline gap-4 border-b py-1.5 last:border-0">
+      <span className="w-36 shrink-0 text-sm text-muted-foreground">{label}</span>
+      <span className="min-w-0 font-mono text-xs break-all">{value}</span>
+    </div>
+  );
+}
+
+function OverviewTab({ run }: { run: RunDetail }) {
+  const env = run.environment;
+  const reproduce: string[] = [];
+  if (env?.git_remote) reproduce.push(`git clone ${env.git_remote}`);
+  if (env?.git_commit) reproduce.push(`git checkout ${env.git_commit}`);
+  if (env?.command) reproduce.push(env.command);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold">Run</h2>
+        <div className="rounded-lg border px-3 py-1">
+          <FactRow label="State" value={run.state} />
+          <FactRow label="Started" value={formatDateTime(run.started_at)} />
+          <FactRow label="Finished" value={run.finished_at ? formatDateTime(run.finished_at) : null} />
+          <FactRow label="Duration" value={runDuration(run.started_at, run.finished_at)} />
+          <FactRow label="Run id" value={run.run_id} />
+          <FactRow label="Group" value={run.group_name} />
+          <FactRow label="Job type" value={run.job_type} />
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold">Environment</h2>
+        {env ? (
+          <div className="rounded-lg border px-3 py-1">
+            <FactRow label="Hostname" value={env.hostname} />
+            <FactRow label="OS" value={env.os} />
+            <FactRow label="Python" value={env.python_version} />
+            <FactRow label="Executable" value={env.executable} />
+            <FactRow label="Working dir" value={env.cwd} />
+            <FactRow label="CPUs" value={env.cpu_count} />
+            <FactRow label="GPU" value={env.gpu} />
+            <FactRow label="Git branch" value={env.git_branch} />
+            <FactRow
+              label="Git state"
+              value={
+                env.git_dirty === null || env.git_dirty === undefined
+                  ? null
+                  : env.git_dirty
+                    ? "dirty (uncommitted changes at launch)"
+                    : "clean"
+              }
+            />
+          </div>
+        ) : (
+          <p className="px-1 py-2 text-sm text-muted-foreground">
+            Not captured — this run predates environment capture (or used an older SDK).
+          </p>
+        )}
+      </section>
+
+      {reproduce.length > 0 ? (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold">Reproduce this run</h2>
+          {env?.git_dirty ? (
+            <p className="text-xs text-warning">
+              The working tree was dirty at launch — the commit alone does not fully
+              reproduce it.
+            </p>
+          ) : null}
+          <div className="flex flex-col gap-1.5">
+            {reproduce.map((line) => (
+              <CopyableCode key={line} text={line} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 /* ── charts, auto-grouped into collapsible sections by metric prefix ────── */
 
 function metricGroups(series: readonly MetricSeries[]): { name: string; charts: MetricSeries[] }[] {
@@ -154,7 +260,15 @@ function metricGroups(series: readonly MetricSeries[]): { name: string; charts: 
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function ChartSection({ name, charts }: { name: string; charts: MetricSeries[] }) {
+function ChartSection({
+  name,
+  charts,
+  project,
+}: {
+  name: string;
+  charts: MetricSeries[];
+  project: string;
+}) {
   const [open, setOpen] = useState(true);
   return (
     <div className="rounded-lg border">
@@ -176,20 +290,18 @@ function ChartSection({ name, charts }: { name: string; charts: MetricSeries[] }
       {open ? (
         <div className="grid gap-4 border-t p-3 md:grid-cols-2 xl:grid-cols-3">
           {charts.map((series) => (
-            <div key={series.metric_name} className="rounded-lg border p-3">
-              <div className="mb-1 font-mono text-xs text-muted-foreground">
-                {series.metric_name}
-              </div>
-              <MetricChart
-                series={[
-                  {
-                    label: series.metric_name,
-                    points: series.points.map((p) => ({ step: p.step, value: p.value })),
-                  },
-                ]}
-                height={170}
-              />
-            </div>
+            <MetricPanel
+              key={series.metric_name}
+              metric={series.metric_name}
+              project={project}
+              series={[
+                {
+                  label: series.metric_name,
+                  points: series.points.map((p) => ({ step: p.step, value: p.value })),
+                },
+              ]}
+              height={170}
+            />
           ))}
         </div>
       ) : null}
@@ -451,12 +563,17 @@ export function RunDetailPage() {
       <Tabs defaultValue="charts">
         <TabsList>
           <TabsTrigger value="charts">Charts</TabsTrigger>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="logs">Logs {logCount > 0 ? `(${logCount})` : ""}</TabsTrigger>
           <TabsTrigger value="config">Config</TabsTrigger>
           <TabsTrigger value="lineage">
             Lineage {lineageCount > 0 ? `(${lineageCount})` : ""}
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="overview" className="mt-4">
+          {run ? <OverviewTab run={run} /> : <p className="text-sm text-muted-foreground">Loading…</p>}
+        </TabsContent>
 
         <TabsContent value="charts" className="mt-4 flex flex-col gap-3">
           {metricsQuery.isLoading ? (
@@ -468,7 +585,14 @@ export function RunDetailPage() {
               hint="Scalar series appear here once the run reports metric points."
             />
           ) : (
-            groups.map((g) => <ChartSection key={g.name} name={g.name} charts={g.charts} />)
+            groups.map((g) => (
+              <ChartSection
+                key={g.name}
+                name={g.name}
+                charts={g.charts}
+                project={run?.project ?? ""}
+              />
+            ))
           )}
         </TabsContent>
 

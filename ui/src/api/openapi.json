@@ -269,6 +269,16 @@
             ],
             "title": "Display Name"
           },
+          "environment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunEnvironment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "group_name": {
             "anyOf": [
               {
@@ -1187,6 +1197,16 @@
             ],
             "title": "Display Name"
           },
+          "environment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunEnvironment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "finished_at": {
             "anyOf": [
               {
@@ -1288,6 +1308,7 @@
           "config",
           "summary",
           "commit_sha",
+          "environment",
           "created_at",
           "started_at",
           "finished_at",
@@ -1295,6 +1316,146 @@
           "workers"
         ],
         "title": "RunDetailOut",
+        "type": "object"
+      },
+      "RunEnvironment": {
+        "additionalProperties": false,
+        "description": "The reproduce-this-run snapshot the SDK captures once at init. Every\nfield is best-effort: absent facts stay ``None``, never placeholders.",
+        "properties": {
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "cpu_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Count"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "executable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executable"
+          },
+          "git_branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Branch"
+          },
+          "git_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Commit"
+          },
+          "git_dirty": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Dirty"
+          },
+          "git_remote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Remote"
+          },
+          "gpu": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu"
+          },
+          "hostname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hostname"
+          },
+          "os": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os"
+          },
+          "python_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Python Version"
+          }
+        },
+        "title": "RunEnvironment",
         "type": "object"
       },
       "RunLineageOut": {
@@ -1364,6 +1525,16 @@
               }
             ],
             "title": "Display Name"
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunEnvironment"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "finished_at": {
             "anyOf": [
@@ -1459,6 +1630,7 @@
           "config",
           "summary",
           "commit_sha",
+          "environment",
           "created_at",
           "started_at",
           "finished_at",

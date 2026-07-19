@@ -38,6 +38,7 @@ class RunRow:
     config: dict[str, object]
     summary: dict[str, object]
     commit_sha: str | None
+    environment: dict[str, object]
     created_by: UUID | None
     created_at: datetime
     started_at: datetime
@@ -68,7 +69,8 @@ class OrgLimitsRow:
 _RUN_COLUMNS: LiteralString = """
     r.org_id, r.id, r.project_id, p.name AS project_name, r.name, r.display_name,
     r.state, r.group_name, r.job_type, r.config, r.summary, r.commit_sha,
-    r.created_by, r.created_at, r.started_at, r.finished_at, r.heartbeat_at
+    r.environment, r.created_by, r.created_at, r.started_at, r.finished_at,
+    r.heartbeat_at
 """
 
 
@@ -112,6 +114,7 @@ async def upsert_run(
     job_type: str | None,
     config: dict[str, object],
     commit_sha: str | None,
+    environment: dict[str, object],
     created_by: UUID | None,
     started_at: datetime,
     resume: bool,
@@ -119,19 +122,23 @@ async def upsert_run(
     """Create-or-attach: the first caller creates the run; rank>0 workers and
     resumed attempts hit the same statement. A resume reopens a settled run
     (state back to running, finished_at cleared); a plain attach refreshes
-    nothing but config/commit."""
+    nothing but config/commit/environment."""
     async with conn.cursor(row_factory=class_row(RunRow)) as cur:
         await cur.execute(
             f"""
             WITH upserted AS (
                 INSERT INTO runs (org_id, id, project_id, name, display_name, state,
-                                  group_name, job_type, config, commit_sha, created_by,
-                                  started_at)
+                                  group_name, job_type, config, commit_sha, environment,
+                                  created_by, started_at)
                 VALUES (%(org)s, %(id)s, %(project)s, %(name)s, %(display)s, 'running',
-                        %(grp)s, %(job)s, %(config)s, %(commit)s, %(by)s, %(started)s)
+                        %(grp)s, %(job)s, %(config)s, %(commit)s, %(environment)s,
+                        %(by)s, %(started)s)
                 ON CONFLICT (org_id, id) DO UPDATE
                     SET config = EXCLUDED.config,
                         commit_sha = EXCLUDED.commit_sha,
+                        environment = CASE WHEN EXCLUDED.environment = '{{}}'::jsonb
+                                           THEN runs.environment
+                                           ELSE EXCLUDED.environment END,
                         state = CASE WHEN %(resume)s THEN 'running' ELSE runs.state END,
                         finished_at = CASE WHEN %(resume)s THEN NULL ELSE runs.finished_at END
                 RETURNING *
@@ -148,6 +155,7 @@ async def upsert_run(
                 "job": job_type,
                 "config": json.dumps(config),
                 "commit": commit_sha,
+                "environment": json.dumps(environment),
                 "by": created_by,
                 "started": started_at,
                 "resume": resume,

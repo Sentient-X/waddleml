@@ -48,8 +48,11 @@ CREATE TABLE IF NOT EXISTS sync_cursor (
     run_id VARCHAR PRIMARY KEY,
     writer_id VARCHAR NOT NULL,
     last_rowid BIGINT NOT NULL,
-    next_sequence BIGINT NOT NULL
+    next_sequence BIGINT NOT NULL,
+    last_log_rowid BIGINT NOT NULL DEFAULT -1
 );
+
+ALTER TABLE sync_cursor ADD COLUMN IF NOT EXISTS last_log_rowid BIGINT DEFAULT -1;
 
 CREATE TABLE IF NOT EXISTS sync_outbox (
     batch_id VARCHAR PRIMARY KEY,
@@ -106,6 +109,7 @@ class SyncEngine:
         group_name: Optional[str] = None,
         job_type: Optional[str] = None,
         research_dict: Optional[Dict[str, Any]] = None,
+        environment: Optional[Dict[str, Any]] = None,
         start_thread: bool = True,
     ) -> None:
         self._config = config
@@ -116,6 +120,7 @@ class SyncEngine:
         self._group_name = group_name
         self._job_type = job_type
         self._research_dict = research_dict
+        self._environment = environment
         self._commit_sha = commit_sha
         self._started_at = started_at
         self._resume = resume
@@ -216,6 +221,7 @@ class SyncEngine:
                 "research": self._research_dict,
                 "config": self._config_dict,
                 "commit_sha": self._commit_sha,
+                "environment": self._environment,
                 "started_at": _iso(self._started_at),
                 "resume": self._resume,
                 "worker": {
@@ -306,21 +312,75 @@ class SyncEngine:
         return [(str(r[0]), bytes(r[1])) for r in rows]
 
     def _build_batch(self) -> Optional[Tuple[str, bytes]]:
-        """Move the next slice of spool rows into one persisted outbox batch.
+        """Move the next slice of spool rows into one persisted outbox batch —
+        metrics first; once the metric stream is drained, log lines. Both share
+        one monotone sequence via ``sync_cursor``.
 
         Consecutive rows are grouped by (rank, node_id, attempt) — one batch per
         homogeneous prefix — so a backfill of an earlier attempt keeps its labels.
         """
         cursor = self._conn.execute(
-            "SELECT last_rowid, next_sequence FROM sync_cursor WHERE run_id = $1",
+            "SELECT last_rowid, next_sequence,"
+            " COALESCE(last_log_rowid, -1) FROM sync_cursor WHERE run_id = $1",
             [self._run_id],
         ).fetchone()
         assert cursor is not None
-        last_rowid, next_sequence = int(cursor[0]), int(cursor[1])
+        last_rowid, next_sequence, last_log_rowid = (
+            int(cursor[0]),
+            int(cursor[1]),
+            int(cursor[2]),
+        )
         rows = self._conn.execute(
             "SELECT rowid, key, step, ts, value, rank, node_id, attempt FROM metrics"
             " WHERE run_id = $1 AND rowid > $2 ORDER BY rowid LIMIT $3",
             [self._run_id, last_rowid, MAX_POINTS_PER_BATCH],
+        ).fetchall()
+        if not rows:
+            return self._build_log_batch(next_sequence, last_log_rowid)
+        group_key = (int(rows[0][5]), str(rows[0][6]), int(rows[0][7]))
+        take = []
+        for row in rows:
+            if (int(row[5]), str(row[6]), int(row[7])) != group_key:
+                break
+            take.append(row)
+        rank, node_id, attempt = group_key
+        sequence_end = next_sequence + len(take) - 1
+        batch_id, payload = self._encode_batch(
+            rank=rank,
+            node_id=node_id,
+            attempt=attempt,
+            sequence_start=next_sequence,
+            sequence_end=sequence_end,
+            metrics=[
+                {
+                    "name": str(row[1]),
+                    "step": int(row[2]),
+                    "ts": float(row[3]),
+                    "value": float(row[4]),
+                }
+                for row in take
+            ],
+            logs=[],
+        )
+        return self._commit_outbox(
+            batch_id,
+            payload,
+            sequence_start=next_sequence,
+            sequence_end=sequence_end,
+            cursor_update=(
+                "UPDATE sync_cursor SET last_rowid = $1, next_sequence = $2"
+                " WHERE run_id = $3",
+                [int(take[-1][0]), sequence_end + 1, self._run_id],
+            ),
+        )
+
+    def _build_log_batch(
+        self, next_sequence: int, last_log_rowid: int
+    ) -> Optional[Tuple[str, bytes]]:
+        rows = self._conn.execute(
+            "SELECT rowid, ts, level, source, message, rank, node_id, attempt"
+            " FROM log_lines WHERE run_id = $1 AND rowid > $2 ORDER BY rowid LIMIT $3",
+            [self._run_id, last_log_rowid, MAX_POINTS_PER_BATCH],
         ).fetchall()
         if not rows:
             return None
@@ -331,9 +391,48 @@ class SyncEngine:
                 break
             take.append(row)
         rank, node_id, attempt = group_key
-        batch_id = str(uuid.uuid4())
-        sequence_start = next_sequence
         sequence_end = next_sequence + len(take) - 1
+        batch_id, payload = self._encode_batch(
+            rank=rank,
+            node_id=node_id,
+            attempt=attempt,
+            sequence_start=next_sequence,
+            sequence_end=sequence_end,
+            metrics=[],
+            logs=[
+                {
+                    "ts": float(row[1]),
+                    "level": str(row[2]),
+                    "source": str(row[3]),
+                    "message": str(row[4]),
+                }
+                for row in take
+            ],
+        )
+        return self._commit_outbox(
+            batch_id,
+            payload,
+            sequence_start=next_sequence,
+            sequence_end=sequence_end,
+            cursor_update=(
+                "UPDATE sync_cursor SET last_log_rowid = $1, next_sequence = $2"
+                " WHERE run_id = $3",
+                [int(take[-1][0]), sequence_end + 1, self._run_id],
+            ),
+        )
+
+    def _encode_batch(
+        self,
+        *,
+        rank: int,
+        node_id: str,
+        attempt: int,
+        sequence_start: int,
+        sequence_end: int,
+        metrics: List[Dict[str, Any]],
+        logs: List[Dict[str, Any]],
+    ) -> Tuple[str, bytes]:
+        batch_id = str(uuid.uuid4())
         payload = json.dumps(
             {
                 "batch_id": batch_id,
@@ -343,21 +442,24 @@ class SyncEngine:
                 "attempt": attempt,
                 "sequence_start": sequence_start,
                 "sequence_end": sequence_end,
-                "metrics": [
-                    {
-                        "name": str(row[1]),
-                        "step": int(row[2]),
-                        "ts": float(row[3]),
-                        "value": float(row[4]),
-                    }
-                    for row in take
-                ],
-                "logs": [],
+                "metrics": metrics,
+                "logs": logs,
             },
             ensure_ascii=False,
         ).encode()
-        # Cursor + outbox advance atomically BEFORE the first send: after a crash
-        # the persisted payload is resent byte-identical, never rebuilt.
+        return batch_id, payload
+
+    def _commit_outbox(
+        self,
+        batch_id: str,
+        payload: bytes,
+        *,
+        sequence_start: int,
+        sequence_end: int,
+        cursor_update: Tuple[str, List[Any]],
+    ) -> Tuple[str, bytes]:
+        """Persist the batch and advance the cursor atomically BEFORE the first
+        send: after a crash the payload is resent byte-identical, never rebuilt."""
         self._conn.execute("BEGIN")
         try:
             self._conn.execute(
@@ -372,10 +474,8 @@ class SyncEngine:
                     time.time(),
                 ],
             )
-            self._conn.execute(
-                "UPDATE sync_cursor SET last_rowid = $1, next_sequence = $2 WHERE run_id = $3",
-                [int(take[-1][0]), sequence_end + 1, self._run_id],
-            )
+            sql, params = cursor_update
+            self._conn.execute(sql, params)
             self._conn.execute("COMMIT")
         except Exception:
             self._conn.execute("ROLLBACK")

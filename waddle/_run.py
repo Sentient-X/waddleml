@@ -5,8 +5,10 @@ from __future__ import annotations
 import atexit
 import hashlib
 import json
+import logging
 import os
 import sys
+import threading
 import time
 import uuid
 from dataclasses import replace
@@ -18,6 +20,41 @@ from ._types import ResearchTrial, ResearchTrialError, WorkerInfo
 
 RESEARCH_CONFIG_KEY = "_waddle_research"
 RESEARCH_JOB_TYPE = "autoresearch"
+
+#: python logging levelno → the platform's four wire levels
+def _wire_level(levelno: int) -> str:
+    if levelno >= logging.ERROR:
+        return "error"
+    if levelno >= logging.WARNING:
+        return "warning"
+    if levelno >= logging.INFO:
+        return "info"
+    return "debug"
+
+
+class _LogCaptureHandler(logging.Handler):
+    """Root-logger observer feeding ``Run.log_line``. Purely additive to the
+    user's logging tree (never mutates levels or other handlers) and never
+    raises into training; a re-entrant emit (something inside our own write
+    path logging) is dropped instead of recursing."""
+
+    def __init__(self, run: "Run") -> None:
+        super().__init__(logging.DEBUG)
+        self._run = run
+        self._guard = threading.local()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if getattr(self._guard, "busy", False):
+            return
+        self._guard.busy = True
+        try:
+            self._run.log_line(
+                record.getMessage(), level=_wire_level(record.levelno), source=record.name
+            )
+        except Exception:
+            pass
+        finally:
+            self._guard.busy = False
 
 
 class Run:
@@ -37,6 +74,8 @@ class Run:
         research: Optional[ResearchTrial] = None,
         resume: bool = False,
         sync: Optional[bool] = None,
+        environment: Optional[Dict[str, Any]] = None,
+        capture_logging: bool = True,
     ):
         # resume=True reopens an existing run id (e.g. continuing from a
         # checkpoint after a crash): the run row is upserted back to running
@@ -61,13 +100,16 @@ class Run:
         self._worker = worker
         self._sysmon: Any = None
 
-        # create run record
+        # create run record; `environment` (built by init) is the reproduce-
+        # this-run superset — the legacy keys stay for old spool readers
         env = {
             "python": sys.version,
             "platform": sys.platform,
             "cwd": os.getcwd(),
             "argv": sys.argv,
+            **(environment or {}),
         }
+        self._environment = dict(environment or {})
         config_dict = dict(config or {})
         if RESEARCH_CONFIG_KEY in config_dict:
             raise ResearchTrialError(
@@ -193,7 +235,14 @@ class Run:
                     world_size=worker.world_size,
                     node_id=worker.node_id,
                     attempt=worker.attempt,
+                    environment=self._environment or None,
                 )
+
+        # observe the user's logging tree (opt-out via capture_logging=False)
+        self._log_handler: Optional[_LogCaptureHandler] = None
+        if capture_logging:
+            self._log_handler = _LogCaptureHandler(self)
+            logging.getLogger().addHandler(self._log_handler)
 
         # register atexit
         atexit.register(self._atexit)
@@ -238,6 +287,34 @@ class Run:
             )
         if self._sync is not None:
             self._sync.notify()
+
+    def log_line(self, message: str, level: str = "info", source: str = "") -> None:
+        """Spool one console/log line beside the metrics. `level` is clamped to
+        the platform's four wire levels; this path never raises into training."""
+        if self._finished:
+            return
+        if level not in ("debug", "info", "warning", "error"):
+            level = "info"
+        try:
+            self._db.execute(
+                """INSERT INTO log_lines
+                   (run_id, ts, level, source, message, rank, node_id, attempt)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                [
+                    self.id,
+                    time.time(),
+                    level,
+                    source,
+                    str(message),
+                    self._worker.rank,
+                    self._worker.node_id,
+                    self._worker.attempt,
+                ],
+            )
+            if self._sync is not None:
+                self._sync.notify()
+        except Exception:
+            pass
 
     def log_param(self, key: str, value: Any) -> None:
         self._db.execute(
@@ -314,6 +391,9 @@ class Run:
         if self._finished:
             return
         self._finished = True
+        if self._log_handler is not None:
+            logging.getLogger().removeHandler(self._log_handler)
+            self._log_handler = None
         if self._sysmon:
             self._sysmon.stop()
         self._db.execute(

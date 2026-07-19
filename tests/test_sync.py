@@ -168,6 +168,76 @@ def test_attempt_boundary_splits_batches(tmp_path, server):
     db.close()
 
 
+def test_log_lines_drain_after_metrics_on_one_sequence(tmp_path, server):
+    db = WaddleDB(str(tmp_path / "w.duckdb"))
+    run_id = "d" * 32
+    _spool_metrics(db, run_id, 3)
+    for i in range(2):
+        db.execute(
+            "INSERT INTO log_lines (run_id, ts, level, source, message, rank, node_id, attempt)"
+            " VALUES ($1, $2, 'info', 'train', $3, 0, 'node0', 0)",
+            [run_id, 1_753_000_000.0 + i, f"line {i}"],
+        )
+    _engine(db, server, run_id).drain_once()
+
+    batches = [json.loads(b) for p, b in server.requests if "/batches" in p]
+    assert [len(b["metrics"]) for b in batches] == [3, 0]
+    assert [len(b["logs"]) for b in batches] == [0, 2]
+    # Logs continue the metrics' sequence — one monotone counter per writer.
+    assert (batches[1]["sequence_start"], batches[1]["sequence_end"]) == (3, 4)
+    assert batches[1]["logs"][0] == {
+        "ts": 1_753_000_000.0,
+        "level": "info",
+        "source": "train",
+        "message": "line 0",
+    }
+    db.close()
+
+
+def test_captured_logging_reaches_the_server(tmp_path, server, monkeypatch):
+    import logging
+
+    monkeypatch.setenv("WADDLE_API_URL", server.url)
+    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    run = waddle.init(
+        project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
+    )
+    logger = logging.getLogger("test.capture")
+    logger.setLevel(logging.INFO)
+    logger.warning("dataloader stalled")
+    waddle.log_line("explicit line", level="error", source="eval")
+    run.finish()
+
+    lines = []
+    for path, body in server.requests:
+        if "/batches" in path:
+            lines.extend(json.loads(body)["logs"])
+    assert {(line["level"], line["message"]) for line in lines} == {
+        ("warning", "dataloader stalled"),
+        ("error", "explicit line"),
+    }
+    # The handler is detached on finish — later records don't touch the run.
+    from waddle._run import _LogCaptureHandler
+
+    assert run._log_handler is None
+    assert not any(
+        isinstance(h, _LogCaptureHandler) for h in logging.getLogger().handlers
+    )
+
+
+def test_environment_registers_with_the_run(tmp_path, server, monkeypatch):
+    monkeypatch.setenv("WADDLE_API_URL", server.url)
+    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    run = waddle.init(
+        project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
+    )
+    run.finish()
+    created = json.loads(server.requests[0][1])
+    env = created["environment"]
+    assert env["hostname"] and env["python_version"] and env["command"]
+    assert isinstance(env["cpu_count"], int)
+
+
 def test_no_env_means_no_engine(tmp_path, monkeypatch):
     monkeypatch.delenv("WADDLE_API_URL", raising=False)
     monkeypatch.delenv("WADDLE_API_KEY", raising=False)
