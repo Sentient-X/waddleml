@@ -16,6 +16,13 @@ class RunState(StrEnum):
     ABORTED = "aborted"
 
 
+class ResearchGoal(StrEnum):
+    """Direction of one immutable autoresearch objective."""
+
+    MINIMIZE = "minimize"
+    MAXIMIZE = "maximize"
+
+
 class LogLevel(StrEnum):
     DEBUG = "debug"
     INFO = "info"

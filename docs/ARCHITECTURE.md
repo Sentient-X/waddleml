@@ -10,6 +10,13 @@ Each process has an explicit `(run_id, rank, attempt)` identity. Aggregate metri
 written by rank zero while per-rank system/performance telemetry retains its origin. A retry
 increments `attempt`; it must never overwrite an earlier attempt.
 
+Autoresearch uses the same run grain rather than a parallel node store. One campaign is a
+`group_name`; every evaluated candidate is a run with `job_type=autoresearch` and one typed
+`ResearchTrial` record (trial index, objective/direction, hypothesis, optional parent run). This
+means failures, workers, metrics, git identity, logs, artifacts, sync, and org isolation keep their
+existing semantics. The incumbent curve and experiment tree are read-time projections. Waddle
+never proposes code or decides whether a candidate wins; those remain controller responsibilities.
+
 The local DuckDB file is the supported initial deployment. Quack remote transport is planned
 behind the same writer API after its beta protocol stabilizes. It is not required for local
 durability.

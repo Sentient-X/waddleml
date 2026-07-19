@@ -17,6 +17,7 @@ export type RunState = schemas["RunState"];
 
 export type Run = schemas["RunOut"];
 export type RunDetail = schemas["RunDetailOut"];
+export type ResearchTrial = schemas["ResearchTrial"];
 export type Worker = schemas["WorkerOut"];
 export type Project = schemas["ProjectOut"];
 

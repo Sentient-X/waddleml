@@ -32,6 +32,9 @@ waddle ls        # terminal
   exactly-once logical), artifacts ride presigned uploads, and a crashed or offline
   node backfills later with `waddle sync`. No env vars → purely local, exactly as before.
 - **Three-command CLI** — `waddle init`, `waddle ls`, `waddle sync`.
+- **Autoresearch observation** — attach a typed `ResearchTrial` to ordinary runs; the hosted
+  Research view derives a live candidate tree and minimize/maximize incumbent curve without
+  taking ownership of the optimizer.
 
 ## The hosted platform (this repo's second half)
 
@@ -57,6 +60,9 @@ Two capabilities ride the same org-Parquet substrate the SQL sandbox jails:
   out); every dataset is instantly a view in `waddle.sql` and in reports. The
   factory's operational exports are the first cross-pillar producer — capture
   supply joins training outcomes in one report.
+- **Research campaigns** (`/research`): candidate runs sharing one campaign are shown as a
+  branchable experiment tree beside candidate scores and a stepped best-so-far curve. Agents read
+  the same typed records through `waddle.runs.list(job_type="autoresearch", group_name=...)`.
 
 ## Quick Start
 
@@ -108,8 +114,38 @@ Start a new run. If inside a git repo, auto-captures the commit. If not, works f
 | `tags` | `dict` | `None` | Categorical labels |
 | `system_metrics` | `bool` | `True` | Collect CPU/mem/GPU in background |
 | `db_path` | `str` | `None` | Override DuckDB path |
+| `research` | `ResearchTrial` | `None` | Make this run one typed candidate in an external optimization campaign |
 
 Returns a `Run` that works as a context manager.
+
+### Observe an external autoresearch loop
+
+The controller still proposes, evaluates, and keeps or rejects candidates. Waddle only records
+each evaluated candidate as a normal run:
+
+```python
+import waddle
+from waddle import ResearchGoal, ResearchTrial
+
+with waddle.init(
+    project="edge-inference",
+    name="static-buffers",
+    research=ResearchTrial(
+        campaign="pi05-rtx5090-b1",
+        trial_index=7,
+        objective_name="latency/p99_ms",
+        goal=ResearchGoal.MINIMIZE,
+        hypothesis="static buffers remove allocation overhead",
+        parent_run_id="4f3c9e4d4c864d73bf86917e9bc11ba0",
+    ),
+):
+    result = run_frozen_evaluator()
+    waddle.log(result.metrics, step=7)
+```
+
+The root uses `parent_run_id=None`. Objective name and direction are immutable within a campaign;
+the hosted API rejects missing or cross-campaign parents. Remote outages do not interrupt the
+loop because the local DuckDB remains the durable spool.
 
 ### `waddle.log(metrics, step=None)`
 
@@ -208,8 +244,8 @@ the passive always-on dashboard.
 ## Git Integration (Optional)
 
 When you run `waddle.init()` inside a git repository:
-- Auto-commits dirty working tree before the run
 - Captures the commit SHA and links it to the run
+- Hashes a dirty working-tree patch into lineage without changing or committing user files
 - Records commit metadata (author, message, tree)
 - Surfaces commit info in `waddle ls`, the views, and the console
 
@@ -254,7 +290,7 @@ waddle/
     _schema.py           # DDL + evidence_* analysis views
     _git.py              # Git detection (optional)
     _sysmetrics.py       # System monitor thread
-    _types.py            # RepoInfo dataclass
+    _types.py            # WorkerInfo and typed autoresearch records
     cli.py               # CLI: init, ls, sync
 ```
 

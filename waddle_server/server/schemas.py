@@ -11,11 +11,25 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from waddle_server.model import ColumnType, LogLevel, RunState
+from waddle_server.model import ColumnType, LogLevel, ResearchGoal, RunState
 
 RUN_ID_PATTERN = r"^[a-f0-9]{32}$"
 REPORT_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,127}$"
 DATASET_NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
+
+
+class ResearchTrial(BaseModel):
+    """Candidate facts stored beside an ordinary Waddle run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trial_index: int = Field(ge=0)
+    objective_name: str = Field(min_length=1, max_length=512)
+    goal: ResearchGoal
+    hypothesis: str = Field(min_length=1, max_length=16 * 1024)
+    parent_run_id: str | None = Field(  # none-ok: the campaign root has no parent
+        default=None, pattern=RUN_ID_PATTERN
+    )
 
 
 class HealthOut(BaseModel):
@@ -45,6 +59,9 @@ class CreateRunIn(BaseModel):
     display_name: str | None = None
     group_name: str | None = None
     job_type: str | None = None
+    research: ResearchTrial | None = (
+        None  # none-ok: ordinary runs are not research trials
+    )
     config: dict[str, object] = Field(default_factory=dict)
     commit_sha: str | None = None
     started_at: datetime
@@ -76,6 +93,7 @@ class RunOut(BaseModel):
     state: RunState
     group_name: str | None
     job_type: str | None
+    research: ResearchTrial | None  # none-ok: ordinary runs are not research trials
     config: dict[str, object]
     summary: dict[str, object]
     commit_sha: str | None

@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 import waddle
+from waddle import ResearchGoal, ResearchTrial
 from waddle._db import WaddleDB
 from waddle._sync import SyncConfig, SyncEngine
 
@@ -170,7 +171,9 @@ def test_attempt_boundary_splits_batches(tmp_path, server):
 def test_no_env_means_no_engine(tmp_path, monkeypatch):
     monkeypatch.delenv("WADDLE_API_URL", raising=False)
     monkeypatch.delenv("WADDLE_API_KEY", raising=False)
-    run = waddle.init(project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False)
+    run = waddle.init(
+        project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
+    )
     assert run._sync is None
     run.finish()
 
@@ -178,7 +181,9 @@ def test_no_env_means_no_engine(tmp_path, monkeypatch):
 def test_env_wires_engine_and_finish_reports_state(tmp_path, server, monkeypatch):
     monkeypatch.setenv("WADDLE_API_URL", server.url)
     monkeypatch.setenv("WADDLE_API_KEY", "k")
-    run = waddle.init(project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False)
+    run = waddle.init(
+        project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
+    )
     assert run._sync is not None
     run.log({"loss": 0.5})
     run.log({"loss": 0.25})
@@ -192,12 +197,44 @@ def test_env_wires_engine_and_finish_reports_state(tmp_path, server, monkeypatch
     assert [p["value"] for p in server.delivered_points()] == [0.5, 0.25]
 
 
+def test_research_contract_is_registered_with_hosted_run(tmp_path, server, monkeypatch):
+    monkeypatch.setenv("WADDLE_API_URL", server.url)
+    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    run = waddle.init(
+        project="edge-inference",
+        db_path=str(tmp_path / "w.duckdb"),
+        research=ResearchTrial(
+            campaign="m10-5090",
+            trial_index=0,
+            objective_name="latency/p99_ms",
+            goal=ResearchGoal.MINIMIZE,
+            hypothesis="native baseline",
+        ),
+        system_metrics=False,
+    )
+    run.log({"latency/p99_ms": 25.0})
+    run.finish()
+
+    created = json.loads(server.requests[0][1])
+    assert created["group_name"] == "m10-5090"
+    assert created["job_type"] == "autoresearch"
+    assert created["research"] == {
+        "trial_index": 0,
+        "objective_name": "latency/p99_ms",
+        "goal": "minimize",
+        "hypothesis": "native baseline",
+        "parent_run_id": None,
+    }
+
+
 def test_url_alone_activates_keyless_sync(tmp_path, server, monkeypatch):
     # Dev convenience: against an auth-optional dev server no key is needed —
     # the engine sends NO authorization header (empty is never introspected).
     monkeypatch.setenv("WADDLE_API_URL", server.url)
     monkeypatch.delenv("WADDLE_API_KEY", raising=False)
-    run = waddle.init(project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False)
+    run = waddle.init(
+        project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
+    )
     assert run._sync is not None
     run.log({"loss": 1.0})
     run.finish()

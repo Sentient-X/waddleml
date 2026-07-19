@@ -40,6 +40,7 @@ from waddle_server.errors import (
     MissingParamsError,
     QueryLimitError,
     QuotaExceededError,
+    ResearchContractError,
     ReportCompileError,
     ReportNameTakenError,
     ReportNotFoundError,
@@ -84,6 +85,7 @@ from waddle_server.server.schemas import (
     RunLineageOut,
     RunOut,
     RunRef,
+    ResearchTrial,
     SeriesPointOut,
     SqlQueryIn,
     SqlResultOut,
@@ -101,6 +103,8 @@ from waddle_server.server.storage import (
 )
 
 log = get_logger(__name__)
+RESEARCH_CONFIG_KEY = "_waddle_research"
+RESEARCH_JOB_TYPE = "autoresearch"
 
 
 def _error(status: int, exc: Exception, code: str) -> HTTPException:
@@ -154,7 +158,28 @@ def build_app(
     async def healthz() -> HealthOut:
         return HealthOut(ok=True)
 
+    def _run_config(row: repo.RunRow) -> tuple[dict[str, object], ResearchTrial | None]:
+        config = dict(row.config)
+        raw = config.pop(RESEARCH_CONFIG_KEY, None)
+        if row.job_type != RESEARCH_JOB_TYPE:
+            if raw is not None:
+                raise ResearchContractError(
+                    f"run {row.id!r} has reserved research config without autoresearch job type"
+                )
+            return config, None
+        if raw is None:
+            raise ResearchContractError(
+                f"autoresearch run {row.id!r} has no research record"
+            )
+        try:
+            return config, ResearchTrial.model_validate(raw)
+        except pydantic.ValidationError as exc:
+            raise ResearchContractError(
+                f"autoresearch run {row.id!r} has an invalid research record"
+            ) from exc
+
     def _run_out(row: repo.RunRow) -> RunOut:
+        config, research = _run_config(row)
         return RunOut(
             run_id=row.id,
             project=row.project_name,
@@ -163,7 +188,8 @@ def build_app(
             state=RunState(row.state),
             group_name=row.group_name,
             job_type=row.job_type,
-            config=row.config,
+            research=research,
+            config=config,
             summary=row.summary,
             commit_sha=row.commit_sha,
             created_at=row.created_at,
@@ -191,6 +217,82 @@ def build_app(
     ) -> RunRef:
         require_role(pr, WaddleRole.WRITER)
         project = await repo.ensure_project(c, pr.org_id, body.project)
+        run_config = dict(body.config)
+        existing = await repo.get_run(c, pr.org_id, body.run_id)
+        if existing is not None:
+            _, existing_research = _run_config(existing)
+            if existing_research != body.research:
+                err = ResearchContractError(
+                    "a run's research identity is immutable across workers and resumes"
+                )
+                raise _error(422, err, err.code)
+            if existing_research is not None and (
+                existing.project_id != project.id
+                or existing.group_name != body.group_name
+                or existing.job_type != body.job_type
+            ):
+                err = ResearchContractError(
+                    "a research run cannot move between projects, campaigns, or job types"
+                )
+                raise _error(422, err, err.code)
+        if RESEARCH_CONFIG_KEY in run_config:
+            err = ResearchContractError(
+                f"{RESEARCH_CONFIG_KEY!r} is reserved; send the typed research field"
+            )
+            raise _error(422, err, err.code)
+        if body.research is None:
+            if body.job_type == RESEARCH_JOB_TYPE:
+                err = ResearchContractError(
+                    "autoresearch runs require a research record"
+                )
+                raise _error(422, err, err.code)
+        else:
+            if body.job_type != RESEARCH_JOB_TYPE:
+                err = ResearchContractError(
+                    "research records require job_type='autoresearch'"
+                )
+                raise _error(422, err, err.code)
+            if body.group_name is None or not body.group_name.strip():
+                err = ResearchContractError(
+                    "research records require a non-empty group_name"
+                )
+                raise _error(422, err, err.code)
+            if body.research.parent_run_id == body.run_id:
+                err = ResearchContractError("a research trial cannot be its own parent")
+                raise _error(422, err, err.code)
+            if body.research.parent_run_id is not None:
+                parent = await repo.get_run(c, pr.org_id, body.research.parent_run_id)
+                if (
+                    parent is None
+                    or parent.project_id != project.id
+                    or parent.group_name != body.group_name
+                    or parent.job_type != RESEARCH_JOB_TYPE
+                ):
+                    err = ResearchContractError(
+                        "parent_run_id must name an existing trial in the same project and campaign"
+                    )
+                    raise _error(422, err, err.code)
+            anchors = await repo.list_runs(
+                c,
+                pr.org_id,
+                project=body.project,
+                state=None,
+                group_name=body.group_name,
+                job_type=RESEARCH_JOB_TYPE,
+                limit=1,
+            )
+            if anchors:
+                _, anchor = _run_config(anchors[0])
+                assert anchor is not None
+                if (
+                    anchor.objective_name != body.research.objective_name
+                    or anchor.goal is not body.research.goal
+                ):
+                    err = ResearchContractError(
+                        "objective_name and goal must remain fixed within a research campaign"
+                    )
+                    raise _error(422, err, err.code)
+            run_config[RESEARCH_CONFIG_KEY] = body.research.model_dump(mode="json")
         await repo.upsert_run(
             c,
             pr.org_id,
@@ -200,7 +302,7 @@ def build_app(
             display_name=body.display_name,
             group_name=body.group_name,
             job_type=body.job_type,
-            config=body.config,
+            config=run_config,
             commit_sha=body.commit_sha,
             created_by=pr.principal_id,
             started_at=body.started_at,
@@ -228,12 +330,22 @@ def build_app(
     async def list_runs(
         project: str | None = None,
         state: RunState | None = None,
+        group_name: str | None = None,
+        job_type: str | None = None,
         limit: int = Query(default=200, ge=1, le=1000),
         c: AsyncConnection[Any] = Depends(conn),
         pr: WaddlePrincipal = Depends(principal),
     ) -> list[RunOut]:
         require_role(pr, WaddleRole.READER)
-        rows = await repo.list_runs(c, pr.org_id, project=project, state=state, limit=limit)
+        rows = await repo.list_runs(
+            c,
+            pr.org_id,
+            project=project,
+            state=state,
+            group_name=group_name,
+            job_type=job_type,
+            limit=limit,
+        )
         return [_run_out(r) for r in rows]
 
     @app.get("/api/v1/runs/{run_id}", response_model=RunDetailOut)
@@ -269,13 +381,16 @@ def build_app(
     ) -> RunOut:
         require_role(pr, WaddleRole.WRITER)
         await _run_or_404(c, pr, run_id)
-        row = await repo.finish_run(c, pr.org_id, run_id, state=body.state, summary=body.summary)
+        row = await repo.finish_run(
+            c, pr.org_id, run_id, state=body.state, summary=body.summary
+        )
         assert row is not None
         return _run_out(row)
 
     @app.get("/api/v1/projects", response_model=list[ProjectOut])
     async def list_projects(
-        c: AsyncConnection[Any] = Depends(conn), pr: WaddlePrincipal = Depends(principal)
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
     ) -> list[ProjectOut]:
         require_role(pr, WaddleRole.READER)
         rows = await repo.list_projects(c, pr.org_id)
@@ -296,7 +411,9 @@ def build_app(
             try:
                 raw = gzip.decompress(raw)
             except OSError as err:
-                raise _error(400, BatchLimitError("invalid gzip body"), "invalid_body") from err
+                raise _error(
+                    400, BatchLimitError("invalid gzip body"), "invalid_body"
+                ) from err
         if len(raw) > cfg.max_batch_bytes:
             raise _error(
                 413,
@@ -466,7 +583,11 @@ def build_app(
         rows = await store.latest(pr.org_id, run_ids=body.run_ids)
         return [
             LatestMetricOut(
-                run_id=r.run_id, metric_name=r.metric_name, value=r.value, step=r.step, ts=r.ts
+                run_id=r.run_id,
+                metric_name=r.metric_name,
+                value=r.value,
+                step=r.step,
+                ts=r.ts,
             )
             for r in rows
         ]
@@ -481,9 +602,13 @@ def build_app(
     ) -> list[LogLineOut]:
         require_role(pr, WaddleRole.READER)
         await _run_or_404(c, pr, run_id)
-        lines = await store.logs_tail(pr.org_id, run_id=run_id, after_ts=after_ts, limit=limit)
+        lines = await store.logs_tail(
+            pr.org_id, run_id=run_id, after_ts=after_ts, limit=limit
+        )
         return [
-            LogLineOut(ts=line.ts, level=line.level, source=line.source, message=line.message)
+            LogLineOut(
+                ts=line.ts, level=line.level, source=line.source, message=line.message
+            )
             for line in lines
         ]
 
@@ -545,7 +670,8 @@ def build_app(
     ) -> RenderBlockOut:
         if isinstance(block, reports.MarkdownBlock):
             return RenderBlockOut(
-                kind="markdown", text=reports.resolve_markdown(block.text, results, params)
+                kind="markdown",
+                text=reports.resolve_markdown(block.text, results, params),
             )
         return RenderBlockOut(
             kind="component",
@@ -587,7 +713,9 @@ def build_app(
             blocks=[_block_out(b, results, effective) for b in compiled.blocks],
             results={q: _sql_out(r) for q, r in results.items()},
             query_errors={
-                q: r.message for q, r in outcomes.items() if isinstance(r, sqlbox.QueryFailure)
+                q: r.message
+                for q, r in outcomes.items()
+                if isinstance(r, sqlbox.QueryFailure)
             },
         )
 
@@ -610,7 +738,9 @@ def build_app(
     ) -> list[ReportSummaryOut]:
         """All reports, or `?name=` to resolve one slug to its id."""
         require_role(pr, WaddleRole.READER)
-        return [_summary_out(r) for r in await repo.list_reports(c, pr.org_id, name=name)]
+        return [
+            _summary_out(r) for r in await repo.list_reports(c, pr.org_id, name=name)
+        ]
 
     @app.post("/api/v1/reports", response_model=ReportOut, status_code=201)
     async def create_report(
@@ -632,7 +762,9 @@ def build_app(
             updated_by=pr.subject,
         )
         if row is None:
-            raise _error(409, ReportNameTakenError(body.name), ReportNameTakenError.code)
+            raise _error(
+                409, ReportNameTakenError(body.name), ReportNameTakenError.code
+            )
         return _report_out(row, compiled)
 
     async def _report_or_404(
@@ -678,7 +810,9 @@ def build_app(
                 updated_by=pr.subject,
             )
         except pg_errors.UniqueViolation as err:
-            raise _error(409, ReportNameTakenError(name), ReportNameTakenError.code) from err
+            raise _error(
+                409, ReportNameTakenError(name), ReportNameTakenError.code
+            ) from err
         assert row is not None  # existence checked above, same transaction
         return _report_out(row, compiled)
 
@@ -692,7 +826,9 @@ def build_app(
         if not await repo.delete_report(c, pr.org_id, _uuid_or_404(report_id)):
             raise _error(404, ReportNotFoundError(report_id), ReportNotFoundError.code)
 
-    @app.get("/api/v1/reports/{report_id}/versions", response_model=list[ReportVersionOut])
+    @app.get(
+        "/api/v1/reports/{report_id}/versions", response_model=list[ReportVersionOut]
+    )
     async def list_report_versions(
         report_id: str,
         c: AsyncConnection[Any] = Depends(conn),
@@ -702,7 +838,10 @@ def build_app(
         row = await _report_or_404(c, pr, report_id)
         return [
             ReportVersionOut(
-                version=v.version, name=v.name, updated_by=v.updated_by, created_at=v.created_at
+                version=v.version,
+                name=v.name,
+                updated_by=v.updated_by,
+                created_at=v.created_at,
             )
             for v in await repo.list_report_versions(c, pr.org_id, row.id)
         ]
@@ -722,7 +861,9 @@ def build_app(
         got = await repo.get_report_version(c, pr.org_id, row.id, version)
         if got is None:
             raise _error(
-                404, ReportNotFoundError(f"{report_id}@v{version}"), ReportNotFoundError.code
+                404,
+                ReportNotFoundError(f"{report_id}@v{version}"),
+                ReportNotFoundError.code,
             )
         return ReportVersionDetailOut(
             version=got.version,
@@ -807,7 +948,9 @@ def build_app(
         return DatasetOut(dataset=dataset, rows=len(body.rows))
 
     @app.get("/api/v1/datasets", response_model=list[DatasetInfoOut])
-    async def list_datasets(pr: WaddlePrincipal = Depends(principal)) -> list[DatasetInfoOut]:
+    async def list_datasets(
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> list[DatasetInfoOut]:
         require_role(pr, WaddleRole.READER)
         prefix = f"orgs/{pr.org_id}/parquet/"
         counts: dict[str, int] = {}
@@ -849,7 +992,9 @@ def build_app(
         )
 
     def _version_out(
-        pr: WaddlePrincipal, version: artifacts.VersionRow, files: list[artifacts.FileRow]
+        pr: WaddlePrincipal,
+        version: artifacts.VersionRow,
+        files: list[artifacts.FileRow],
     ) -> ArtifactVersionOut:
         return ArtifactVersionOut(
             id=version.id,
@@ -883,7 +1028,9 @@ def build_app(
         pr: WaddlePrincipal = Depends(principal),
     ) -> ArtifactVersionOut:
         require_role(pr, WaddleRole.WRITER)
-        session = await artifacts.get_upload_session(c, pr.org_id, _uuid_or_404(session_id))
+        session = await artifacts.get_upload_session(
+            c, pr.org_id, _uuid_or_404(session_id)
+        )
         if session is None or session.state == "expired":
             raise HTTPException(404, "no open upload session")
         if session.state == "committed":
@@ -906,13 +1053,24 @@ def build_app(
             manifest[path] = sha
             media_type = declared.get("media_type")
             file_rows.append(
-                (path, sha, key, size, str(media_type) if media_type is not None else None)
+                (
+                    path,
+                    sha,
+                    key,
+                    size,
+                    str(media_type) if media_type is not None else None,
+                )
             )
         digest = hashlib.sha256(
-            "\n".join(f"{path}\0{sha}" for path, sha in sorted(manifest.items())).encode()
+            "\n".join(
+                f"{path}\0{sha}" for path, sha in sorted(manifest.items())
+            ).encode()
         ).hexdigest()
 
-        if body.run_id is not None and await repo.get_run(c, pr.org_id, body.run_id) is None:
+        if (
+            body.run_id is not None
+            and await repo.get_run(c, pr.org_id, body.run_id) is None
+        ):
             raise _error(404, RunNotFoundError(body.run_id), RunNotFoundError.code)
         project = await repo.ensure_project(c, pr.org_id, body.project)
         collection = await artifacts.ensure_collection(
@@ -931,10 +1089,13 @@ def build_app(
             )
         except artifacts.ArtifactConflictError as err:
             raise HTTPException(
-                409, ErrorOut(code="artifact_digest_exists", message=str(err)).model_dump()
+                409,
+                ErrorOut(code="artifact_digest_exists", message=str(err)).model_dump(),
             ) from err
         if body.run_id is not None:
-            await artifacts.record_lineage(c, pr.org_id, body.run_id, version.id, body.relation)
+            await artifacts.record_lineage(
+                c, pr.org_id, body.run_id, version.id, body.relation
+            )
         await artifacts.mark_session(c, session.id, "committed")
         got = await artifacts.get_version(c, pr.org_id, version.id)
         assert got is not None

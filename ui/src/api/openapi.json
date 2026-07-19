@@ -303,6 +303,16 @@
             "title": "Project",
             "type": "string"
           },
+          "research": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchTrial"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "resume": {
             "default": false,
             "title": "Resume",
@@ -1088,6 +1098,61 @@
         "title": "ReportVersionOut",
         "type": "object"
       },
+      "ResearchGoal": {
+        "description": "Direction of one immutable autoresearch objective.",
+        "enum": [
+          "minimize",
+          "maximize"
+        ],
+        "title": "ResearchGoal",
+        "type": "string"
+      },
+      "ResearchTrial": {
+        "additionalProperties": false,
+        "description": "Candidate facts stored beside an ordinary Waddle run.",
+        "properties": {
+          "goal": {
+            "$ref": "#/components/schemas/ResearchGoal"
+          },
+          "hypothesis": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Hypothesis",
+            "type": "string"
+          },
+          "objective_name": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Objective Name",
+            "type": "string"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{32}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Run Id"
+          },
+          "trial_index": {
+            "minimum": 0.0,
+            "title": "Trial Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "trial_index",
+          "objective_name",
+          "goal",
+          "hypothesis"
+        ],
+        "title": "ResearchTrial",
+        "type": "object"
+      },
       "RunDetailOut": {
         "properties": {
           "commit_sha": {
@@ -1176,6 +1241,16 @@
             "title": "Project",
             "type": "string"
           },
+          "research": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchTrial"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "run_id": {
             "title": "Run Id",
             "type": "string"
@@ -1209,6 +1284,7 @@
           "state",
           "group_name",
           "job_type",
+          "research",
           "config",
           "summary",
           "commit_sha",
@@ -1343,6 +1419,16 @@
             "title": "Project",
             "type": "string"
           },
+          "research": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchTrial"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "run_id": {
             "title": "Run Id",
             "type": "string"
@@ -1369,6 +1455,7 @@
           "state",
           "group_name",
           "job_type",
+          "research",
           "config",
           "summary",
           "commit_sha",
@@ -2596,6 +2683,38 @@
                 }
               ],
               "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "group_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Group Name"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Type"
             }
           },
           {

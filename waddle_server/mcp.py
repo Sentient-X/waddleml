@@ -72,16 +72,23 @@ async def projects_list(ctx: Context | None = None) -> list[dict[str, Any]]:  # 
 async def runs_list(
     project: str | None = None,
     state: str | None = None,
+    group_name: str | None = None,
+    job_type: str | None = None,
     limit: int = 50,
     ctx: Context | None = None,  # type: ignore[type-arg]
 ) -> list[dict[str, Any]]:
-    """Recent runs (newest first) with config and latest-metric summary.
-    state: running | completed | failed | aborted."""
+    """Recent runs (newest first) with config, latest-metric summary, and typed
+    research facts when present. state: running | completed | failed | aborted.
+    Use job_type='autoresearch' and optional group_name for candidate trees."""
     params: dict[str, Any] = {"limit": limit}
     if project:
         params["project"] = project
     if state:
         params["state"] = state
+    if group_name:
+        params["group_name"] = group_name
+    if job_type:
+        params["job_type"] = job_type
     return await _call(ctx, "GET", "/api/v1/runs", params=params)
 
 
@@ -118,10 +125,13 @@ async def metrics_series(
 
 @mcp.tool(name="waddle.metrics.latest")
 async def metrics_latest(
-    run_ids: list[str], ctx: Context | None = None  # type: ignore[type-arg]
+    run_ids: list[str],
+    ctx: Context | None = None,  # type: ignore[type-arg]
 ) -> list[dict[str, Any]]:
     """The latest value of every metric for the given runs (KPI view)."""
-    return await _call(ctx, "POST", "/api/v1/query/latest", json_body={"run_ids": run_ids})
+    return await _call(
+        ctx, "POST", "/api/v1/query/latest", json_body={"run_ids": run_ids}
+    )
 
 
 @mcp.tool(name="waddle.logs.tail")
@@ -131,7 +141,9 @@ async def logs_tail(
     ctx: Context | None = None,  # type: ignore[type-arg]
 ) -> list[dict[str, Any]]:
     """The most recent log lines of a run (oldest-first within the window)."""
-    return await _call(ctx, "GET", f"/api/v1/runs/{run_id}/logs", params={"limit": limit})
+    return await _call(
+        ctx, "GET", f"/api/v1/runs/{run_id}/logs", params={"limit": limit}
+    )
 
 
 @mcp.tool(name="waddle.sql")
@@ -159,7 +171,9 @@ async def _resolve_report(ctx: Context | None, name: str) -> dict[str, Any]:  # 
     """Agents address reports by name; the API's identity is the uuid id."""
     rows = await _call(ctx, "GET", "/api/v1/reports", params={"name": name})
     if not rows:
-        raise WaddleToolError(f"no report named {name!r} (waddle.reports.list shows yours)")
+        raise WaddleToolError(
+            f"no report named {name!r} (waddle.reports.list shows yours)"
+        )
     return rows[0]
 
 
@@ -195,7 +209,9 @@ async def reports_save(
         return await _call(
             ctx, "PUT", f"/api/v1/reports/{rows[0]['id']}", json_body={"body": body}
         )
-    return await _call(ctx, "POST", "/api/v1/reports", json_body={"name": name, "body": body})
+    return await _call(
+        ctx, "POST", "/api/v1/reports", json_body={"name": name, "body": body}
+    )
 
 
 @mcp.tool(name="waddle.reports.render")
@@ -234,7 +250,8 @@ async def reports_preview(
 
 @mcp.tool(name="waddle.reports.versions")
 async def reports_versions(
-    name: str, ctx: Context | None = None  # type: ignore[type-arg]
+    name: str,
+    ctx: Context | None = None,  # type: ignore[type-arg]
 ) -> list[dict[str, Any]]:
     """A report's immutable save history (newest first); fetch one body via
     waddle.reports.get after restoring with waddle.reports.save."""

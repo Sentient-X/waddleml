@@ -545,6 +545,7 @@ export interface components {
             name: string;
             /** Project */
             project: string;
+            research?: components["schemas"]["ResearchTrial"] | null;
             /**
              * Resume
              * @default false
@@ -841,6 +842,27 @@ export interface components {
             /** Version */
             version: number;
         };
+        /**
+         * ResearchGoal
+         * @description Direction of one immutable autoresearch objective.
+         * @enum {string}
+         */
+        ResearchGoal: "minimize" | "maximize";
+        /**
+         * ResearchTrial
+         * @description Candidate facts stored beside an ordinary Waddle run.
+         */
+        ResearchTrial: {
+            goal: components["schemas"]["ResearchGoal"];
+            /** Hypothesis */
+            hypothesis: string;
+            /** Objective Name */
+            objective_name: string;
+            /** Parent Run Id */
+            parent_run_id?: string | null;
+            /** Trial Index */
+            trial_index: number;
+        };
         /** RunDetailOut */
         RunDetailOut: {
             /** Commit Sha */
@@ -868,6 +890,7 @@ export interface components {
             name: string;
             /** Project */
             project: string;
+            research: components["schemas"]["ResearchTrial"] | null;
             /** Run Id */
             run_id: string;
             /**
@@ -926,6 +949,7 @@ export interface components {
             name: string;
             /** Project */
             project: string;
+            research: components["schemas"]["ResearchTrial"] | null;
             /** Run Id */
             run_id: string;
             /**
@@ -1718,6 +1742,8 @@ export interface operations {
             query?: {
                 project?: string | null;
                 state?: components["schemas"]["RunState"] | null;
+                group_name?: string | null;
+                job_type?: string | null;
                 limit?: number;
             };
             header?: never;

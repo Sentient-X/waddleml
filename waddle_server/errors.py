@@ -18,6 +18,15 @@ class RunNotFoundError(WaddleServerError):
         self.run_id = run_id
 
 
+class ResearchContractError(WaddleServerError):
+    """A candidate would make its campaign tree or objective ambiguous."""
+
+    code = "invalid_research_trial"
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+
+
 class BatchDigestMismatchError(WaddleServerError):
     """A batch id was replayed with different payload bytes — a client bug or
     corruption; never silently accepted."""
@@ -25,7 +34,9 @@ class BatchDigestMismatchError(WaddleServerError):
     code = "batch_digest_mismatch"
 
     def __init__(self, batch_id: str) -> None:
-        super().__init__(f"batch {batch_id!r} was already ingested with different contents")
+        super().__init__(
+            f"batch {batch_id!r} was already ingested with different contents"
+        )
         self.batch_id = batch_id
 
 

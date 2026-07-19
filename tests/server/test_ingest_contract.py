@@ -14,7 +14,9 @@ from .conftest import FakeMetricStore, requires_dev_postgres
 pytestmark = requires_dev_postgres
 
 
-def _create_run(client: TestClient, key: str, run_id: str, *, rank: int = 0, resume: bool = False):
+def _create_run(
+    client: TestClient, key: str, run_id: str, *, rank: int = 0, resume: bool = False
+):
     return client.post(
         "/api/v1/runs",
         headers={"x-api-key": key},
@@ -37,7 +39,49 @@ def _create_run(client: TestClient, key: str, run_id: str, *, rank: int = 0, res
     )
 
 
-def _batch_body(*, batch_id: str, writer_id: str, seq: int, points: int, step0: int = 0) -> bytes:
+def _create_research_run(
+    client: TestClient,
+    run_id: str,
+    *,
+    trial_index: int,
+    parent_run_id: str | None = None,
+    objective_name: str = "latency/p99_ms",
+):
+    return client.post(
+        "/api/v1/runs",
+        headers={"x-api-key": "key-a-writer"},
+        json={
+            "run_id": run_id,
+            "project": "edge-inference",
+            "name": f"trial-{trial_index}",
+            "group_name": "m10-5090",
+            "job_type": "autoresearch",
+            "research": {
+                "trial_index": trial_index,
+                "objective_name": objective_name,
+                "goal": "minimize",
+                "hypothesis": "baseline"
+                if trial_index == 0
+                else "remove launch overhead",
+                "parent_run_id": parent_run_id,
+            },
+            "config": {"batch_size": 1},
+            "started_at": "2026-07-19T00:00:00Z",
+            "worker": {
+                "rank": 0,
+                "local_rank": 0,
+                "world_size": 1,
+                "node_id": "rtx5090",
+                "attempt": 0,
+                "writer_id": str(uuid4()),
+            },
+        },
+    )
+
+
+def _batch_body(
+    *, batch_id: str, writer_id: str, seq: int, points: int, step0: int = 0
+) -> bytes:
     now = time.time()
     return json.dumps(
         {
@@ -46,7 +90,12 @@ def _batch_body(*, batch_id: str, writer_id: str, seq: int, points: int, step0: 
             "sequence_start": seq,
             "sequence_end": seq + points - 1,
             "metrics": [
-                {"name": "loss", "step": step0 + i, "ts": now + i, "value": 1.0 / (i + 1)}
+                {
+                    "name": "loss",
+                    "step": step0 + i,
+                    "ts": now + i,
+                    "value": 1.0 / (i + 1),
+                }
                 for i in range(points)
             ],
             "logs": [],
@@ -70,7 +119,9 @@ def test_create_or_attach_and_detail(rig: tuple[TestClient, FakeMetricStore]) ->
         assert detail["config"] == {"lr": 0.01}
 
 
-def test_batch_idempotency_and_digest_mismatch(rig: tuple[TestClient, FakeMetricStore]) -> None:
+def test_batch_idempotency_and_digest_mismatch(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
     client, store = rig
     with client:
         run_id = uuid4().hex
@@ -79,13 +130,17 @@ def test_batch_idempotency_and_digest_mismatch(rig: tuple[TestClient, FakeMetric
         body = _batch_body(batch_id=batch_id, writer_id=writer_id, seq=0, points=5)
 
         first = client.post(
-            f"/api/v1/runs/{run_id}/batches", headers={"x-api-key": "key-a-writer"}, content=body
+            f"/api/v1/runs/{run_id}/batches",
+            headers={"x-api-key": "key-a-writer"},
+            content=body,
         )
         assert first.status_code == 200 and first.json()["replayed"] is False
         assert len(store.metrics) == 5
 
         replay = client.post(
-            f"/api/v1/runs/{run_id}/batches", headers={"x-api-key": "key-a-writer"}, content=body
+            f"/api/v1/runs/{run_id}/batches",
+            headers={"x-api-key": "key-a-writer"},
+            content=body,
         )
         assert replay.status_code == 200 and replay.json()["replayed"] is True
 
@@ -99,11 +154,75 @@ def test_batch_idempotency_and_digest_mismatch(rig: tuple[TestClient, FakeMetric
         assert conflict.json()["detail"]["code"] == "batch_digest_mismatch"
 
         # Latest-scalar summary landed on the run row (renders without ClickHouse).
-        run = client.get(f"/api/v1/runs/{run_id}", headers={"x-api-key": "key-a-reader"}).json()
+        run = client.get(
+            f"/api/v1/runs/{run_id}", headers={"x-api-key": "key-a-reader"}
+        ).json()
         assert run["summary"]["loss"] == 1.0 / 5
 
 
-def test_gzip_body_and_sequence_gap_warning(rig: tuple[TestClient, FakeMetricStore]) -> None:
+def test_research_trials_roundtrip_and_filter(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
+    client, _ = rig
+    with client:
+        root_id = uuid4().hex
+        child_id = uuid4().hex
+        assert _create_research_run(client, root_id, trial_index=0).status_code == 200
+        assert (
+            _create_research_run(
+                client, child_id, trial_index=1, parent_run_id=root_id
+            ).status_code
+            == 200
+        )
+
+        runs = client.get(
+            "/api/v1/runs?job_type=autoresearch&group_name=m10-5090",
+            headers={"x-api-key": "key-a-reader"},
+        ).json()
+        assert {run["run_id"] for run in runs} == {root_id, child_id}
+        child = next(run for run in runs if run["run_id"] == child_id)
+        assert child["config"] == {"batch_size": 1}
+        assert child["research"] == {
+            "trial_index": 1,
+            "objective_name": "latency/p99_ms",
+            "goal": "minimize",
+            "hypothesis": "remove launch overhead",
+            "parent_run_id": root_id,
+        }
+
+
+def test_research_contract_rejects_mixed_objective_and_foreign_parent(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
+    client, _ = rig
+    with client:
+        root_id = uuid4().hex
+        assert _create_research_run(client, root_id, trial_index=0).status_code == 200
+
+        untyped_attach = _create_run(client, "key-a-writer", root_id, rank=1)
+        assert untyped_attach.status_code == 422
+        assert untyped_attach.json()["detail"]["code"] == "invalid_research_trial"
+
+        mixed = _create_research_run(
+            client,
+            uuid4().hex,
+            trial_index=1,
+            parent_run_id=root_id,
+            objective_name="throughput",
+        )
+        assert mixed.status_code == 422
+        assert mixed.json()["detail"]["code"] == "invalid_research_trial"
+
+        foreign_parent = _create_research_run(
+            client, uuid4().hex, trial_index=2, parent_run_id=uuid4().hex
+        )
+        assert foreign_parent.status_code == 422
+        assert foreign_parent.json()["detail"]["code"] == "invalid_research_trial"
+
+
+def test_gzip_body_and_sequence_gap_warning(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
     client, _ = rig
     with client:
         run_id = uuid4().hex
@@ -117,9 +236,13 @@ def test_gzip_body_and_sequence_gap_warning(rig: tuple[TestClient, FakeMetricSto
         )
         assert ok.status_code == 200 and ok.json()["warnings"] == []
 
-        gapped = _batch_body(batch_id=str(uuid4()), writer_id=writer_id, seq=10, points=3, step0=3)
+        gapped = _batch_body(
+            batch_id=str(uuid4()), writer_id=writer_id, seq=10, points=3, step0=3
+        )
         warned = client.post(
-            f"/api/v1/runs/{run_id}/batches", headers={"x-api-key": "key-a-writer"}, content=gapped
+            f"/api/v1/runs/{run_id}/batches",
+            headers={"x-api-key": "key-a-writer"},
+            content=gapped,
         )
         assert warned.status_code == 200
         assert any("sequence gap" in w for w in warned.json()["warnings"])
@@ -134,7 +257,10 @@ def test_finish_and_role_gates(rig: tuple[TestClient, FakeMetricStore]) -> None:
         # A reader can query but not write; an unknown key is 401.
         assert _create_run(client, "key-a-reader", uuid4().hex).status_code == 403
         assert (
-            client.get("/api/v1/runs", headers={"x-api-key": "key-a-reader"}).status_code == 200
+            client.get(
+                "/api/v1/runs", headers={"x-api-key": "key-a-reader"}
+            ).status_code
+            == 200
         )
         assert _create_run(client, "no-such-key", uuid4().hex).status_code == 401
 
@@ -153,9 +279,13 @@ def test_query_series_and_logs(rig: tuple[TestClient, FakeMetricStore]) -> None:
     with client:
         run_id = uuid4().hex
         _create_run(client, "key-a-writer", run_id)
-        body = _batch_body(batch_id=str(uuid4()), writer_id=str(uuid4()), seq=0, points=50)
+        body = _batch_body(
+            batch_id=str(uuid4()), writer_id=str(uuid4()), seq=0, points=50
+        )
         client.post(
-            f"/api/v1/runs/{run_id}/batches", headers={"x-api-key": "key-a-writer"}, content=body
+            f"/api/v1/runs/{run_id}/batches",
+            headers={"x-api-key": "key-a-writer"},
+            content=body,
         )
 
         series = client.post(

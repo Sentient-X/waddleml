@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 from ._db import WaddleDB
 from ._run import Run
 from . import _state
-from ._types import WorkerInfo
+from ._types import ResearchTrial, WorkerInfo
 
 
 def init(
@@ -23,6 +23,7 @@ def init(
     run_id: Optional[str] = None,
     worker: Optional[WorkerInfo] = None,
     lineage: Optional[Dict[str, str]] = None,
+    research: Optional[ResearchTrial] = None,
     resume: bool = False,
     sync: Optional[bool] = None,
 ) -> Run:
@@ -42,7 +43,14 @@ def init(
     commit_sha: Optional[str] = None
 
     # try to detect git repo (optional)
-    from ._git import detect_repo_root, get_origin, detect_default_branch, get_head_sha, working_tree_digest
+    from ._git import (
+        detect_repo_root,
+        get_origin,
+        detect_default_branch,
+        get_head_sha,
+        working_tree_digest,
+    )
+
     repo_root = detect_repo_root(os.getcwd())
 
     if repo_root:
@@ -85,6 +93,7 @@ def init(
         system_metrics=system_metrics,
         worker=worker,
         lineage=lineage,
+        research=research,
         resume=resume,
         sync=sync,
     )
@@ -114,7 +123,9 @@ def log_tag(key: str, value: Any) -> None:
     run.log_tag(key, value)
 
 
-def log_artifact(name: str, path: Optional[str] = None, kind: str = "file", inline: bool = False) -> str:
+def log_artifact(
+    name: str, path: Optional[str] = None, kind: str = "file", inline: bool = False
+) -> str:
     run = _state.get_active_run()
     if run is None:
         raise RuntimeError("No active run. Call waddle.init() first.")

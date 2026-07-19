@@ -9,6 +9,7 @@ import { ComparePage } from "@/pages/ComparePage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { LaunchPage } from "@/pages/LaunchPage";
 import { ReportsPage } from "@/pages/ReportsPage";
+import { ResearchPage } from "@/pages/ResearchPage";
 import { ReportViewPage } from "@/pages/ReportViewPage";
 import { ReportEditorPage } from "@/pages/ReportEditorPage";
 
@@ -19,6 +20,7 @@ export function App() {
         <Route path="/" element={<RunsPage />} />
         <Route path="/runs/:runId" element={<RunDetailPage />} />
         <Route path="/compare" element={<ComparePage />} />
+        <Route path="/research" element={<ResearchPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/reports/new" element={<ReportEditorPage isNew />} />

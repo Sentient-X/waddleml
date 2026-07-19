@@ -103,6 +103,9 @@ class SyncEngine:
         world_size: int,
         node_id: str,
         attempt: int,
+        group_name: Optional[str] = None,
+        job_type: Optional[str] = None,
+        research_dict: Optional[Dict[str, Any]] = None,
         start_thread: bool = True,
     ) -> None:
         self._config = config
@@ -110,6 +113,9 @@ class SyncEngine:
         self._project = config.project_override or project
         self._name = name
         self._config_dict = config_dict
+        self._group_name = group_name
+        self._job_type = job_type
+        self._research_dict = research_dict
         self._commit_sha = commit_sha
         self._started_at = started_at
         self._resume = resume
@@ -126,7 +132,9 @@ class SyncEngine:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._backoff = 1.0
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="waddle-sync")
+        self._thread = threading.Thread(
+            target=self._loop, daemon=True, name="waddle-sync"
+        )
         if start_thread:
             self._thread.start()
 
@@ -203,6 +211,9 @@ class SyncEngine:
                 "run_id": self._run_id,
                 "project": self._project,
                 "name": self._name,
+                "group_name": self._group_name,
+                "job_type": self._job_type,
+                "research": self._research_dict,
                 "config": self._config_dict,
                 "commit_sha": self._commit_sha,
                 "started_at": _iso(self._started_at),
@@ -250,8 +261,11 @@ class SyncEngine:
             body=json.dumps(
                 {
                     "files": [
-                        {"logical_path": os.path.basename(path), "sha256": sha256,
-                         "size_bytes": size_bytes}
+                        {
+                            "logical_path": os.path.basename(path),
+                            "sha256": sha256,
+                            "size_bytes": size_bytes,
+                        }
                     ]
                 },
                 ensure_ascii=False,
@@ -349,7 +363,14 @@ class SyncEngine:
             self._conn.execute(
                 "INSERT INTO sync_outbox (batch_id, run_id, sequence_start, sequence_end,"
                 " payload, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
-                [batch_id, self._run_id, sequence_start, sequence_end, payload, time.time()],
+                [
+                    batch_id,
+                    self._run_id,
+                    sequence_start,
+                    sequence_end,
+                    payload,
+                    time.time(),
+                ],
             )
             self._conn.execute(
                 "UPDATE sync_cursor SET last_rowid = $1, next_sequence = $2 WHERE run_id = $3",
@@ -369,7 +390,10 @@ class SyncEngine:
             headers["content-encoding"] = "gzip"
         try:
             self._request(
-                "POST", f"/api/v1/runs/{self._run_id}/batches", body=body, headers=headers
+                "POST",
+                f"/api/v1/runs/{self._run_id}/batches",
+                body=body,
+                headers=headers,
             )
         except urllib.error.HTTPError as error:
             # 409 = digest mismatch on a replayed id: the server kept the original
@@ -393,9 +417,14 @@ class SyncEngine:
             return {**headers, "authorization": f"Bearer {self._config.api_key}"}
         return headers
 
-    def _request(self, method: str, path: str, *, body: bytes, headers: Dict[str, str]) -> None:
+    def _request(
+        self, method: str, path: str, *, body: bytes, headers: Dict[str, str]
+    ) -> None:
         request = urllib.request.Request(
-            self._config.api_url + path, data=body, method=method, headers=self._headers(headers)
+            self._config.api_url + path,
+            data=body,
+            method=method,
+            headers=self._headers(headers),
         )
         with urllib.request.urlopen(request, timeout=10):
             pass
@@ -404,7 +433,10 @@ class SyncEngine:
         self, method: str, path: str, *, body: bytes, headers: Dict[str, str]
     ) -> Dict[str, Any]:
         request = urllib.request.Request(
-            self._config.api_url + path, data=body, method=method, headers=self._headers(headers)
+            self._config.api_url + path,
+            data=body,
+            method=method,
+            headers=self._headers(headers),
         )
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.loads(response.read())

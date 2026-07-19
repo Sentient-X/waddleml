@@ -72,7 +72,9 @@ _RUN_COLUMNS: LiteralString = """
 """
 
 
-async def ensure_project(conn: AsyncConnection[Any], org_id: UUID, name: str) -> ProjectRow:
+async def ensure_project(
+    conn: AsyncConnection[Any], org_id: UUID, name: str
+) -> ProjectRow:
     """Auto-create on first reference (the W&B behavior)."""
     async with conn.cursor(row_factory=class_row(ProjectRow)) as cur:
         await cur.execute(
@@ -179,7 +181,9 @@ async def attach_worker(
     )
 
 
-async def get_run(conn: AsyncConnection[Any], org_id: UUID, run_id: str) -> RunRow | None:
+async def get_run(
+    conn: AsyncConnection[Any], org_id: UUID, run_id: str
+) -> RunRow | None:
     async with conn.cursor(row_factory=class_row(RunRow)) as cur:
         await cur.execute(
             f"SELECT {_RUN_COLUMNS} FROM runs r JOIN projects p ON p.id = r.project_id"
@@ -195,6 +199,8 @@ async def list_runs(
     *,
     project: str | None,
     state: RunState | None,
+    group_name: str | None,
+    job_type: str | None,
     limit: int,
 ) -> list[RunRow]:
     async with conn.cursor(row_factory=class_row(RunRow)) as cur:
@@ -204,19 +210,25 @@ async def list_runs(
             WHERE r.org_id = %(org)s
               AND (%(project)s::text IS NULL OR p.name = %(project)s)
               AND (%(state)s::text IS NULL OR r.state = %(state)s)
+              AND (%(group)s::text IS NULL OR r.group_name = %(group)s)
+              AND (%(job)s::text IS NULL OR r.job_type = %(job)s)
             ORDER BY r.created_at DESC LIMIT %(limit)s
             """,
             {
                 "org": org_id,
                 "project": project,
                 "state": state.value if state is not None else None,
+                "group": group_name,
+                "job": job_type,
                 "limit": limit,
             },
         )
         return await cur.fetchall()
 
 
-async def list_workers(conn: AsyncConnection[Any], org_id: UUID, run_id: str) -> list[WorkerRow]:
+async def list_workers(
+    conn: AsyncConnection[Any], org_id: UUID, run_id: str
+) -> list[WorkerRow]:
     async with conn.cursor(row_factory=class_row(WorkerRow)) as cur:
         await cur.execute(
             "SELECT org_id, run_id, rank, local_rank, world_size, node_id, attempt,"
@@ -273,7 +285,15 @@ async def record_batch(
             ON CONFLICT (org_id, batch_id) DO NOTHING
             RETURNING batch_id
             """,
-            (org_id, batch_id, run_id, writer_id, payload_sha256, sequence_start, sequence_end),
+            (
+                org_id,
+                batch_id,
+                run_id,
+                writer_id,
+                payload_sha256,
+                sequence_start,
+                sequence_end,
+            ),
         )
     ).fetchone()
     if row is not None:
@@ -348,10 +368,10 @@ class ReportVersionRow:
     created_at: datetime
 
 
-_REPORT_COLUMNS: LiteralString = (
-    "id, org_id, name, version, title, description, body, updated_by, created_at, updated_at"
+_REPORT_COLUMNS: LiteralString = "id, org_id, name, version, title, description, body, updated_by, created_at, updated_at"
+_VERSION_COLUMNS: LiteralString = (
+    "report_id, version, name, body, updated_by, created_at"
 )
-_VERSION_COLUMNS: LiteralString = "report_id, version, name, body, updated_by, created_at"
 
 
 async def create_report(
@@ -450,7 +470,9 @@ async def get_report(
         return await cur.fetchone()
 
 
-async def delete_report(conn: AsyncConnection[Any], org_id: UUID, report_id: UUID) -> bool:
+async def delete_report(
+    conn: AsyncConnection[Any], org_id: UUID, report_id: UUID
+) -> bool:
     result = await conn.execute(
         "DELETE FROM reports WHERE org_id = %s AND id = %s", (org_id, report_id)
     )

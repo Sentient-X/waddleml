@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS runs (
     env JSON,
     config JSON,
     notes VARCHAR,
-    lineage JSON
+    lineage JSON,
+    group_name VARCHAR,
+    job_type VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS run_workers (
@@ -88,6 +90,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS lineage JSON;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS repo_id VARCHAR;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS commit_sha VARCHAR;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS group_name VARCHAR;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS job_type VARCHAR;
 ALTER TABLE metrics ADD COLUMN IF NOT EXISTS rank INTEGER DEFAULT 0;
 ALTER TABLE metrics ADD COLUMN IF NOT EXISTS node_id VARCHAR DEFAULT 'localhost';
 ALTER TABLE metrics ADD COLUMN IF NOT EXISTS attempt INTEGER DEFAULT 0;
@@ -234,6 +238,7 @@ worker AS (
 )
 SELECT r.project, r.id AS run_id, r.name AS run_name, r.status,
        r.started_at, r.ended_at, r.commit_sha,
+       r.group_name, r.job_type,
        COALESCE(r.ended_at, l.last_ts) - r.started_at AS duration_seconds,
        l.total_steps, l.latest_loss, l.latest_lr, l.latest_grad_norm,
        l.avg_samples_per_second,

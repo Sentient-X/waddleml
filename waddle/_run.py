@@ -14,7 +14,10 @@ from typing import Any, Dict, Optional
 
 from ._db import WaddleDB
 from ._sync import SyncConfig, SyncEngine
-from ._types import WorkerInfo
+from ._types import ResearchTrial, ResearchTrialError, WorkerInfo
+
+RESEARCH_CONFIG_KEY = "_waddle_research"
+RESEARCH_JOB_TYPE = "autoresearch"
 
 
 class Run:
@@ -31,6 +34,7 @@ class Run:
         system_metrics: bool = True,
         worker: WorkerInfo = WorkerInfo(),
         lineage: Optional[Dict[str, str]] = None,
+        research: Optional[ResearchTrial] = None,
         resume: bool = False,
         sync: Optional[bool] = None,
     ):
@@ -64,11 +68,46 @@ class Run:
             "cwd": os.getcwd(),
             "argv": sys.argv,
         }
-        config_json = json.dumps(config or {}, ensure_ascii=False, sort_keys=True)
+        config_dict = dict(config or {})
+        if RESEARCH_CONFIG_KEY in config_dict:
+            raise ResearchTrialError(
+                f"{RESEARCH_CONFIG_KEY!r} is reserved; pass research=ResearchTrial(...)"
+            )
+        research_dict: Optional[Dict[str, Any]] = None
+        group_name: Optional[str] = None
+        job_type: Optional[str] = None
+        if research is not None:
+            research_dict = {
+                "trial_index": research.trial_index,
+                "objective_name": research.objective_name,
+                "goal": research.goal.value,
+                "hypothesis": research.hypothesis,
+                "parent_run_id": research.parent_run_id,
+            }
+            config_dict[RESEARCH_CONFIG_KEY] = research_dict
+            group_name = research.campaign
+            job_type = RESEARCH_JOB_TYPE
+        config_json = json.dumps(config_dict, ensure_ascii=False, sort_keys=True)
+        if resume:
+            existing = db.fetchone(
+                "SELECT group_name, job_type, config FROM runs WHERE id = $1", [run_id]
+            )
+            if existing is not None and (
+                existing[1] == RESEARCH_JOB_TYPE or job_type == RESEARCH_JOB_TYPE
+            ):
+                existing_config = json.loads(existing[2])
+                if (
+                    existing[0] != group_name
+                    or existing[1] != job_type
+                    or existing_config.get(RESEARCH_CONFIG_KEY) != research_dict
+                ):
+                    raise ResearchTrialError(
+                        "a run's research identity is immutable across resumes"
+                    )
         env_json = json.dumps(env, ensure_ascii=False, sort_keys=True)
         insert_run = """INSERT INTO runs (id, project, repo_id, commit_sha, name, status,
-                                 started_at, env, config, notes, lineage)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"""
+                                 started_at, env, config, notes, lineage, group_name, job_type)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"""
         if resume:
             # Keep the original started_at and notes; refresh what describes
             # the current process.
@@ -79,24 +118,45 @@ class Run:
                    commit_sha = EXCLUDED.commit_sha,
                    env = EXCLUDED.env,
                    config = EXCLUDED.config,
-                   lineage = EXCLUDED.lineage"""
+                   lineage = EXCLUDED.lineage,
+                   group_name = EXCLUDED.group_name,
+                   job_type = EXCLUDED.job_type"""
         db.execute(
             insert_run,
-            [run_id, project, repo_id, commit_sha, self.name,
-             "running", time.time(), env_json, config_json, None,
-             json.dumps(lineage or {}, sort_keys=True)],
+            [
+                run_id,
+                project,
+                repo_id,
+                commit_sha,
+                self.name,
+                "running",
+                time.time(),
+                env_json,
+                config_json,
+                None,
+                json.dumps(lineage or {}, sort_keys=True),
+                group_name,
+                job_type,
+            ],
         )
         db.execute(
             """INSERT INTO run_workers
                (run_id, rank, local_rank, world_size, node_id, attempt, started_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            [run_id, worker.rank, worker.local_rank, worker.world_size,
-             worker.node_id, worker.attempt, time.time()],
+            [
+                run_id,
+                worker.rank,
+                worker.local_rank,
+                worker.world_size,
+                worker.node_id,
+                worker.attempt,
+                time.time(),
+            ],
         )
 
         # log config as params
-        if config:
-            for k, v in config.items():
+        if config_dict:
+            for k, v in config_dict.items():
                 self.log_param(k, v)
 
         # log tags
@@ -122,6 +182,9 @@ class Run:
                     project=project,
                     name=self.name,
                     config_dict=dict(config or {}),
+                    group_name=group_name,
+                    job_type=job_type,
+                    research_dict=research_dict,
                     commit_sha=commit_sha,
                     started_at=time.time(),
                     resume=resume,
@@ -138,6 +201,7 @@ class Run:
     def _start_sysmetrics(self) -> None:
         try:
             from ._sysmetrics import SystemMonitor
+
             self._sysmon = SystemMonitor(self)
             self._sysmon.start()
         except Exception:
@@ -161,8 +225,16 @@ class Run:
                 """INSERT INTO metrics
                    (run_id, key, step, ts, value, rank, node_id, attempt)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-                [self.id, key, step, ts, float(value), self._worker.rank,
-                 self._worker.node_id, self._worker.attempt],
+                [
+                    self.id,
+                    key,
+                    step,
+                    ts,
+                    float(value),
+                    self._worker.rank,
+                    self._worker.node_id,
+                    self._worker.attempt,
+                ],
             )
         if self._sync is not None:
             self._sync.notify()
@@ -181,15 +253,25 @@ class Run:
             [self.id, key, json.dumps(value, ensure_ascii=False)],
         )
 
-    def log_metric(self, key: str, step: int, value: float, ts: Optional[float] = None) -> None:
+    def log_metric(
+        self, key: str, step: int, value: float, ts: Optional[float] = None
+    ) -> None:
         if ts is None:
             ts = time.time()
         self._db.execute(
             """INSERT INTO metrics
                (run_id, key, step, ts, value, rank, node_id, attempt)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-            [self.id, key, step, ts, float(value), self._worker.rank,
-             self._worker.node_id, self._worker.attempt],
+            [
+                self.id,
+                key,
+                step,
+                ts,
+                float(value),
+                self._worker.rank,
+                self._worker.node_id,
+                self._worker.attempt,
+            ],
         )
         if self._sync is not None:
             self._sync.notify()
@@ -249,4 +331,5 @@ class Run:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         self.finish(status="failed" if exc else "completed")
         from . import _state
+
         _state.set_active_run(None)

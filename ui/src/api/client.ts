@@ -101,6 +101,8 @@ function del(path: string): Promise<null> {
 export interface RunFilter {
   project?: string;
   state?: RunState;
+  groupName?: string;
+  jobType?: string;
   limit?: number;
 }
 
@@ -109,6 +111,8 @@ export const waddleApi = {
     const params = new URLSearchParams();
     if (filter.project) params.set("project", filter.project);
     if (filter.state) params.set("state", filter.state);
+    if (filter.groupName) params.set("group_name", filter.groupName);
+    if (filter.jobType) params.set("job_type", filter.jobType);
     if (filter.limit) params.set("limit", String(filter.limit));
     const qs = params.toString();
     return getJson<Run[]>(`/v1/runs${qs ? `?${qs}` : ""}`);
