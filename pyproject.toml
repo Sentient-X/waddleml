@@ -38,10 +38,31 @@ dependencies = [
     "duckdb>=0.9.0",
 ]
 
+# The SDK (waddle/) stays duckdb-only, py>=3.9, importable anywhere. The hosted
+# platform server (waddle_server/, py3.12, glued-workspace-only deps) rides the
+# same project behind the `server` extra — uv cannot nest a workspace member
+# under another member's pyproject, so one project carries both packages.
 [project.optional-dependencies]
 system = ["psutil>=5.9.0"]
 gpu = ["pynvml>=11.5.0"]
 all = ["psutil>=5.9.0", "pynvml>=11.5.0"]
+server = [
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "psycopg[binary,pool]>=3.1",
+    "clickhouse-connect>=0.7",
+    "boto3>=1.34",
+    "httpx>=0.27",
+    "mcp>=1.0",
+    "sx-auth",
+    "sx-observability",
+]
+
+[tool.uv.sources]
+sx-auth = { workspace = true }
+sx-observability = { workspace = true }
 
 [project.scripts]
 waddle = "waddle.cli:main"
@@ -54,5 +75,13 @@ Issues = "https://github.com/Sentient-X/waddleml/issues"
 # Hatchling ships the whole package dir (py.typed included) and emits path-based
 # editables that pyright can resolve — the workspace norm. The Evidence dashboard
 # (evidence/) is a dev tool that lives beside the package, not shipped in the wheel.
+# waddle_server ships too (its migrations are package data); without the `server`
+# extra its imports simply aren't satisfiable — the base SDK install stays light.
 [tool.hatch.build.targets.wheel]
-packages = ["waddle"]
+packages = ["waddle", "waddle_server"]
+
+[tool.pyright]
+# The server is glued-strict; the SDK keeps its py3.9 OSS style.
+typeCheckingMode = "basic"
+strict = ["waddle_server"]
+reportMissingTypeStubs = false

@@ -14,13 +14,21 @@ Core package resides in `waddle/` with a modular architecture:
 | `_schema.py` | DuckDB DDL (7 tables + the `evidence_*` dashboard views) |
 | `_git.py` | Git detection + auto-snapshot (optional, never required) |
 | `_sysmetrics.py` | `SystemMonitor` background thread (CPU/mem/GPU) |
-| `_types.py` | `RepoInfo` dataclass |
-| `cli.py` | CLI entry point: `init`, `ls`, `dashboard` |
+| `_types.py` | `RepoInfo`/`WorkerInfo` dataclasses |
+| `_sync.py` | `SyncEngine` — background upload of the DuckDB spool to the hosted platform (idempotent batches, persisted outbox, artifact uploads); active only when `WADDLE_API_URL`/`WADDLE_API_KEY` are set |
+| `cli.py` | CLI entry point: `init`, `ls`, `dashboard`, `sync` |
 
 The dashboard is an Evidence.dev project in `evidence/` (SQL + markdown over the
 `evidence_*` views), launched by `waddle dashboard`. There is no in-process web server —
 the old Starlette/WebSocket + Plotly dashboard (`_server.py`, `_dashboard_api.py`,
 `static/index.html`) was retired.
+
+The repo's second half is the **hosted platform**: `waddle_server/` (FastAPI control
+plane :8400 over Postgres + ClickHouse + R2, the compaction worker, the org-jailed
+DuckDB SQL sandbox, and the `waddle.*` MCP server :8410) and `ui/` (the console,
+:5179). Server code is py3.12/pyright-strict and resolves only inside the glued
+workspace (`server` extra); the SDK stays py3.9 + duckdb-only — `tests/test_purity.py`
+pins both budgets.
 
 Examples live in `examples/` and tests in `tests/`. Runtime artifacts (`.waddle/waddle.duckdb`) are generated during runs and should remain untracked.
 

@@ -24,6 +24,7 @@ def init(
     worker: Optional[WorkerInfo] = None,
     lineage: Optional[Dict[str, str]] = None,
     resume: bool = False,
+    sync: Optional[bool] = None,
 ) -> Run:
     """Initialize a new run.
 
@@ -32,6 +33,10 @@ def init(
 
     With resume=True an existing run_id is reopened as a new attempt instead of
     failing on the duplicate id (use when continuing from a checkpoint).
+
+    Platform sync is on by default whenever WADDLE_API_URL and WADDLE_API_KEY
+    are set in the environment (sync=False opts out); without them the run is
+    purely local, exactly as before.
     """
     repo_id: Optional[str] = None
     commit_sha: Optional[str] = None
@@ -81,6 +86,7 @@ def init(
         worker=worker,
         lineage=lineage,
         resume=resume,
+        sync=sync,
     )
     _state.set_active_run(run)
     return run

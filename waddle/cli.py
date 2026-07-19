@@ -182,6 +182,55 @@ def _refresh_loop(
         subprocess.run([npm, "run", "sources"], cwd=evidence_dir, capture_output=True)
 
 
+# ---------- sync ----------
+
+def cmd_sync(a: argparse.Namespace) -> int:
+    """Backfill a spool DB to the hosted platform (robot nodes that trained
+    offline). Uses the same engine as live sync, so replays stay idempotent."""
+    from ._db import WaddleDB
+    from ._sync import SyncConfig, SyncEngine
+
+    config = SyncConfig.from_env()
+    if config is None:
+        print("WADDLE_API_URL and WADDLE_API_KEY must be set.", file=sys.stderr)
+        return 1
+    db_path = _find_db(a.db)
+    if not db_path:
+        print("no waddle.duckdb found. pass --db <path>.", file=sys.stderr)
+        return 1
+    db = WaddleDB(db_path)
+    try:
+        rows = db.fetchall(
+            "SELECT id, project, name, status, started_at, commit_sha, config FROM runs"
+            + (" WHERE id = $1" if a.run else ""),
+            [a.run] if a.run else None,
+        )
+        if not rows:
+            print("no matching runs in the spool", file=sys.stderr)
+            return 1
+        for run_id, project, name, status, started_at, commit_sha, config_json in rows:
+            import json as _json
+
+            engine = SyncEngine(
+                db,
+                config,
+                run_id=run_id,
+                project=project or "default",
+                name=name or run_id[:8],
+                config_dict=_json.loads(config_json or "{}"),
+                commit_sha=commit_sha,
+                started_at=started_at,
+                resume=False,
+                rank=0, local_rank=0, world_size=1, node_id="backfill", attempt=0,
+                start_thread=False,
+            )
+            engine.drain_once()
+            print(f"synced {run_id[:8]} ({project}/{name}, {status})")
+    finally:
+        db.close()
+    return 0
+
+
 # ---------- helpers ----------
 
 def _evidence_dir() -> Path:
@@ -233,6 +282,11 @@ def build() -> argparse.ArgumentParser:
     pd.add_argument("--evidence-dir", help="override the Evidence project location")
     pd.add_argument("--no-install", action="store_true", help="fail instead of running npm install")
     pd.set_defaults(func=cmd_dashboard)
+
+    ps = sub.add_parser("sync", help="Backfill a spool DB to the hosted platform")
+    ps.add_argument("--db", help="path to waddle.duckdb (default: nearest .waddle/)")
+    ps.add_argument("--run", help="sync only this run id")
+    ps.set_defaults(func=cmd_sync)
 
     return p
 

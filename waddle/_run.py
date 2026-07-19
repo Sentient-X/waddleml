@@ -13,6 +13,7 @@ from dataclasses import replace
 from typing import Any, Dict, Optional
 
 from ._db import WaddleDB
+from ._sync import SyncConfig, SyncEngine
 from ._types import WorkerInfo
 
 
@@ -31,6 +32,7 @@ class Run:
         worker: WorkerInfo = WorkerInfo(),
         lineage: Optional[Dict[str, str]] = None,
         resume: bool = False,
+        sync: Optional[bool] = None,
     ):
         # resume=True reopens an existing run id (e.g. continuing from a
         # checkpoint after a crash): the run row is upserted back to running
@@ -106,6 +108,30 @@ class Run:
         if system_metrics:
             self._start_sysmetrics()
 
+        # Platform sync: on when WADDLE_API_URL/WADDLE_API_KEY are set (sync=None)
+        # or forced by sync=True; the engine is offline-first and never raises
+        # into training. sync=False keeps a credentialed node local-only.
+        self._sync: Any = None
+        if sync is not False:
+            sync_config = SyncConfig.from_env()
+            if sync_config is not None:
+                self._sync = SyncEngine(
+                    db,
+                    sync_config,
+                    run_id=run_id,
+                    project=project,
+                    name=self.name,
+                    config_dict=dict(config or {}),
+                    commit_sha=commit_sha,
+                    started_at=time.time(),
+                    resume=resume,
+                    rank=worker.rank,
+                    local_rank=worker.local_rank,
+                    world_size=worker.world_size,
+                    node_id=worker.node_id,
+                    attempt=worker.attempt,
+                )
+
         # register atexit
         atexit.register(self._atexit)
 
@@ -138,6 +164,8 @@ class Run:
                 [self.id, key, step, ts, float(value), self._worker.rank,
                  self._worker.node_id, self._worker.attempt],
             )
+        if self._sync is not None:
+            self._sync.notify()
 
     def log_param(self, key: str, value: Any) -> None:
         self._db.execute(
@@ -163,6 +191,8 @@ class Run:
             [self.id, key, step, ts, float(value), self._worker.rank,
              self._worker.node_id, self._worker.attempt],
         )
+        if self._sync is not None:
+            self._sync.notify()
 
     def log_artifact(
         self,
@@ -192,6 +222,8 @@ class Run:
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
             [aid, self.id, name, kind, created, uri, sha_hex, size, blob],
         )
+        if self._sync is not None and path and size is not None:
+            self._sync.upload_artifact(name, os.path.abspath(path), kind, sha_hex, size)
         return aid
 
     # ---- lifecycle ----
@@ -206,6 +238,8 @@ class Run:
             "UPDATE runs SET status = $1, ended_at = $2 WHERE id = $3",
             [status, time.time(), self.id],
         )
+        if self._sync is not None:
+            self._sync.finalize(status)
 
     # ---- context manager ----
 

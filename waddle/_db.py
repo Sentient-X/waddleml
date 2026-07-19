@@ -61,6 +61,13 @@ class WaddleDB:
                 return self._conn.execute(sql, params).fetchall()
             return self._conn.execute(sql).fetchall()
 
+    def cursor(self) -> duckdb.DuckDBPyConnection:
+        """A second connection onto the same database — its own transaction
+        scope, so the sync engine's BEGIN/COMMIT can never swallow the training
+        thread's concurrent inserts."""
+        with self._lock:
+            return self._conn.cursor()
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()

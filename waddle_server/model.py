@@ -1,0 +1,45 @@
+"""The server's typed vocabulary. Wire values are contracts: ``RunState`` is
+byte-equal to the SDK's run status strings, ``WaddleRole`` to the audience roles
+seeded in sx_authd's registry."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import NewType
+
+RunKey = NewType("RunKey", str)  # the SDK run id: 32 lowercase hex chars
+MetricName = NewType("MetricName", str)
+ProjectName = NewType("ProjectName", str)
+
+
+class RunState(StrEnum):
+    """Byte-equal to the SDK's ``runs.status`` vocabulary (waddle/_run.py)."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    ABORTED = "aborted"
+
+
+class LogLevel(StrEnum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class WaddleRole(StrEnum):
+    """The waddle audience roles (sx_authd migration 0003). Authorization is
+    org-granular: a role applies to the whole org's tracking data — scoped
+    grants are deliberately not consulted here (no per-run ACLs exist)."""
+
+    READER = "reader"
+    WRITER = "writer"
+    ADMIN = "admin"
+
+
+_ROLE_RANK = {WaddleRole.READER: 0, WaddleRole.WRITER: 1, WaddleRole.ADMIN: 2}
+
+
+def role_at_least(role: WaddleRole, required: WaddleRole) -> bool:
+    return _ROLE_RANK[role] >= _ROLE_RANK[required]

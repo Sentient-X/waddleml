@@ -1,12 +1,8 @@
 """Core WaddleDB tests — repos, commits, basic storage."""
 
-import json
-import os
 import subprocess
 from pathlib import Path
 
-import duckdb
-import pytest
 
 from waddle import WaddleDB
 

@@ -25,7 +25,21 @@ waddle dashboard
 - **DuckDB storage** — fast, single-file database in `.waddle/waddle.duckdb`. No server process needed.
 - **System metrics** — optional background thread captures CPU, memory, and GPU utilization.
 - **SQL-native dashboard** — an [Evidence.dev](https://evidence.dev) project (`evidence/`) reading the `evidence_*` DuckDB views: a filterable runs overview, a per-run deep-dive generated for every run, and multi-run comparison. `waddle dashboard` snapshots the DB and serves it live.
-- **Three-command CLI** — `waddle init`, `waddle ls`, `waddle dashboard`. That's it.
+- **Hosted platform sync (optional)** — set `WADDLE_API_URL` + `WADDLE_API_KEY` and every
+  run also streams to the Sentient-X waddle platform: the local DuckDB is the durable
+  spool, a background thread uploads idempotent batches (at-least-once wire,
+  exactly-once logical), artifacts ride presigned uploads, and a crashed or offline
+  node backfills later with `waddle sync`. No env vars → purely local, exactly as before.
+- **Four-command CLI** — `waddle init`, `waddle ls`, `waddle dashboard`, `waddle sync`.
+
+## The hosted platform (this repo's second half)
+
+`waddle_server/` is the multi-tenant experiment-tracking service the SDK syncs to
+(FastAPI :8400 + ClickHouse + Postgres + R2, company-isolated via the Sentient-X
+identity control plane), with a compaction worker, an org-jailed DuckDB SQL endpoint,
+the `waddle.*` MCP storefront, and the console UI (`ui/`, :5179). It resolves its
+dependencies only inside the `glued` workspace (install with the `server` extra);
+the SDK above stays dependency-light and works anywhere.
 
 ## Quick Start
 

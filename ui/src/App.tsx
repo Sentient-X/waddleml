@@ -1,0 +1,39 @@
+import { Navigate, Route, Routes } from "react-router-dom";
+import { Waypoints } from "lucide-react";
+import { EmptyState } from "@sx/ui";
+
+import { AppShell } from "@/components/AppShell";
+import { RunsPage } from "@/pages/RunsPage";
+import { RunDetailPage } from "@/pages/RunDetailPage";
+import { ComparePage } from "@/pages/ComparePage";
+import { ProjectsPage } from "@/pages/ProjectsPage";
+import { SqlPage } from "@/pages/SqlPage";
+import { LaunchPage } from "@/pages/LaunchPage";
+
+export function App() {
+  return (
+    <AppShell>
+      <Routes>
+        <Route path="/" element={<RunsPage />} />
+        <Route path="/runs/:runId" element={<RunDetailPage />} />
+        <Route path="/compare" element={<ComparePage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/sql" element={<SqlPage />} />
+        <Route path="/launch" element={<LaunchPage />} />
+        <Route
+          path="/not-found"
+          element={
+            <div className="grid h-full place-items-center py-16">
+              <EmptyState
+                icon={<Waypoints />}
+                title="Not part of the console"
+                hint="This route isn't a waddle console surface."
+              />
+            </div>
+          }
+        />
+        <Route path="*" element={<Navigate to="/not-found" replace />} />
+      </Routes>
+    </AppShell>
+  );
+}

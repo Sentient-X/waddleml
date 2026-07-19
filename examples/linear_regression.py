@@ -12,7 +12,6 @@ Usage:
 import argparse
 import json
 import random
-import sys
 import tempfile
 from pathlib import Path
 
