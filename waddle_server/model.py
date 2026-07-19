@@ -5,11 +5,6 @@ seeded in sx_authd's registry."""
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import NewType
-
-RunKey = NewType("RunKey", str)  # the SDK run id: 32 lowercase hex chars
-MetricName = NewType("MetricName", str)
-ProjectName = NewType("ProjectName", str)
 
 
 class RunState(StrEnum):
