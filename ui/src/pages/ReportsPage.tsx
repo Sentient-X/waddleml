@@ -34,6 +34,14 @@ export function ReportsPage() {
         ),
     },
     {
+      key: "version",
+      header: "Version",
+      mono: true,
+      align: "right",
+      sort: (r) => r.version,
+      cell: (r) => <span className="text-muted-foreground">v{r.version}</span>,
+    },
+    {
       key: "updated",
       header: "Updated · UTC",
       mono: true,
@@ -65,10 +73,10 @@ export function ReportsPage() {
         <DataTable
           columns={columns}
           rows={reportsQuery.data ?? []}
-          rowKey={(r) => r.name}
+          rowKey={(r) => r.id}
           defaultSort={{ key: "updated", dir: "desc" }}
           loading={reportsQuery.isLoading}
-          onRowClick={(r) => navigate(`/reports/${encodeURIComponent(r.name)}`)}
+          onRowClick={(r) => navigate(`/reports/${r.id}`)}
           empty={
             <EmptyState
               icon={<FileText />}

@@ -18,7 +18,10 @@ they share the staging and the jail, and succeed or fail independently.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import os
+import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -30,12 +33,63 @@ from psycopg import AsyncConnection
 
 from waddle_server.errors import SqlSandboxError
 from waddle_server.model import ColumnType
-from waddle_server.server.storage import DATASET_NAME_RE, ObjectStore, write_parquet
+from waddle_server.server.storage import (
+    DATASET_NAME_RE,
+    ObjectInfo,
+    ObjectStore,
+    write_parquet,
+)
 from waddle_server.worker.compact import RUN_COLUMNS
 
 WALL_TIMEOUT_S = 30.0
 CPU_LIMIT_S = 25
 MEMORY_LIMIT_BYTES = 1 << 31  # 2 GiB address space for the child
+
+
+class StagingCache:
+    """Content-addressed local cache for the org Parquet the sandbox stages.
+
+    Keyed by ``(object key, ETag)``: a replaced snapshot changes its ETag and
+    refetches; an unchanged one is a hardlink, so back-to-back queries and
+    report renders stop re-downloading the substrate from the object store.
+    Bounded by LRU-on-mtime pruning; the cache never holds the only copy of
+    anything (the object store is the truth), so eviction is always safe.
+    """
+
+    def __init__(self, root: Path, max_bytes: int) -> None:
+        self._root = root
+        self._max_bytes = max_bytes
+        root.mkdir(parents=True, exist_ok=True)
+
+    def fetch(self, store: ObjectStore, obj: ObjectInfo) -> Path:
+        digest = hashlib.sha256(f"{obj.key}@{obj.etag}".encode()).hexdigest()
+        path = self._root / digest
+        if path.exists():
+            path.touch()  # LRU recency
+            return path
+        tmp = self._root / f"{digest}.tmp{os.getpid()}"
+        tmp.write_bytes(store.get_bytes(obj.key))
+        tmp.replace(path)  # atomic under concurrent fetches of the same object
+        self._prune()
+        return path
+
+    def _prune(self) -> None:
+        blobs = [p for p in self._root.iterdir() if p.is_file() and ".tmp" not in p.name]
+        total = sum(p.stat().st_size for p in blobs)
+        for path in sorted(blobs, key=lambda p: p.stat().st_mtime):
+            if total <= self._max_bytes:
+                break
+            total -= path.stat().st_size
+            path.unlink(missing_ok=True)
+
+
+def _place(source: Path, dest: Path) -> None:
+    """Hardlink a cached blob into the scratch jail (copy when linking can't)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(source, dest)
+    except OSError:
+        shutil.copy2(source, dest)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,13 +113,14 @@ async def run_queries(
     *,
     queries: dict[str, str],
     max_rows: int,
+    cache: StagingCache | None = None,
 ) -> dict[str, SqlResult | QueryFailure]:
     """Stage the org's data once, run every named query in one jailed child.
     Whole-batch failures (timeout, crash) raise; per-query SQL errors come
     back as QueryFailure so a report can render its healthy panels."""
     with tempfile.TemporaryDirectory(prefix="waddle-sqlbox-") as scratch_str:
         scratch = Path(scratch_str)
-        datasets = await _stage_org_data(conn, store, org_id, scratch)
+        datasets = await _stage_org_data(conn, store, org_id, scratch, cache)
         spec = json.dumps(
             {
                 "datasets": {name: [str(p) for p in paths] for name, paths in datasets.items()},
@@ -117,9 +172,12 @@ async def run_sql(
     *,
     sql: str,
     max_rows: int,
+    cache: StagingCache | None = None,
 ) -> SqlResult:
     outcome = (
-        await run_queries(conn, store, org_id, queries={"query": sql}, max_rows=max_rows)
+        await run_queries(
+            conn, store, org_id, queries={"query": sql}, max_rows=max_rows, cache=cache
+        )
     )["query"]
     if isinstance(outcome, QueryFailure):
         raise SqlSandboxError(outcome.kind, outcome.message)
@@ -127,25 +185,32 @@ async def run_sql(
 
 
 async def _stage_org_data(
-    conn: AsyncConnection[Any], store: ObjectStore, org_id: UUID, scratch: Path
+    conn: AsyncConnection[Any],
+    store: ObjectStore,
+    org_id: UUID,
+    scratch: Path,
+    cache: StagingCache | None,
 ) -> dict[str, list[Path]]:
-    """Download the org's Parquet subtree + write a fresh runs snapshot.
+    """Stage the org's Parquet subtree + write a fresh runs snapshot.
 
     The staged file set IS the security boundary: nothing outside
     ``orgs/{org_id}/parquet/`` is ever touched, and the child never sees a
-    credential or a URL."""
+    credential or a URL. With a cache, unchanged objects are hardlinks."""
     datasets: dict[str, list[Path]] = {}
     prefix = f"orgs/{org_id}/parquet/"
-    for key in store.list_keys(prefix):
-        dataset = key[len(prefix) :].split("/", 1)[0]
+    for obj in store.list_objects(prefix):
+        dataset = obj.key[len(prefix) :].split("/", 1)[0]
         # `runs` is always the fresher Postgres snapshot below; a name that
         # fails the dataset law never becomes a view (it would be spliced into
         # the child's CREATE VIEW statement).
         if dataset == "runs" or DATASET_NAME_RE.fullmatch(dataset) is None:
             continue
-        dest = scratch / dataset / key.rsplit("/", 1)[-1]
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(store.get_bytes(key))
+        dest = scratch / dataset / obj.key.rsplit("/", 1)[-1]
+        if cache is not None:
+            _place(cache.fetch(store, obj), dest)
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(store.get_bytes(obj.key))
         datasets.setdefault(dataset, []).append(dest)
 
     runs = await (

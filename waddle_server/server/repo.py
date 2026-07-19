@@ -326,8 +326,10 @@ async def org_limits(conn: AsyncConnection[Any], org_id: UUID) -> OrgLimitsRow |
 
 @dataclass(frozen=True, slots=True)
 class ReportRow:
+    id: UUID
     org_id: UUID
     name: str
+    version: int
     title: str | None
     description: str | None
     body: str
@@ -336,61 +338,148 @@ class ReportRow:
     updated_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class ReportVersionRow:
+    report_id: UUID
+    version: int
+    name: str
+    body: str
+    updated_by: str | None
+    created_at: datetime
+
+
 _REPORT_COLUMNS: LiteralString = (
-    "org_id, name, title, description, body, updated_by, created_at, updated_at"
+    "id, org_id, name, version, title, description, body, updated_by, created_at, updated_at"
 )
+_VERSION_COLUMNS: LiteralString = "report_id, version, name, body, updated_by, created_at"
 
 
-async def upsert_report(
+async def create_report(
     conn: AsyncConnection[Any],
     org_id: UUID,
-    name: str,
     *,
+    name: str,
     title: str | None,
     description: str | None,
     body: str,
     updated_by: str | None,
-) -> ReportRow:
+) -> ReportRow | None:
+    """Create version 1; ``None`` means the name is already taken in this org."""
     async with conn.cursor(row_factory=class_row(ReportRow)) as cur:
         await cur.execute(
             f"""
             INSERT INTO reports (org_id, name, title, description, body, updated_by)
             VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (org_id, name) DO UPDATE
-                SET title = EXCLUDED.title, description = EXCLUDED.description,
-                    body = EXCLUDED.body, updated_by = EXCLUDED.updated_by,
-                    updated_at = now()
+            ON CONFLICT (org_id, name) DO NOTHING
             RETURNING {_REPORT_COLUMNS}
             """,
             (org_id, name, title, description, body, updated_by),
         )
         row = await cur.fetchone()
-        assert row is not None
-        return row
+    if row is not None:
+        await _append_version(conn, row)
+    return row
 
 
-async def list_reports(conn: AsyncConnection[Any], org_id: UUID) -> list[ReportRow]:
+async def update_report(
+    conn: AsyncConnection[Any],
+    org_id: UUID,
+    report_id: UUID,
+    *,
+    name: str,
+    title: str | None,
+    description: str | None,
+    body: str,
+    updated_by: str | None,
+) -> ReportRow | None:
+    """Bump the version and append it to the history (rename rides the same
+    save). Runs inside the request's transaction, so the reports row and its
+    version row commit together."""
     async with conn.cursor(row_factory=class_row(ReportRow)) as cur:
         await cur.execute(
-            f"SELECT {_REPORT_COLUMNS} FROM reports WHERE org_id = %s ORDER BY name",
-            (org_id,),
+            f"""
+            UPDATE reports
+            SET name = %s, title = %s, description = %s, body = %s,
+                updated_by = %s, version = version + 1, updated_at = now()
+            WHERE org_id = %s AND id = %s
+            RETURNING {_REPORT_COLUMNS}
+            """,
+            (name, title, description, body, updated_by, org_id, report_id),
         )
+        row = await cur.fetchone()
+    if row is not None:
+        await _append_version(conn, row)
+    return row
+
+
+async def _append_version(conn: AsyncConnection[Any], row: ReportRow) -> None:
+    await conn.execute(
+        """
+        INSERT INTO report_versions (report_id, org_id, version, name, body, updated_by)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (row.id, row.org_id, row.version, row.name, row.body, row.updated_by),
+    )
+
+
+async def list_reports(
+    conn: AsyncConnection[Any], org_id: UUID, *, name: str | None = None
+) -> list[ReportRow]:
+    async with conn.cursor(row_factory=class_row(ReportRow)) as cur:
+        if name is None:
+            await cur.execute(
+                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE org_id = %s ORDER BY name",
+                (org_id,),
+            )
+        else:
+            await cur.execute(
+                f"SELECT {_REPORT_COLUMNS} FROM reports WHERE org_id = %s AND name = %s",
+                (org_id, name),
+            )
         return await cur.fetchall()
 
 
 async def get_report(
-    conn: AsyncConnection[Any], org_id: UUID, name: str
+    conn: AsyncConnection[Any], org_id: UUID, report_id: UUID
 ) -> ReportRow | None:
     async with conn.cursor(row_factory=class_row(ReportRow)) as cur:
         await cur.execute(
-            f"SELECT {_REPORT_COLUMNS} FROM reports WHERE org_id = %s AND name = %s",
-            (org_id, name),
+            f"SELECT {_REPORT_COLUMNS} FROM reports WHERE org_id = %s AND id = %s",
+            (org_id, report_id),
         )
         return await cur.fetchone()
 
 
-async def delete_report(conn: AsyncConnection[Any], org_id: UUID, name: str) -> bool:
+async def delete_report(conn: AsyncConnection[Any], org_id: UUID, report_id: UUID) -> bool:
     result = await conn.execute(
-        "DELETE FROM reports WHERE org_id = %s AND name = %s", (org_id, name)
+        "DELETE FROM reports WHERE org_id = %s AND id = %s", (org_id, report_id)
     )
     return result.rowcount > 0
+
+
+async def list_report_versions(
+    conn: AsyncConnection[Any], org_id: UUID, report_id: UUID
+) -> list[ReportVersionRow]:
+    async with conn.cursor(row_factory=class_row(ReportVersionRow)) as cur:
+        await cur.execute(
+            f"""
+            SELECT {_VERSION_COLUMNS} FROM report_versions
+            WHERE org_id = %s AND report_id = %s ORDER BY version DESC
+            """,
+            (org_id, report_id),
+        )
+        return await cur.fetchall()
+
+
+async def get_report_version(
+    conn: AsyncConnection[Any], org_id: UUID, report_id: UUID, version: int
+) -> ReportVersionRow | None:
+    async with conn.cursor(row_factory=class_row(ReportVersionRow)) as cur:
+        await cur.execute(
+            f"""
+            SELECT {_VERSION_COLUMNS} FROM report_versions
+            WHERE org_id = %s AND report_id = %s AND version = %s
+            """,
+            (org_id, report_id, version),
+        )
+        return await cur.fetchone()

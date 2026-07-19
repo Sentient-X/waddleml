@@ -77,8 +77,16 @@ class ReportCompileError(WaddleServerError):
 class ReportNotFoundError(WaddleServerError):
     code = "report_not_found"
 
+    def __init__(self, ref: str) -> None:
+        super().__init__(f"no report {ref!r} in this organization")
+        self.ref = ref
+
+
+class ReportNameTakenError(WaddleServerError):
+    code = "report_name_taken"
+
     def __init__(self, name: str) -> None:
-        super().__init__(f"no report {name!r} in this organization")
+        super().__init__(f"a report named {name!r} already exists in this organization")
         self.name = name
 
 

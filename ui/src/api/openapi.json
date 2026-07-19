@@ -216,6 +216,28 @@
         "title": "CommitArtifactIn",
         "type": "object"
       },
+      "CreateReportIn": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "body"
+        ],
+        "title": "CreateReportIn",
+        "type": "object"
+      },
       "CreateRunIn": {
         "additionalProperties": false,
         "description": "Create-or-attach: rank 0 and rank>0 workers, first attempts and resumes\nall send the same shape.",
@@ -852,6 +874,11 @@
             ],
             "title": "Description"
           },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -896,10 +923,16 @@
               }
             ],
             "title": "Updated By"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
+          "id",
           "name",
+          "version",
           "title",
           "description",
           "updated_by",
@@ -912,6 +945,7 @@
         "type": "object"
       },
       "ReportSummaryOut": {
+        "description": "The stable identity is ``id`` (the URL/API key); ``name`` is a\nrenameable per-org slug.",
         "properties": {
           "description": {
             "anyOf": [
@@ -923,6 +957,11 @@
               }
             ],
             "title": "Description"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
           },
           "name": {
             "title": "Name",
@@ -954,16 +993,99 @@
               }
             ],
             "title": "Updated By"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
+          "id",
           "name",
+          "version",
           "title",
           "description",
           "updated_by",
           "updated_at"
         ],
         "title": "ReportSummaryOut",
+        "type": "object"
+      },
+      "ReportVersionDetailOut": {
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "name",
+          "updated_by",
+          "created_at",
+          "body"
+        ],
+        "title": "ReportVersionDetailOut",
+        "type": "object"
+      },
+      "ReportVersionOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "name",
+          "updated_by",
+          "created_at"
+        ],
+        "title": "ReportVersionOut",
         "type": "object"
       },
       "RunDetailOut": {
@@ -1297,22 +1419,6 @@
         "title": "RunState",
         "type": "string"
       },
-      "SaveReportIn": {
-        "additionalProperties": false,
-        "properties": {
-          "body": {
-            "maxLength": 200000,
-            "minLength": 1,
-            "title": "Body",
-            "type": "string"
-          }
-        },
-        "required": [
-          "body"
-        ],
-        "title": "SaveReportIn",
-        "type": "object"
-      },
       "SeriesPointOut": {
         "properties": {
           "step": {
@@ -1406,6 +1512,35 @@
           "truncated"
         ],
         "title": "SqlResultOut",
+        "type": "object"
+      },
+      "UpdateReportIn": {
+        "additionalProperties": false,
+        "description": "A save: new body, optionally a rename. Every accepted save appends an\nimmutable version.",
+        "properties": {
+          "body": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "UpdateReportIn",
         "type": "object"
       },
       "UploadFileIn": {
@@ -2044,7 +2179,27 @@
     },
     "/api/v1/reports": {
       "get": {
+        "description": "All reports, or `?name=` to resolve one slug to its id.",
         "operationId": "list_reports_api_v1_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Name"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2059,9 +2214,56 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Reports"
+      },
+      "post": {
+        "description": "Compile-validate then create version 1; a body the compiler rejects\nis never stored (a saved report always renders or fails only on data).",
+        "operationId": "create_report_api_v1_reports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Report"
       }
     },
     "/api/v1/reports/preview": {
@@ -2103,17 +2305,16 @@
         "summary": "Preview Report"
       }
     },
-    "/api/v1/reports/{name}": {
+    "/api/v1/reports/{report_id}": {
       "delete": {
-        "operationId": "delete_report_api_v1_reports__name__delete",
+        "operationId": "delete_report_api_v1_reports__report_id__delete",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "report_id",
             "required": true,
             "schema": {
-              "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
-              "title": "Name",
+              "title": "Report Id",
               "type": "string"
             }
           }
@@ -2136,15 +2337,14 @@
         "summary": "Delete Report"
       },
       "get": {
-        "operationId": "get_report_api_v1_reports__name__get",
+        "operationId": "get_report_api_v1_reports__report_id__get",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "report_id",
             "required": true,
             "schema": {
-              "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
-              "title": "Name",
+              "title": "Report Id",
               "type": "string"
             }
           }
@@ -2174,16 +2374,15 @@
         "summary": "Get Report"
       },
       "put": {
-        "description": "Compile-validate then upsert: a body the compiler rejects is never\nstored (a saved report always renders or fails only on data).",
-        "operationId": "save_report_api_v1_reports__name__put",
+        "description": "Save (optionally rename): compile-validate, bump the version, append\nthe immutable history row.",
+        "operationId": "update_report_api_v1_reports__report_id__put",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "report_id",
             "required": true,
             "schema": {
-              "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
-              "title": "Name",
+              "title": "Report Id",
               "type": "string"
             }
           }
@@ -2192,7 +2391,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SaveReportIn"
+                "$ref": "#/components/schemas/UpdateReportIn"
               }
             }
           },
@@ -2220,20 +2419,19 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Save Report"
+        "summary": "Update Report"
       }
     },
-    "/api/v1/reports/{name}/render": {
+    "/api/v1/reports/{report_id}/render": {
       "post": {
-        "operationId": "render_report_api_v1_reports__name__render_post",
+        "operationId": "render_report_api_v1_reports__report_id__render_post",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "report_id",
             "required": true,
             "schema": {
-              "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
-              "title": "Name",
+              "title": "Report Id",
               "type": "string"
             }
           }
@@ -2271,6 +2469,97 @@
           }
         },
         "summary": "Render Report"
+      }
+    },
+    "/api/v1/reports/{report_id}/versions": {
+      "get": {
+        "operationId": "list_report_versions_api_v1_reports__report_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReportVersionOut"
+                  },
+                  "title": "Response List Report Versions Api V1 Reports  Report Id  Versions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Report Versions"
+      }
+    },
+    "/api/v1/reports/{report_id}/versions/{version}": {
+      "get": {
+        "operationId": "get_report_version_api_v1_reports__report_id__versions__version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportVersionDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Report Version"
       }
     },
     "/api/v1/runs": {

@@ -216,6 +216,15 @@ class FakeObjectStore(ObjectStore):
     def list_keys(self, prefix: str):
         return (key for key in sorted(self.objects) if key.startswith(prefix))
 
+    def list_objects(self, prefix: str):
+        from hashlib import sha256
+
+        from waddle_server.server.storage import ObjectInfo
+
+        for key in sorted(self.objects):
+            if key.startswith(prefix):
+                yield ObjectInfo(key=key, etag=sha256(self.objects[key]).hexdigest()[:16])
+
     def ensure_bucket(self) -> None:
         pass
 

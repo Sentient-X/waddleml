@@ -27,6 +27,7 @@ from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg import AsyncConnection
+from psycopg import errors as pg_errors
 from sx_auth.client import AuthClient
 from sx_observability import ObservabilityMiddleware, configure_logging, get_logger
 
@@ -40,6 +41,7 @@ from waddle_server.errors import (
     QueryLimitError,
     QuotaExceededError,
     ReportCompileError,
+    ReportNameTakenError,
     ReportNotFoundError,
     RunNotFoundError,
     SqlSandboxError,
@@ -56,6 +58,7 @@ from waddle_server.server.schemas import (
     BatchAck,
     BatchIn,
     CommitArtifactIn,
+    CreateReportIn,
     CreateRunIn,
     CreateUploadSessionIn,
     DatasetInfoOut,
@@ -75,14 +78,16 @@ from waddle_server.server.schemas import (
     RenderReportOut,
     ReportOut,
     ReportSummaryOut,
+    ReportVersionDetailOut,
+    ReportVersionOut,
     RunDetailOut,
     RunLineageOut,
     RunOut,
     RunRef,
-    SaveReportIn,
     SeriesPointOut,
     SqlQueryIn,
     SqlResultOut,
+    UpdateReportIn,
     UploadSessionOut,
     UploadTargetOut,
     WorkerOut,
@@ -115,6 +120,10 @@ def build_app(
     blobs = object_store or ObjectStore(cfg)
     client = auth_client or AuthClient(
         base_url=cfg.auth_url, service_key=cfg.auth_service_key, audience="waddle"
+    )
+    staging = sqlbox.StagingCache(
+        cfg.sqlbox_cache_dir or FsPath(tempfile.gettempdir()) / "waddle-sqlbox-cache",
+        cfg.sqlbox_cache_max_bytes,
     )
 
     @asynccontextmanager
@@ -489,7 +498,7 @@ def build_app(
         require_role(pr, WaddleRole.READER)
         try:
             result = await sqlbox.run_sql(
-                c, blobs, pr.org_id, sql=body.sql, max_rows=body.max_rows
+                c, blobs, pr.org_id, sql=body.sql, max_rows=body.max_rows, cache=staging
             )
         except SqlSandboxError as err:
             raise HTTPException(
@@ -517,7 +526,9 @@ def build_app(
 
     def _report_out(row: repo.ReportRow, compiled: reports.CompiledReport) -> ReportOut:
         return ReportOut(
+            id=row.id,
             name=row.name,
+            version=row.version,
             title=row.title,
             description=row.description,
             updated_by=row.updated_by,
@@ -559,7 +570,7 @@ def build_app(
             raise _error(422, err, err.code) from err
         try:
             outcomes = await sqlbox.run_queries(
-                c, blobs, pr.org_id, queries=final_sql, max_rows=max_rows
+                c, blobs, pr.org_id, queries=final_sql, max_rows=max_rows, cache=staging
             )
         except SqlSandboxError as err:
             raise HTTPException(
@@ -579,71 +590,146 @@ def build_app(
             },
         )
 
+    def _summary_out(r: repo.ReportRow) -> ReportSummaryOut:
+        return ReportSummaryOut(
+            id=r.id,
+            name=r.name,
+            version=r.version,
+            title=r.title,
+            description=r.description,
+            updated_by=r.updated_by,
+            updated_at=r.updated_at,
+        )
+
     @app.get("/api/v1/reports", response_model=list[ReportSummaryOut])
     async def list_reports(
-        c: AsyncConnection[Any] = Depends(conn), pr: WaddlePrincipal = Depends(principal)
+        name: str | None = Query(default=None, pattern=REPORT_NAME_PATTERN),
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
     ) -> list[ReportSummaryOut]:
+        """All reports, or `?name=` to resolve one slug to its id."""
         require_role(pr, WaddleRole.READER)
-        return [
-            ReportSummaryOut(
-                name=r.name,
-                title=r.title,
-                description=r.description,
-                updated_by=r.updated_by,
-                updated_at=r.updated_at,
-            )
-            for r in await repo.list_reports(c, pr.org_id)
-        ]
+        return [_summary_out(r) for r in await repo.list_reports(c, pr.org_id, name=name)]
 
-    async def _report_or_404(
-        c: AsyncConnection[Any], pr: WaddlePrincipal, name: str
-    ) -> repo.ReportRow:
-        row = await repo.get_report(c, pr.org_id, name)
-        if row is None:
-            raise _error(404, ReportNotFoundError(name), ReportNotFoundError.code)
-        return row
-
-    @app.get("/api/v1/reports/{name}", response_model=ReportOut)
-    async def get_report(
-        name: str = Path(pattern=REPORT_NAME_PATTERN),
+    @app.post("/api/v1/reports", response_model=ReportOut, status_code=201)
+    async def create_report(
+        body: CreateReportIn,
         c: AsyncConnection[Any] = Depends(conn),
         pr: WaddlePrincipal = Depends(principal),
     ) -> ReportOut:
-        require_role(pr, WaddleRole.READER)
-        row = await _report_or_404(c, pr, name)
-        return _report_out(row, _compile_or_422(row.body))
-
-    @app.put("/api/v1/reports/{name}", response_model=ReportOut)
-    async def save_report(
-        body: SaveReportIn,
-        name: str = Path(pattern=REPORT_NAME_PATTERN),
-        c: AsyncConnection[Any] = Depends(conn),
-        pr: WaddlePrincipal = Depends(principal),
-    ) -> ReportOut:
-        """Compile-validate then upsert: a body the compiler rejects is never
-        stored (a saved report always renders or fails only on data)."""
+        """Compile-validate then create version 1; a body the compiler rejects
+        is never stored (a saved report always renders or fails only on data)."""
         require_role(pr, WaddleRole.WRITER)
         compiled = _compile_or_422(body.body)
-        row = await repo.upsert_report(
+        row = await repo.create_report(
             c,
             pr.org_id,
-            name,
+            name=body.name,
             title=compiled.title,
             description=compiled.description,
             body=body.body,
             updated_by=pr.subject,
         )
+        if row is None:
+            raise _error(409, ReportNameTakenError(body.name), ReportNameTakenError.code)
         return _report_out(row, compiled)
 
-    @app.delete("/api/v1/reports/{name}", status_code=204)
+    async def _report_or_404(
+        c: AsyncConnection[Any], pr: WaddlePrincipal, report_id: str
+    ) -> repo.ReportRow:
+        row = await repo.get_report(c, pr.org_id, _uuid_or_404(report_id))
+        if row is None:
+            raise _error(404, ReportNotFoundError(report_id), ReportNotFoundError.code)
+        return row
+
+    @app.get("/api/v1/reports/{report_id}", response_model=ReportOut)
+    async def get_report(
+        report_id: str,
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> ReportOut:
+        require_role(pr, WaddleRole.READER)
+        row = await _report_or_404(c, pr, report_id)
+        return _report_out(row, _compile_or_422(row.body))
+
+    @app.put("/api/v1/reports/{report_id}", response_model=ReportOut)
+    async def update_report(
+        report_id: str,
+        body: UpdateReportIn,
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> ReportOut:
+        """Save (optionally rename): compile-validate, bump the version, append
+        the immutable history row."""
+        require_role(pr, WaddleRole.WRITER)
+        current = await _report_or_404(c, pr, report_id)
+        compiled = _compile_or_422(body.body)
+        name = body.name or current.name
+        try:
+            row = await repo.update_report(
+                c,
+                pr.org_id,
+                current.id,
+                name=name,
+                title=compiled.title,
+                description=compiled.description,
+                body=body.body,
+                updated_by=pr.subject,
+            )
+        except pg_errors.UniqueViolation as err:
+            raise _error(409, ReportNameTakenError(name), ReportNameTakenError.code) from err
+        assert row is not None  # existence checked above, same transaction
+        return _report_out(row, compiled)
+
+    @app.delete("/api/v1/reports/{report_id}", status_code=204)
     async def delete_report(
-        name: str = Path(pattern=REPORT_NAME_PATTERN),
+        report_id: str,
         c: AsyncConnection[Any] = Depends(conn),
         pr: WaddlePrincipal = Depends(principal),
     ) -> None:
         require_role(pr, WaddleRole.WRITER)
-        if not await repo.delete_report(c, pr.org_id, name):
-            raise _error(404, ReportNotFoundError(name), ReportNotFoundError.code)
+        if not await repo.delete_report(c, pr.org_id, _uuid_or_404(report_id)):
+            raise _error(404, ReportNotFoundError(report_id), ReportNotFoundError.code)
+
+    @app.get("/api/v1/reports/{report_id}/versions", response_model=list[ReportVersionOut])
+    async def list_report_versions(
+        report_id: str,
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> list[ReportVersionOut]:
+        require_role(pr, WaddleRole.READER)
+        row = await _report_or_404(c, pr, report_id)
+        return [
+            ReportVersionOut(
+                version=v.version, name=v.name, updated_by=v.updated_by, created_at=v.created_at
+            )
+            for v in await repo.list_report_versions(c, pr.org_id, row.id)
+        ]
+
+    @app.get(
+        "/api/v1/reports/{report_id}/versions/{version}",
+        response_model=ReportVersionDetailOut,
+    )
+    async def get_report_version(
+        report_id: str,
+        version: int,
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> ReportVersionDetailOut:
+        require_role(pr, WaddleRole.READER)
+        row = await _report_or_404(c, pr, report_id)
+        got = await repo.get_report_version(c, pr.org_id, row.id, version)
+        if got is None:
+            raise _error(
+                404, ReportNotFoundError(f"{report_id}@v{version}"), ReportNotFoundError.code
+            )
+        return ReportVersionDetailOut(
+            version=got.version,
+            name=got.name,
+            updated_by=got.updated_by,
+            created_at=got.created_at,
+            body=got.body,
+        )
 
     @app.post("/api/v1/reports/preview", response_model=RenderReportOut)
     async def preview_report(
@@ -658,18 +744,18 @@ def build_app(
             c, pr, compiled, name=None, params=body.params, max_rows=body.max_rows
         )
 
-    @app.post("/api/v1/reports/{name}/render", response_model=RenderReportOut)
+    @app.post("/api/v1/reports/{report_id}/render", response_model=RenderReportOut)
     async def render_report(
+        report_id: str,
         body: RenderReportIn,
-        name: str = Path(pattern=REPORT_NAME_PATTERN),
         c: AsyncConnection[Any] = Depends(conn),
         pr: WaddlePrincipal = Depends(principal),
     ) -> RenderReportOut:
         require_role(pr, WaddleRole.READER)
-        row = await _report_or_404(c, pr, name)
+        row = await _report_or_404(c, pr, report_id)
         compiled = _compile_or_422(row.body)
         return await _render(
-            c, pr, compiled, name=name, params=body.params, max_rows=body.max_rows
+            c, pr, compiled, name=row.name, params=body.params, max_rows=body.max_rows
         )
 
     # ── the datasets door (producer → org Parquet substrate) ─────────────────

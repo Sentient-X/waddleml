@@ -1,5 +1,6 @@
-"""Reports + datasets doors: compile-validated saves, jailed renders, the
-producer substrate, and company isolation on every one of them."""
+"""Reports + datasets doors: compile-validated saves, id-addressed resources
+with an append-only version history, jailed renders, the producer substrate,
+and company isolation on every one of them."""
 
 from __future__ import annotations
 
@@ -26,6 +27,12 @@ select count(*) as n, min(state) as first_state from runs
 """
 
 
+def _create(client: TestClient, name: str, body: str, key: str = "key-a-writer"):
+    return client.post(
+        "/api/v1/reports", headers={"x-api-key": key}, json={"name": name, "body": body}
+    )
+
+
 def test_report_lifecycle_and_render(
     rig: tuple[TestClient, FakeMetricStore], blobs: FakeObjectStore
 ) -> None:
@@ -34,21 +41,26 @@ def test_report_lifecycle_and_render(
         run_id = uuid4().hex
         _create_run(client, "key-a-writer", run_id)
 
-        saved = client.put(
-            "/api/v1/reports/run-states",
-            headers={"x-api-key": "key-a-writer"},
-            json={"body": REPORT},
-        )
-        assert saved.status_code == 200, saved.text
-        assert saved.json()["title"] == "Run states"
-        assert saved.json()["queries"] == ["states"]
-        assert saved.json()["required_params"] == []
+        created = _create(client, "run-states", REPORT)
+        assert created.status_code == 201, created.text
+        report = created.json()
+        assert report["title"] == "Run states"
+        assert report["queries"] == ["states"]
+        assert report["version"] == 1
+        report_id = report["id"]
 
         listed = client.get("/api/v1/reports", headers={"x-api-key": "key-a-reader"}).json()
-        assert [r["name"] for r in listed] == ["run-states"]
+        assert [(r["id"], r["name"]) for r in listed] == [(report_id, "run-states")]
+        # Slug → id resolution for agents.
+        by_name = client.get(
+            "/api/v1/reports",
+            headers={"x-api-key": "key-a-reader"},
+            params={"name": "run-states"},
+        ).json()
+        assert [r["id"] for r in by_name] == [report_id]
 
         rendered = client.post(
-            "/api/v1/reports/run-states/render",
+            f"/api/v1/reports/{report_id}/render",
             headers={"x-api-key": "key-a-reader"},
             json={},
         )
@@ -65,32 +77,75 @@ def test_report_lifecycle_and_render(
         assert page["blocks"][1]["query"] == "states"
 
 
+def test_saves_append_versions_and_rename_rides_a_save(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
+    client, _ = rig
+    with client:
+        report_id = _create(client, "history", "```sql q\nselect 1 as one\n```\n").json()["id"]
+
+        v2 = client.put(
+            f"/api/v1/reports/{report_id}",
+            headers={"x-api-key": "key-a-writer"},
+            json={"body": "```sql q\nselect 2 as two\n```\n", "name": "history-renamed"},
+        )
+        assert v2.status_code == 200, v2.text
+        assert v2.json()["version"] == 2
+        assert v2.json()["name"] == "history-renamed"
+        assert v2.json()["id"] == report_id  # identity survives the rename
+
+        versions = client.get(
+            f"/api/v1/reports/{report_id}/versions", headers={"x-api-key": "key-a-reader"}
+        ).json()
+        assert [(v["version"], v["name"]) for v in versions] == [
+            (2, "history-renamed"),
+            (1, "history"),
+        ]
+        v1 = client.get(
+            f"/api/v1/reports/{report_id}/versions/1", headers={"x-api-key": "key-a-reader"}
+        ).json()
+        assert "select 1 as one" in v1["body"]
+
+
+def test_name_conflicts_are_409(rig: tuple[TestClient, FakeMetricStore]) -> None:
+    client, _ = rig
+    with client:
+        _create(client, "taken", "```sql q\nselect 1\n```\n")
+        other = _create(client, "other", "```sql q\nselect 1\n```\n").json()
+
+        duplicate = _create(client, "taken", "```sql q\nselect 2\n```\n")
+        assert duplicate.status_code == 409
+        assert duplicate.json()["detail"]["code"] == "report_name_taken"
+
+        collide = client.put(
+            f"/api/v1/reports/{other['id']}",
+            headers={"x-api-key": "key-a-writer"},
+            json={"body": "```sql q\nselect 1\n```\n", "name": "taken"},
+        )
+        assert collide.status_code == 409
+        assert collide.json()["detail"]["code"] == "report_name_taken"
+
+
 def test_save_rejects_uncompilable_bodies(rig: tuple[TestClient, FakeMetricStore]) -> None:
     client, _ = rig
     with client:
-        bad = client.put(
-            "/api/v1/reports/broken",
-            headers={"x-api-key": "key-a-writer"},
-            json={"body": "```sql a\nselect * from (${a})\n```\n"},
-        )
+        bad = _create(client, "broken", "```sql a\nselect * from (${a})\n```\n")
         assert bad.status_code == 422
         assert bad.json()["detail"]["code"] == "report_cycle"
         # Nothing was stored.
         assert client.get(
-            "/api/v1/reports/broken", headers={"x-api-key": "key-a-reader"}
-        ).status_code == 404
+            "/api/v1/reports", headers={"x-api-key": "key-a-reader"}
+        ).json() == []
 
 
 def test_render_requires_declared_params(rig: tuple[TestClient, FakeMetricStore]) -> None:
     client, _ = rig
     with client:
-        client.put(
-            "/api/v1/reports/per-run",
-            headers={"x-api-key": "key-a-writer"},
-            json={"body": "```sql q\nselect * from runs where id = '${params.run_id}'\n```\n"},
-        )
+        report_id = _create(
+            client, "per-run", "```sql q\nselect * from runs where id = '${params.run_id}'\n```\n"
+        ).json()["id"]
         response = client.post(
-            "/api/v1/reports/per-run/render",
+            f"/api/v1/reports/{report_id}/render",
             headers={"x-api-key": "key-a-reader"},
             json={"params": {}},
         )
@@ -101,14 +156,10 @@ def test_render_requires_declared_params(rig: tuple[TestClient, FakeMetricStore]
 def test_reports_are_org_isolated(rig: tuple[TestClient, FakeMetricStore]) -> None:
     client, _ = rig
     with client:
-        client.put(
-            "/api/v1/reports/mine",
-            headers={"x-api-key": "key-a-writer"},
-            json={"body": "```sql q\nselect 1 as one\n```\n"},
-        )
-        # Org B: existence is hidden (404), list is empty.
+        report_id = _create(client, "mine", "```sql q\nselect 1 as one\n```\n").json()["id"]
+        # Org B: existence is hidden (404 by id), list and lookup are empty.
         assert client.get(
-            "/api/v1/reports/mine", headers={"x-api-key": "key-b-writer"}
+            f"/api/v1/reports/{report_id}", headers={"x-api-key": "key-b-writer"}
         ).status_code == 404
         assert client.get(
             "/api/v1/reports", headers={"x-api-key": "key-b-writer"}
@@ -118,11 +169,7 @@ def test_reports_are_org_isolated(rig: tuple[TestClient, FakeMetricStore]) -> No
 def test_reader_cannot_save(rig: tuple[TestClient, FakeMetricStore]) -> None:
     client, _ = rig
     with client:
-        response = client.put(
-            "/api/v1/reports/nope",
-            headers={"x-api-key": "key-a-reader"},
-            json={"body": "```sql q\nselect 1\n```\n"},
-        )
+        response = _create(client, "nope", "```sql q\nselect 1\n```\n", key="key-a-reader")
         assert response.status_code == 403
 
 

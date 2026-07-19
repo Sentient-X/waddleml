@@ -208,10 +208,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Reports */
+        /**
+         * List Reports
+         * @description All reports, or `?name=` to resolve one slug to its id.
+         */
         get: operations["list_reports_api_v1_reports_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Report
+         * @description Compile-validate then create version 1; a body the compiler rejects
+         *     is never stored (a saved report always renders or fails only on data).
+         */
+        post: operations["create_report_api_v1_reports_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -238,7 +246,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/reports/{name}": {
+    "/api/v1/reports/{report_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -246,22 +254,22 @@ export interface paths {
             cookie?: never;
         };
         /** Get Report */
-        get: operations["get_report_api_v1_reports__name__get"];
+        get: operations["get_report_api_v1_reports__report_id__get"];
         /**
-         * Save Report
-         * @description Compile-validate then upsert: a body the compiler rejects is never
-         *     stored (a saved report always renders or fails only on data).
+         * Update Report
+         * @description Save (optionally rename): compile-validate, bump the version, append
+         *     the immutable history row.
          */
-        put: operations["save_report_api_v1_reports__name__put"];
+        put: operations["update_report_api_v1_reports__report_id__put"];
         post?: never;
         /** Delete Report */
-        delete: operations["delete_report_api_v1_reports__name__delete"];
+        delete: operations["delete_report_api_v1_reports__report_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/reports/{name}/render": {
+    "/api/v1/reports/{report_id}/render": {
         parameters: {
             query?: never;
             header?: never;
@@ -271,7 +279,41 @@ export interface paths {
         get?: never;
         put?: never;
         /** Render Report */
-        post: operations["render_report_api_v1_reports__name__render_post"];
+        post: operations["render_report_api_v1_reports__report_id__render_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/{report_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Report Versions */
+        get: operations["list_report_versions_api_v1_reports__report_id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/{report_id}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Report Version */
+        get: operations["get_report_version_api_v1_reports__report_id__versions__version__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -473,6 +515,13 @@ export interface components {
             relation: string;
             /** Run Id */
             run_id?: string | null;
+        };
+        /** CreateReportIn */
+        CreateReportIn: {
+            /** Body */
+            body: string;
+            /** Name */
+            name: string;
         };
         /**
          * CreateRunIn
@@ -712,6 +761,11 @@ export interface components {
             body: string;
             /** Description */
             description: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Name */
             name: string;
             /** Queries */
@@ -727,11 +781,22 @@ export interface components {
             updated_at: string;
             /** Updated By */
             updated_by: string | null;
+            /** Version */
+            version: number;
         };
-        /** ReportSummaryOut */
+        /**
+         * ReportSummaryOut
+         * @description The stable identity is ``id`` (the URL/API key); ``name`` is a
+         *     renameable per-org slug.
+         */
         ReportSummaryOut: {
             /** Description */
             description: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Name */
             name: string;
             /** Title */
@@ -743,6 +808,38 @@ export interface components {
             updated_at: string;
             /** Updated By */
             updated_by: string | null;
+            /** Version */
+            version: number;
+        };
+        /** ReportVersionDetailOut */
+        ReportVersionDetailOut: {
+            /** Body */
+            body: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Name */
+            name: string;
+            /** Updated By */
+            updated_by: string | null;
+            /** Version */
+            version: number;
+        };
+        /** ReportVersionOut */
+        ReportVersionOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Name */
+            name: string;
+            /** Updated By */
+            updated_by: string | null;
+            /** Version */
+            version: number;
         };
         /** RunDetailOut */
         RunDetailOut: {
@@ -859,11 +956,6 @@ export interface components {
          * @enum {string}
          */
         RunState: "running" | "completed" | "failed" | "aborted";
-        /** SaveReportIn */
-        SaveReportIn: {
-            /** Body */
-            body: string;
-        };
         /** SeriesPointOut */
         SeriesPointOut: {
             /** Step */
@@ -900,6 +992,17 @@ export interface components {
             rows: unknown[][];
             /** Truncated */
             truncated: boolean;
+        };
+        /**
+         * UpdateReportIn
+         * @description A save: new body, optionally a rename. Every accepted save appends an
+         *     immutable version.
+         */
+        UpdateReportIn: {
+            /** Body */
+            body: string;
+            /** Name */
+            name?: string | null;
         };
         /** UploadFileIn */
         UploadFileIn: {
@@ -1322,7 +1425,9 @@ export interface operations {
     };
     list_reports_api_v1_reports_get: {
         parameters: {
-            query?: never;
+            query?: {
+                name?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1336,6 +1441,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReportSummaryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_report_api_v1_reports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1373,12 +1520,12 @@ export interface operations {
             };
         };
     };
-    get_report_api_v1_reports__name__get: {
+    get_report_api_v1_reports__report_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                name: string;
+                report_id: string;
             };
             cookie?: never;
         };
@@ -1404,18 +1551,18 @@ export interface operations {
             };
         };
     };
-    save_report_api_v1_reports__name__put: {
+    update_report_api_v1_reports__report_id__put: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                name: string;
+                report_id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SaveReportIn"];
+                "application/json": components["schemas"]["UpdateReportIn"];
             };
         };
         responses: {
@@ -1439,12 +1586,12 @@ export interface operations {
             };
         };
     };
-    delete_report_api_v1_reports__name__delete: {
+    delete_report_api_v1_reports__report_id__delete: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                name: string;
+                report_id: string;
             };
             cookie?: never;
         };
@@ -1468,12 +1615,12 @@ export interface operations {
             };
         };
     };
-    render_report_api_v1_reports__name__render_post: {
+    render_report_api_v1_reports__report_id__render_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                name: string;
+                report_id: string;
             };
             cookie?: never;
         };
@@ -1490,6 +1637,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RenderReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_report_versions_api_v1_reports__report_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportVersionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_report_version_api_v1_reports__report_id__versions__version__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportVersionDetailOut"];
                 };
             };
             /** @description Validation Error */

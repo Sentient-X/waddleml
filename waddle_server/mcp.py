@@ -155,16 +155,25 @@ async def sql(
     )
 
 
+async def _resolve_report(ctx: Context | None, name: str) -> dict[str, Any]:  # type: ignore[type-arg]
+    """Agents address reports by name; the API's identity is the uuid id."""
+    rows = await _call(ctx, "GET", "/api/v1/reports", params={"name": name})
+    if not rows:
+        raise WaddleToolError(f"no report named {name!r} (waddle.reports.list shows yours)")
+    return rows[0]
+
+
 @mcp.tool(name="waddle.reports.list")
 async def reports_list(ctx: Context | None = None) -> list[dict[str, Any]]:  # type: ignore[type-arg]
-    """Your organization's saved reports (name, title, description)."""
+    """Your organization's saved reports (id, name, version, title, description)."""
     return await _call(ctx, "GET", "/api/v1/reports")
 
 
 @mcp.tool(name="waddle.reports.get")
 async def reports_get(name: str, ctx: Context | None = None) -> dict[str, Any]:  # type: ignore[type-arg]
     """One report's markdown source plus its query list and required params."""
-    return await _call(ctx, "GET", f"/api/v1/reports/{name}")
+    resolved = await _resolve_report(ctx, name)
+    return await _call(ctx, "GET", f"/api/v1/reports/{resolved['id']}")
 
 
 @mcp.tool(name="waddle.reports.save")
@@ -173,14 +182,20 @@ async def reports_save(
     body: str,
     ctx: Context | None = None,  # type: ignore[type-arg]
 ) -> dict[str, Any]:
-    """Save (create or replace) a report. `body` is Evidence-dialect markdown:
-    frontmatter (title/description), named ```sql fences (full DuckDB over the
-    org views — runs, metrics, logs, plus any uploaded datasets), ${other_query}
-    chaining, ${params.x} runtime parameters, and component tags (BigValue,
-    Value, LineChart, BarChart, AreaChart, DataTable/Column, ReferenceLine,
-    Grid, Details). A body the compiler rejects is never stored — the error
-    names the defect."""
-    return await _call(ctx, "PUT", f"/api/v1/reports/{name}", json_body={"body": body})
+    """Save a report (create, or update-by-name — every save appends an
+    immutable version). `body` is Evidence-dialect markdown: frontmatter
+    (title/description), named ```sql fences (full DuckDB over the org views —
+    runs, metrics, logs, plus any uploaded datasets), ${other_query} chaining,
+    ${params.x} runtime parameters, and component tags (BigValue, Value,
+    LineChart, BarChart, AreaChart, DataTable/Column, ReferenceLine, Grid,
+    Details). A body the compiler rejects is never stored — the error names
+    the defect."""
+    rows = await _call(ctx, "GET", "/api/v1/reports", params={"name": name})
+    if rows:
+        return await _call(
+            ctx, "PUT", f"/api/v1/reports/{rows[0]['id']}", json_body={"body": body}
+        )
+    return await _call(ctx, "POST", "/api/v1/reports", json_body={"name": name, "body": body})
 
 
 @mcp.tool(name="waddle.reports.render")
@@ -192,10 +207,11 @@ async def reports_render(
 ) -> dict[str, Any]:
     """Render a saved report: every query executes in the org SQL sandbox;
     returns resolved markdown blocks, component tree, and per-query results."""
+    resolved = await _resolve_report(ctx, name)
     return await _call(
         ctx,
         "POST",
-        f"/api/v1/reports/{name}/render",
+        f"/api/v1/reports/{resolved['id']}/render",
         json_body={"params": params or {}, "max_rows": max_rows},
     )
 
@@ -214,6 +230,16 @@ async def reports_preview(
         "/api/v1/reports/preview",
         json_body={"body": body, "params": params or {}, "max_rows": max_rows},
     )
+
+
+@mcp.tool(name="waddle.reports.versions")
+async def reports_versions(
+    name: str, ctx: Context | None = None  # type: ignore[type-arg]
+) -> list[dict[str, Any]]:
+    """A report's immutable save history (newest first); fetch one body via
+    waddle.reports.get after restoring with waddle.reports.save."""
+    resolved = await _resolve_report(ctx, name)
+    return await _call(ctx, "GET", f"/api/v1/reports/{resolved['id']}/versions")
 
 
 @mcp.tool(name="waddle.datasets.list")

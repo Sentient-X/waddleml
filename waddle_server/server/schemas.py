@@ -285,7 +285,12 @@ class SqlResultOut(BaseModel):
 
 
 class ReportSummaryOut(BaseModel):
+    """The stable identity is ``id`` (the URL/API key); ``name`` is a
+    renameable per-org slug."""
+
+    id: UUID
     name: str
+    version: int
     title: str | None
     description: str | None
     updated_by: str | None
@@ -298,10 +303,32 @@ class ReportOut(ReportSummaryOut):
     required_params: list[str]
 
 
-class SaveReportIn(BaseModel):
+class CreateReportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(pattern=REPORT_NAME_PATTERN)
+    body: str = Field(min_length=1, max_length=200_000)
+
+
+class UpdateReportIn(BaseModel):
+    """A save: new body, optionally a rename. Every accepted save appends an
+    immutable version."""
+
     model_config = ConfigDict(extra="forbid")
 
     body: str = Field(min_length=1, max_length=200_000)
+    name: str | None = Field(default=None, pattern=REPORT_NAME_PATTERN)
+
+
+class ReportVersionOut(BaseModel):
+    version: int
+    name: str
+    updated_by: str | None
+    created_at: datetime
+
+
+class ReportVersionDetailOut(ReportVersionOut):
+    body: str
 
 
 class RenderReportIn(BaseModel):

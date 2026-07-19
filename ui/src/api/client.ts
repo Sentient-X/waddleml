@@ -9,6 +9,7 @@
 
 import type {
   ArtifactVersion,
+  DatasetInfo,
   LatestMetric,
   LogLine,
   MetricSeries,
@@ -17,11 +18,12 @@ import type {
   RenderReport,
   Report,
   ReportSummary,
+  ReportVersion,
+  ReportVersionDetail,
   Run,
   RunDetail,
   RunLineage,
   RunState,
-  SqlResult,
 } from "./types";
 
 export class WaddleApiError extends Error {
@@ -123,26 +125,30 @@ export const waddleApi = {
     getJson<RunLineage[]>(`/v1/runs/${runId}/lineage`),
   getArtifact: (artifactId: string): Promise<ArtifactVersion> =>
     getJson<ArtifactVersion>(`/v1/artifacts/${artifactId}`),
-  querySql: (sql: string, maxRows = 1000): Promise<SqlResult> =>
-    postJson<SqlResult>("/v1/query/sql", { sql, max_rows: maxRows }),
 
-  // Reports-as-code.
-  listReports: (): Promise<ReportSummary[]> => getJson<ReportSummary[]>("/v1/reports"),
-  getReport: (name: string): Promise<Report> =>
-    getJson<Report>(`/v1/reports/${encodeURIComponent(name)}`),
-  saveReport: (name: string, body: string): Promise<Report> =>
-    putJson<Report>(`/v1/reports/${encodeURIComponent(name)}`, { body }),
-  deleteReport: (name: string): Promise<null> =>
-    del(`/v1/reports/${encodeURIComponent(name)}`),
+  // Open datasets door — producer snapshots that become sandbox/report views.
+  listDatasets: (): Promise<DatasetInfo[]> => getJson<DatasetInfo[]>("/v1/datasets"),
+
+  // Reports-as-code. Reports are addressed by uuid `id`; `name` is a renameable
+  // per-org slug (`listReports(name)` resolves a slug to its summary).
+  listReports: (name?: string): Promise<ReportSummary[]> =>
+    getJson<ReportSummary[]>(`/v1/reports${name ? `?name=${encodeURIComponent(name)}` : ""}`),
+  getReport: (id: string): Promise<Report> => getJson<Report>(`/v1/reports/${id}`),
+  createReport: (name: string, body: string): Promise<Report> =>
+    postJson<Report>("/v1/reports", { name, body }),
+  updateReport: (id: string, body: string, name?: string): Promise<Report> =>
+    putJson<Report>(`/v1/reports/${id}`, name ? { body, name } : { body }),
+  deleteReport: (id: string): Promise<null> => del(`/v1/reports/${id}`),
+  listReportVersions: (id: string): Promise<ReportVersion[]> =>
+    getJson<ReportVersion[]>(`/v1/reports/${id}/versions`),
+  getReportVersion: (id: string, version: number): Promise<ReportVersionDetail> =>
+    getJson<ReportVersionDetail>(`/v1/reports/${id}/versions/${version}`),
   renderReport: (
-    name: string,
+    id: string,
     params: Record<string, string> = {},
     maxRows = 1000,
   ): Promise<RenderReport> =>
-    postJson<RenderReport>(`/v1/reports/${encodeURIComponent(name)}/render`, {
-      params,
-      max_rows: maxRows,
-    }),
+    postJson<RenderReport>(`/v1/reports/${id}/render`, { params, max_rows: maxRows }),
   previewReport: (
     body: string,
     params: Record<string, string> = {},

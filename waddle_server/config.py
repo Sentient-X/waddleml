@@ -45,6 +45,13 @@ class WaddleSettings(BaseSettings):
     max_points_per_batch: int = 5000
     max_batch_bytes: int = 8 * 1024 * 1024
 
+    # SQL-sandbox staging cache: org Parquet is fetched from the object store
+    # into a local content-addressed cache (keyed by object ETag) and hardlinked
+    # into each job's scratch dir, so repeated queries/renders re-download only
+    # what changed. Unset dir → <system tmp>/waddle-sqlbox-cache.
+    sqlbox_cache_dir: Path | None = None
+    sqlbox_cache_max_bytes: int = 4 * 1024**3
+
     # Query guardrails.
     max_query_runs: int = 50
     max_query_metrics: int = 20

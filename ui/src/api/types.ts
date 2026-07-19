@@ -27,18 +27,25 @@ export type LatestMetric = schemas["LatestMetricOut"];
 
 export type LogLine = schemas["LogLineOut"];
 
-export type SqlQuery = schemas["SqlQueryIn"];
 export type SqlResult = schemas["SqlResultOut"];
 export type ColumnType = schemas["ColumnType"];
 
-// Reports-as-code — org-scoped markdown+SQL docs compiled and rendered server-side.
+// Reports-as-code — org-scoped markdown+SQL docs, addressed by uuid `id`; `name`
+// is a renameable per-org slug. Compiled and rendered server-side.
 export type ReportSummary = schemas["ReportSummaryOut"];
 export type Report = schemas["ReportOut"];
-export type SaveReportIn = schemas["SaveReportIn"];
+export type CreateReportIn = schemas["CreateReportIn"];
+export type UpdateReportIn = schemas["UpdateReportIn"];
 export type RenderReportIn = schemas["RenderReportIn"];
 export type PreviewReportIn = schemas["PreviewReportIn"];
 export type RenderBlock = schemas["RenderBlockOut"];
 export type RenderReport = schemas["RenderReportOut"];
+export type ReportVersion = schemas["ReportVersionOut"];
+export type ReportVersionDetail = schemas["ReportVersionDetailOut"];
+
+// Open datasets door — producer-published tabular snapshots that become sandbox
+// and report views; surfaced in the editor's autocomplete as extra view names.
+export type DatasetInfo = schemas["DatasetInfoOut"];
 
 export type RunLineage = schemas["RunLineageOut"];
 export type ArtifactVersion = schemas["ArtifactVersionOut"];

@@ -70,6 +70,15 @@ class HeadInfo:
     size_bytes: int
 
 
+@dataclass(frozen=True, slots=True)
+class ObjectInfo:
+    """One listed object; ``etag`` is the content-version key the sqlbox
+    staging cache invalidates on."""
+
+    key: str
+    etag: str
+
+
 class ObjectStore:
     """Thin boto3 wrapper bound to the waddle bucket."""
 
@@ -126,10 +135,13 @@ class ObjectStore:
         return self._client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
 
     def list_keys(self, prefix: str):
+        yield from (obj.key for obj in self.list_objects(prefix))
+
+    def list_objects(self, prefix: str):
         paginator = self._client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
             for obj in page.get("Contents", []):
-                yield obj["Key"]
+                yield ObjectInfo(key=obj["Key"], etag=str(obj.get("ETag", "")).strip('"'))
 
     def ensure_bucket(self) -> None:
         """Dev/MinIO convenience; R2 buckets are provisioned out-of-band."""
