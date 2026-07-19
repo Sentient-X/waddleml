@@ -36,34 +36,84 @@ MAX_QUERIES_PER_REPORT = 24
 
 
 class ComponentKind(StrEnum):
-    """The v1 component vocabulary (fail-closed: an unknown tag is a compile
-    error). The console owns how each renders; unknown props pass through."""
+    """The component vocabulary (fail-closed: an unknown tag is a compile
+    error). The console owns how each renders; unknown props pass through.
+
+    Groups mirror Evidence's inventory: values (BigValue with sparkline/
+    comparison, Value, Delta, Sparkline), xy + statistical + relational charts,
+    the rich DataTable (Column contentType= bar | delta | link), **inputs**
+    (Dropdown/ButtonGroup/TextInput/Slider — each binds one ``${params.name}``
+    and re-renders on change), and layout (Grid, Tabs/Tab, Details, Alert,
+    Image)."""
 
     BIG_VALUE = "BigValue"
     VALUE = "Value"
+    DELTA = "Delta"
+    SPARKLINE = "Sparkline"
     LINE_CHART = "LineChart"
     BAR_CHART = "BarChart"
     AREA_CHART = "AreaChart"
+    SCATTER_PLOT = "ScatterPlot"
+    BUBBLE_CHART = "BubbleChart"
+    HISTOGRAM = "Histogram"
+    HEATMAP = "Heatmap"
+    FUNNEL_CHART = "FunnelChart"
+    SANKEY_DIAGRAM = "SankeyDiagram"
     DATA_TABLE = "DataTable"
     COLUMN = "Column"
     REFERENCE_LINE = "ReferenceLine"
+    DROPDOWN = "Dropdown"
+    BUTTON_GROUP = "ButtonGroup"
+    TEXT_INPUT = "TextInput"
+    SLIDER = "Slider"
     GRID = "Grid"
+    TABS = "Tabs"
+    TAB = "Tab"
     DETAILS = "Details"
+    ALERT = "Alert"
+    IMAGE = "Image"
 
 
-_CHART_KINDS = frozenset(
-    {ComponentKind.LINE_CHART, ComponentKind.BAR_CHART, ComponentKind.AREA_CHART}
+_XY_CHART_KINDS = frozenset(
+    {
+        ComponentKind.LINE_CHART,
+        ComponentKind.BAR_CHART,
+        ComponentKind.AREA_CHART,
+        ComponentKind.SCATTER_PLOT,
+        ComponentKind.BUBBLE_CHART,
+    }
+)
+_CHART_KINDS = _XY_CHART_KINDS | frozenset(
+    {
+        ComponentKind.HISTOGRAM,
+        ComponentKind.HEATMAP,
+        ComponentKind.FUNNEL_CHART,
+        ComponentKind.SANKEY_DIAGRAM,
+    }
+)
+#: input components: each binds one report param (its `name` prop); a declared
+#: `defaultValue` makes that param optional at render time
+INPUT_KINDS = frozenset(
+    {
+        ComponentKind.DROPDOWN,
+        ComponentKind.BUTTON_GROUP,
+        ComponentKind.TEXT_INPUT,
+        ComponentKind.SLIDER,
+    }
 )
 #: kinds that only exist as children of a specific parent
 _CHILD_ONLY: dict[ComponentKind, frozenset[ComponentKind]] = {
     ComponentKind.COLUMN: frozenset({ComponentKind.DATA_TABLE}),
-    ComponentKind.REFERENCE_LINE: _CHART_KINDS,
+    ComponentKind.REFERENCE_LINE: _XY_CHART_KINDS | frozenset({ComponentKind.HISTOGRAM}),
+    ComponentKind.TAB: frozenset({ComponentKind.TABS}),
 }
 #: kinds whose `data=` prop is mandatory
 _DATA_REQUIRED = frozenset(
     {
         ComponentKind.BIG_VALUE,
         ComponentKind.VALUE,
+        ComponentKind.DELTA,
+        ComponentKind.SPARKLINE,
         ComponentKind.DATA_TABLE,
     }
     | _CHART_KINDS
@@ -99,7 +149,10 @@ class CompiledReport:
     description: str | None
     queries: Mapping[str, CompiledQuery]
     blocks: tuple[Block, ...]
+    #: params with no declared default — a render must supply these
     required_params: frozenset[str]
+    #: input-component defaults, applied under any caller-supplied params
+    param_defaults: Mapping[str, str]
 
 
 class QueryRows(Protocol):
@@ -137,8 +190,10 @@ def compile_report(body: str) -> CompiledReport:
         )
     compiled = _compile_queries(queries)
     _validate_components(blocks, parent=None, queries=compiled)
+    defaults = _input_defaults(blocks)
     required = frozenset(
-        {p for q in compiled.values() for p in q.params} | _text_params(blocks)
+        ({p for q in compiled.values() for p in q.params} | _text_params(blocks))
+        - set(defaults)
     )
     return CompiledReport(
         title=meta.get("title"),
@@ -146,20 +201,29 @@ def compile_report(body: str) -> CompiledReport:
         queries=compiled,
         blocks=blocks,
         required_params=required,
+        param_defaults=defaults,
     )
 
 
 def render_sql(report: CompiledReport, params: Mapping[str, str]) -> dict[str, str]:
-    """Resolve `${params.x}` into executable SQL for every query. Missing
-    params fail closed; values get single-quotes doubled (the jail, not this
-    escaping, is the security boundary)."""
-    missing = sorted(report.required_params - set(params))
+    """Resolve `${params.x}` into executable SQL for every query. Input
+    defaults apply under caller-supplied values; params with neither fail
+    closed. Values get single-quotes doubled (the jail, not this escaping, is
+    the security boundary)."""
+    effective = {**report.param_defaults, **params}
+    missing = sorted(report.required_params - set(effective))
     if missing:
         raise MissingParamsError(missing)
     return {
-        qid: _PARAM_SQL.sub(lambda m: params[m.group(1)].replace("'", "''"), q.sql)
+        qid: _PARAM_SQL.sub(lambda m: effective[m.group(1)].replace("'", "''"), q.sql)
         for qid, q in report.queries.items()
     }
+
+
+def effective_params(report: CompiledReport, params: Mapping[str, str]) -> dict[str, str]:
+    """The param values a render actually used (defaults ⊕ supplied) — echoed
+    on the wire so input controls display their live state."""
+    return {**report.param_defaults, **params}
 
 
 def resolve_markdown(
@@ -412,6 +476,19 @@ def _validate_components(
                 f"<{block.kind.value}> only appears inside "
                 f"<{'/'.join(sorted(k.value for k in allowed_parents))}>",
             )
+        if block.kind in INPUT_KINDS and not _QUERY_NAME.match(block.props.get("name", "")):
+            raise ReportCompileError(
+                "bad_component",
+                f"<{block.kind.value}> requires name=<identifier> — the "
+                "${params.<name>} it binds",
+            )
+        if block.kind is ComponentKind.TABS and any(
+            not (isinstance(child, ComponentBlock) and child.kind is ComponentKind.TAB)
+            for child in block.children
+        ):
+            raise ReportCompileError(
+                "bad_component", "<Tabs> children must all be <Tab title=…> blocks"
+            )
         if block.query is not None and block.query not in queries:
             raise ReportCompileError(
                 "unknown_reference",
@@ -431,4 +508,14 @@ def _text_params(blocks: tuple[Block, ...]) -> set[str]:
             found.update(_TEXT_PARAM.findall(block.text))
         else:
             found.update(_text_params(block.children))
+    return found
+
+
+def _input_defaults(blocks: tuple[Block, ...]) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for block in blocks:
+        if isinstance(block, ComponentBlock):
+            if block.kind in INPUT_KINDS and "defaultValue" in block.props:
+                found[block.props["name"]] = block.props["defaultValue"]
+            found.update(_input_defaults(block.children))
     return found

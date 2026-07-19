@@ -577,13 +577,14 @@ def build_app(
                 422, ErrorOut(code=f"sql_{err.kind}", message=str(err)).model_dump()
             ) from err
         results = {q: r for q, r in outcomes.items() if isinstance(r, sqlbox.SqlResult)}
+        effective = reports.effective_params(compiled, params)
         return RenderReportOut(
             name=name,
             title=compiled.title,
             description=compiled.description,
             required_params=sorted(compiled.required_params),
-            params=params,
-            blocks=[_block_out(b, results, params) for b in compiled.blocks],
+            params=effective,
+            blocks=[_block_out(b, results, effective) for b in compiled.blocks],
             results={q: _sql_out(r) for q, r in results.items()},
             query_errors={
                 q: r.message for q, r in outcomes.items() if isinstance(r, sqlbox.QueryFailure)

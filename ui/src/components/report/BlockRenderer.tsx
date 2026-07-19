@@ -45,15 +45,23 @@ export function BlockRenderer({
   blocks,
   results,
   queryErrors,
+  params = {},
+  onParamChange,
 }: {
   blocks: readonly RenderBlock[];
   results: Record<string, SqlResult>;
   queryErrors: Record<string, string>;
+  /** Effective params (server-echoed) — feed input current values. */
+  params?: Record<string, string>;
+  /** Interactive surfaces pass a handler; its absence disables inputs. */
+  onParamChange?: (name: string, value: string) => void;
 }) {
   // Children render bare (no wrapper) so container components — Grid above
   // all — receive them as direct grid items; containers own their layout.
   const ctx: RenderContext = {
     results,
+    params,
+    onParamChange,
     renderChildren: (children) => (
       <>
         {children.map((child, i) => (

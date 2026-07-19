@@ -113,8 +113,45 @@ def test_duplicate_query_fails_closed() -> None:
 
 def test_unknown_component_fails_closed() -> None:
     with pytest.raises(ReportCompileError) as err:
-        compile_report("<SankeyDiagram data={q} />\n```sql q\nselect 1\n```\n")
+        compile_report("<VennDiagram data={q} />\n```sql q\nselect 1\n```\n")
     assert err.value.kind == "unknown_component"
+
+
+def test_inputs_bind_params_with_defaults() -> None:
+    report = compile_report(
+        "```sql projects\nselect distinct project from runs\n```\n"
+        "<Dropdown name=project data={projects} value=project defaultValue=libero-bc />\n"
+        "<Slider name=window min=10 max=500 defaultValue=100 />\n"
+        "```sql filtered\nselect * from runs where project = '${params.project}'"
+        " limit ${params.window}\n```\n"
+        "```sql by_user\nselect * from runs where name = '${params.who}'\n```\n"
+    )
+    # Defaulted params are optional; undefaulted ones stay required.
+    assert report.param_defaults == {"project": "libero-bc", "window": "100"}
+    assert report.required_params == frozenset({"who"})
+    rendered = render_sql(report, {"who": "x", "window": "25"})
+    assert "limit 25" in rendered["filtered"]  # supplied beats default
+    assert "project = 'libero-bc'" in rendered["filtered"]  # default applied
+
+
+def test_input_requires_a_param_name() -> None:
+    with pytest.raises(ReportCompileError) as err:
+        compile_report("<Dropdown data={q} />\n```sql q\nselect 1 as v\n```\n")
+    assert err.value.kind == "bad_component"
+
+
+def test_tabs_only_hold_tabs() -> None:
+    ok = compile_report(
+        "```sql q\nselect 1 as v\n```\n"
+        '<Tabs>\n<Tab title="One">\n<Value data={q} column=v />\n</Tab>\n</Tabs>\n'
+    )
+    assert isinstance(ok.blocks[0], ComponentBlock)
+    with pytest.raises(ReportCompileError) as err:
+        compile_report("```sql q\nselect 1 as v\n```\n<Tabs>\n<Value data={q} column=v />\n</Tabs>\n")
+    assert err.value.kind == "bad_component"
+    with pytest.raises(ReportCompileError) as err:
+        compile_report('<Tab title="loose">\ntext\n</Tab>\n')
+    assert err.value.kind == "bad_component"
 
 
 def test_component_without_its_query_fails_closed() -> None:

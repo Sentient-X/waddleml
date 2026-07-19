@@ -23,6 +23,7 @@ import {
 import { waddleApi, WaddleApiError } from "@/api/client";
 import type { RenderReport } from "@/api/types";
 import { BlockRenderer } from "@/components/report/BlockRenderer";
+import { reportInputNames } from "@/components/report/registry";
 import { ErrorBanner } from "@/components/report/ErrorBanner";
 import { ReportEditor } from "@/components/report/ReportEditor";
 
@@ -151,6 +152,8 @@ export function ReportEditorPage({ isNew = false }: { isNew?: boolean }) {
   }, [draft, paramsKey, runPreview]);
 
   const requiredParams = rendered?.required_params ?? [];
+  const inputNames = rendered ? reportInputNames(rendered.blocks) : new Set<string>();
+  const fallbackParams = requiredParams.filter((k) => !inputNames.has(k));
 
   async function save() {
     setSaving(true);
@@ -286,9 +289,9 @@ export function ReportEditorPage({ isNew = false }: { isNew?: boolean }) {
             {previewing ? <span className="text-xs text-muted-foreground">previewing…</span> : null}
           </div>
 
-          {requiredParams.length > 0 ? (
+          {fallbackParams.length > 0 ? (
             <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
-              {requiredParams.map((key) => (
+              {fallbackParams.map((key) => (
                 <label key={key} className="flex flex-col gap-1 text-xs">
                   <span className="font-mono text-muted-foreground">{key}</span>
                   <Input
@@ -311,6 +314,8 @@ export function ReportEditorPage({ isNew = false }: { isNew?: boolean }) {
               blocks={rendered.blocks}
               results={rendered.results}
               queryErrors={rendered.query_errors}
+              params={rendered.params}
+              onParamChange={(key, value) => setParams((prev) => ({ ...prev, [key]: value }))}
             />
           ) : previewing ? (
             <p className="text-sm text-muted-foreground">Rendering…</p>

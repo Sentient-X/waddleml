@@ -12,6 +12,7 @@ import { Button, EmptyState, Input, PageHeader } from "@sx/ui";
 import { waddleApi, WaddleApiError } from "@/api/client";
 import type { RenderBlock, RenderReport } from "@/api/types";
 import { BlockRenderer } from "@/components/report/BlockRenderer";
+import { reportInputNames } from "@/components/report/registry";
 import { ErrorBanner } from "@/components/report/ErrorBanner";
 
 /** Query ids referenced by a component block, recursively — used to surface
@@ -42,12 +43,6 @@ export function ReportViewPage() {
   const report = reportQuery.data;
   const requiredParams = rendered?.required_params ?? report?.required_params ?? [];
 
-  function paramRecord(keys: readonly string[]): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const k of keys) out[k] = searchParams.get(k) ?? "";
-    return out;
-  }
-
   const renderMutation = useMutation<RenderReport, WaddleApiError, Record<string, string>>({
     mutationFn: (params) => waddleApi.renderReport(id, params),
     onSuccess: (data) => {
@@ -74,8 +69,16 @@ export function ReportViewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report]);
 
+  // The full param record we render with: server-echoed effective params (their
+  // defaults included) overlaid by every value living in the URL.
+  function currentParamRecord(): Record<string, string> {
+    const out: Record<string, string> = { ...(rendered?.params ?? {}) };
+    for (const [k, v] of searchParams.entries()) out[k] = v;
+    return out;
+  }
+
   function runRender() {
-    renderMutation.mutate(paramRecord(requiredParams));
+    renderMutation.mutate(currentParamRecord());
   }
 
   function setParam(key: string, value: string) {
@@ -83,6 +86,17 @@ export function ReportViewPage() {
     if (value) next.set(key, value);
     else next.delete(key);
     setSearchParams(next, { replace: true });
+  }
+
+  // Input change: persist to the URL AND immediately re-render with the merge.
+  function handleParamChange(key: string, value: string) {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setSearchParams(next, { replace: true });
+    const merged: Record<string, string> = { ...(rendered?.params ?? {}) };
+    for (const [k, v] of next.entries()) merged[k] = v;
+    renderMutation.mutate(merged);
   }
 
   if (reportQuery.isError) {
@@ -106,6 +120,11 @@ export function ReportViewPage() {
   const unconsumedErrors = rendered
     ? Object.entries(rendered.query_errors).filter(([q]) => !blockQueryIds(rendered.blocks).has(q))
     : [];
+
+  // The crude bar is only for required params with no input component to drive
+  // them — inputs inside the report own the rest.
+  const inputNames = rendered ? reportInputNames(rendered.blocks) : new Set<string>();
+  const fallbackParams = requiredParams.filter((k) => !inputNames.has(k));
 
   return (
     <div className="flex flex-col gap-5">
@@ -169,10 +188,10 @@ export function ReportViewPage() {
 
       {deleteMutation.isError ? <ErrorBanner message={deleteMutation.error.message} /> : null}
 
-      {/* Params bar — one input per required param, persisted in the URL. */}
-      {requiredParams.length > 0 ? (
+      {/* Fallback params bar — only required params without an input component. */}
+      {fallbackParams.length > 0 ? (
         <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
-          {requiredParams.map((key) => (
+          {fallbackParams.map((key) => (
             <label key={key} className="flex flex-col gap-1 text-xs">
               <span className="font-mono text-muted-foreground">{key}</span>
               <Input
@@ -211,8 +230,10 @@ export function ReportViewPage() {
           blocks={rendered.blocks}
           results={rendered.results}
           queryErrors={rendered.query_errors}
+          params={rendered.params}
+          onParamChange={handleParamChange}
         />
-      ) : requiredParams.length === 0 ? (
+      ) : fallbackParams.length === 0 ? (
         <p className="text-sm text-muted-foreground">Loading report…</p>
       ) : (
         <EmptyState

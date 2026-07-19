@@ -46,10 +46,12 @@ export function sqlSchema(datasets: readonly string[]): Record<string, string[]>
 /** Component vocabulary → the snippet inserted when picked. `data={…}` is the
  *  data prop (never `query=`); `${name}` markers are editable snippet fields. */
 const COMPONENTS: { label: string; detail: string; template: string }[] = [
+  // ── value tiles ──────────────────────────────────────────────────────────
   {
     label: "<BigValue",
-    detail: "KPI stat",
-    template: '<BigValue data={${query}} value="${column}" title="${title}" fmt="${#,##0}" />',
+    detail: "KPI stat (+sparkline/comparison)",
+    template:
+      '<BigValue data={${query}} value="${column}" title="${title}" fmt="${#,##0}" sparkline="${sparkCol}" comparison="${deltaCol}" comparisonTitle="${vs}" comparisonFmt="${0.0%}" downIsGood="${false}" />',
   },
   {
     label: "<Value",
@@ -57,35 +59,104 @@ const COMPONENTS: { label: string; detail: string; template: string }[] = [
     template: '<Value data={${query}} column="${column}" fmt="${fmt}" />',
   },
   {
+    label: "<Delta",
+    detail: "colored ± with arrow",
+    template: '<Delta data={${query}} column="${column}" fmt="${0.0%}" downIsGood="${false}" />',
+  },
+  {
+    label: "<Sparkline",
+    detail: "inline trend line",
+    template: '<Sparkline data={${query}} column="${column}" height="${24}" />',
+  },
+  // ── charts ───────────────────────────────────────────────────────────────
+  {
     label: "<LineChart",
     detail: "time / step series",
-    template: '<LineChart data={${query}} x="${x}" y="${y}" series="${series}" title="${title}" />',
+    template:
+      '<LineChart data={${query}} x="${x}" y="${y}" series="${series}" yLog="${false}" title="${title}" />',
   },
   {
     label: "<BarChart",
     detail: "categorical bars",
-    template: '<BarChart data={${query}} x="${x}" y="${y}" title="${title}" />',
+    template: '<BarChart data={${query}} x="${x}" y="${y}" stacked="${false}" title="${title}" />',
   },
   {
     label: "<AreaChart",
     detail: "filled series",
-    template: '<AreaChart data={${query}} x="${x}" y="${y}" title="${title}" />',
+    template: '<AreaChart data={${query}} x="${x}" y="${y}" series="${series}" title="${title}" />',
   },
   {
-    label: "<DataTable",
-    detail: "tabular result",
-    template: '<DataTable data={${query}} search="${false}" />',
+    label: "<ScatterPlot",
+    detail: "x/y points",
+    template:
+      '<ScatterPlot data={${query}} x="${x}" y="${y}" series="${series}" pointSize="${8}" title="${title}" />',
   },
   {
-    label: "<Column",
-    detail: "DataTable column (child)",
-    template: '<Column id="${id}" title="${title}" fmt="${fmt}" align="${left}" />',
+    label: "<BubbleChart",
+    detail: "scatter sized by column",
+    template:
+      '<BubbleChart data={${query}} x="${x}" y="${y}" size="${sizeCol}" series="${series}" title="${title}" />',
+  },
+  {
+    label: "<Histogram",
+    detail: "binned distribution",
+    template: '<Histogram data={${query}} x="${column}" bins="${20}" title="${title}" />',
+  },
+  {
+    label: "<Heatmap",
+    detail: "x/y/value matrix",
+    template: '<Heatmap data={${query}} x="${x}" y="${y}" value="${value}" title="${title}" />',
+  },
+  {
+    label: "<FunnelChart",
+    detail: "label/value funnel",
+    template: '<FunnelChart data={${query}} label="${label}" value="${value}" title="${title}" />',
+  },
+  {
+    label: "<SankeyDiagram",
+    detail: "source/target/value flow",
+    template:
+      '<SankeyDiagram data={${query}} source="${source}" target="${target}" value="${value}" title="${title}" />',
   },
   {
     label: "<ReferenceLine",
     detail: "chart annotation (child)",
     template: '<ReferenceLine data={${query}} x="${x}" label="${label}" />',
   },
+  // ── table ────────────────────────────────────────────────────────────────
+  {
+    label: "<DataTable",
+    detail: "tabular result",
+    template: '<DataTable data={${query}} search="${false}" limit="${50}" />',
+  },
+  {
+    label: "<Column",
+    detail: "DataTable column (child)",
+    template:
+      '<Column id="${id}" title="${title}" fmt="${fmt}" align="${left}" contentType="${bar}" barColor="${#2563eb}" href="${urlCol}" downIsGood="${false}" wrap="${false}" />',
+  },
+  // ── inputs (name= binds a report param; defaultValue= seeds it) ───────────
+  {
+    label: "<Dropdown",
+    detail: "param-bound select",
+    template: '<Dropdown name="${param}" data={${query}} value="${valueCol}" label="${labelCol}" defaultValue="${default}" title="${title}" />',
+  },
+  {
+    label: "<ButtonGroup",
+    detail: "param-bound segmented buttons",
+    template: '<ButtonGroup name="${param}" options="${a,b,c}" defaultValue="${a}" title="${title}" />',
+  },
+  {
+    label: "<TextInput",
+    detail: "param-bound text (debounced)",
+    template: '<TextInput name="${param}" placeholder="${placeholder}" defaultValue="${}" title="${title}" />',
+  },
+  {
+    label: "<Slider",
+    detail: "param-bound range (debounced)",
+    template: '<Slider name="${param}" min="${0}" max="${100}" step="${1}" defaultValue="${50}" title="${title}" />',
+  },
+  // ── layout ───────────────────────────────────────────────────────────────
   {
     label: "<Grid",
     detail: "columns layout",
@@ -95,6 +166,26 @@ const COMPONENTS: { label: string; detail: string; template: string }[] = [
     label: "<Details",
     detail: "collapsible section",
     template: '<Details title="${title}">\n  ${}\n</Details>',
+  },
+  {
+    label: "<Tabs",
+    detail: "tabbed sections",
+    template: '<Tabs>\n  <Tab title="${first}">\n    ${}\n  </Tab>\n  <Tab title="${second}">\n  </Tab>\n</Tabs>',
+  },
+  {
+    label: "<Tab",
+    detail: "one tab (child of Tabs)",
+    template: '<Tab title="${title}">\n  ${}\n</Tab>',
+  },
+  {
+    label: "<Alert",
+    detail: "tinted callout",
+    template: '<Alert status="${info}">\n  ${}\n</Alert>',
+  },
+  {
+    label: "<Image",
+    detail: "inline image",
+    template: '<Image src="${url}" alt="${alt}" width="${480}" />',
   },
 ];
 
