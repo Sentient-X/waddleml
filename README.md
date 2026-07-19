@@ -1,6 +1,6 @@
 # WaddleML
 
-A lightweight ML experiment tracker with a local dashboard. Think **local Weights & Biases** — no cloud, no account, no config, no git required. Just `pip install` and start logging.
+A lightweight ML experiment tracker. Think **local Weights & Biases** — no cloud, no account, no config, no git required. Just `pip install` and start logging.
 
 ```python
 import waddle
@@ -14,8 +14,8 @@ with waddle.init(project="my-project", config={"lr": 0.01, "epochs": 100}):
 Then view everything:
 
 ```bash
-waddle dashboard
-# open http://localhost:3000
+waddle ls        # terminal
+# and/or the hosted console (ui/, :5179) when syncing to the platform
 ```
 
 ## Features
@@ -24,14 +24,14 @@ waddle dashboard
 - **Works anywhere** — no git required. Use in Jupyter, Colab, Docker, or plain scripts. If you happen to be in a git repo, waddle auto-captures the commit as a bonus.
 - **DuckDB storage** — fast, single-file database in `.waddle/waddle.duckdb`. No server process needed.
 - **System metrics** — optional background thread captures CPU, memory, and GPU utilization.
-- **SQL-native dashboard** — an [Evidence.dev](https://evidence.dev) project (`evidence/`) reading the `evidence_*` DuckDB views: a filterable runs overview, a per-run deep-dive generated for every run, and multi-run comparison. `waddle dashboard` snapshots the DB and serves it live.
+- **SQL-native analysis views** — the `evidence_*` DuckDB views (`waddle/_schema.py`) turn a spool DB into chart-ready SQL: decimated metric streams, resume seams, live progress/ETA, per-run KPIs. Agents (the glued `waddle-dashboard` skill) and ad-hoc SQL read these, never the raw tables.
 - **Hosted platform sync (optional)** — set `WADDLE_API_URL` (plus `WADDLE_API_KEY`
   outside the auth-optional dev server) and every
   run also streams to the Sentient-X waddle platform: the local DuckDB is the durable
   spool, a background thread uploads idempotent batches (at-least-once wire,
   exactly-once logical), artifacts ride presigned uploads, and a crashed or offline
   node backfills later with `waddle sync`. No env vars → purely local, exactly as before.
-- **Four-command CLI** — `waddle init`, `waddle ls`, `waddle dashboard`, `waddle sync`.
+- **Three-command CLI** — `waddle init`, `waddle ls`, `waddle sync`.
 
 ## The hosted platform (this repo's second half)
 
@@ -72,8 +72,11 @@ with waddle.init(
 
 ```bash
 waddle ls              # quick look in the terminal
-waddle dashboard       # full dashboard at http://localhost:3000
 ```
+
+For visual analysis, sync to the hosted platform and use the console (`ui/`, :5179),
+or — inside the glued workspace — ask an agent, which uses the `waddle-dashboard`
+skill to mine the DuckDB with SQL and publish an insight-first report.
 
 ## Python API
 
@@ -119,16 +122,8 @@ End the active run. Called automatically with `with waddle.init(...)` or at proc
 ```
 waddle init [--path PATH]                          # create .waddle/ and .gitignore entry
 waddle ls [-n 20] [--db PATH]                      # list recent runs in terminal
-waddle dashboard [--db PATH] [--port PORT]         # launch the Evidence dashboard
-                [--refresh SECONDS] [--no-install]
+waddle sync [--db PATH] [--run RUN_ID]             # backfill a spool DB to the hosted platform
 ```
-
-`waddle dashboard` finds the nearest `.waddle/waddle.duckdb` (or takes `--db`),
-copies a snapshot into the Evidence project, launches `evidence dev`, and re-copies
-the snapshot every `--refresh` seconds (default 10) so the dashboard tracks a running
-job. First launch runs `npm install` in `evidence/` (Node ≥18 required); pass
-`--no-install` to skip. Point `--db` at a project-wide `.waddle/waddle.duckdb` to see
-many runs at once, or at a single run's DB (e.g. `.runs/<run>/waddle.duckdb`).
 
 ### `waddle ls`
 
@@ -167,7 +162,7 @@ Per-epoch metrics, evaluation, model artifact.
 
 ```bash
 python examples/hyperparameter_sweep.py
-waddle dashboard  # open /compare, select runs
+waddle ls  # then compare in the console or via the waddle-dashboard skill
 ```
 
 4 runs with different learning rates. Compare overlaid loss curves and parameter diffs.
@@ -180,32 +175,19 @@ python examples/classification.py --epochs 200
 
 Binary classification with a perceptron. Loss, accuracy, learned parameters.
 
-## Dashboard
+## Analysis over the spool
 
-The dashboard is an [Evidence.dev](https://evidence.dev) project in `evidence/` —
-git-versioned SQL + markdown, not a bespoke frontend. Every panel is a query over the
-`evidence_*` DuckDB views (`waddle/_schema.py`), so extending it means writing SQL, and
-an agent can add a page the same way. Three pages ship:
+Every spool DB carries the `evidence_*` views (`waddle/_schema.py`) — the SQL read
+contract for analysis: decimated chart-ready metric streams (`evidence_run_metrics_ds`),
+resume seams (`evidence_attempts`), live progress/ETA/staleness
+(`evidence_run_progress`), per-run KPIs (`evidence_runs`), params/tags unwrapped.
+Snapshot the DB (copy it plus its `.wal` — never open the live file) and query the
+views from DuckDB. In the glued workspace, the `waddle-dashboard` agent skill does
+exactly this and publishes an insight-first HTML report.
 
-- **`/` overview** — KPI tiles, a filterable run table (project / status / name-search
-  dropdowns, wandb-style), and a loss overlay across the filtered runs. Rows link to
-  the deep dive.
-- **`/runs/[run_id]` deep dive** — *generated for every run from data* (Evidence
-  templated page): loss/lr/grad-norm curves, an any-metric selector, throughput and
-  GPU/CPU/memory panels, and the full hyperparameter, tag, and provenance tables.
-- **`/compare` comparison** — multi-select runs, overlay any metric, and a
-  hyperparameter-diff table showing only the parameters that differ.
-
-`waddle dashboard` keeps the underlying snapshot fresh on an interval, so the pages
-track a running job. Liveness is snapshot-refresh (a few seconds), not socket
-streaming — and it is fully decoupled, so the dashboard never touches the training
-process or its DuckDB write lock.
-
-### Adding a page
-
-Drop a `.md` file in `evidence/pages/` with a fenced ` ```sql ` block against the
-`waddle.*` sources (which wrap the `evidence_*` views) and any Evidence components.
-No Python, no rebuild of waddle itself.
+The Evidence.dev local dashboard that these views were originally built for was
+retired 2026-07-19 — kept for reference in `archive/evidence/`; the hosted console
+(`ui/`) is the passive always-on dashboard.
 
 ## Git Integration (Optional)
 
@@ -213,7 +195,7 @@ When you run `waddle.init()` inside a git repository:
 - Auto-commits dirty working tree before the run
 - Captures the commit SHA and links it to the run
 - Records commit metadata (author, message, tree)
-- Shows commit info in the dashboard
+- Surfaces commit info in `waddle ls`, the views, and the console
 
 When not in a git repo, everything works the same — you just don't get commit tracking.
 
@@ -238,8 +220,7 @@ Missing deps are silently skipped.
 
 **Optional (Python):** `psutil` (CPU/mem), `pynvml` (GPU)
 
-**Dashboard:** Node.js ≥18 — `waddle dashboard` installs the Evidence project's npm
-deps into `evidence/node_modules/` on first launch. The Python package has no web deps.
+The Python package has no web deps.
 
 ```bash
 pip install -e ".[all]"    # everything (Python side)
@@ -254,14 +235,12 @@ waddle/
     _run.py              # Run class
     _state.py            # Global run state
     _db.py               # WaddleDB (DuckDB)
-    _schema.py           # DDL + evidence_* dashboard views
+    _schema.py           # DDL + evidence_* analysis views
     _git.py              # Git detection (optional)
     _sysmetrics.py       # System monitor thread
     _types.py            # RepoInfo dataclass
-    cli.py               # CLI: init, ls, dashboard
-evidence/                # Evidence.dev dashboard (SQL + markdown)
-    sources/waddle/      # DuckDB source over the evidence_* views
-    pages/               # index, runs/[run_id] deep dive, compare
+    cli.py               # CLI: init, ls, sync
+archive/                 # retired surfaces kept for reference (Evidence.dev dashboard)
 ```
 
 ## License

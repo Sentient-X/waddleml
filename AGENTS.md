@@ -16,12 +16,13 @@ Core package resides in `waddle/` with a modular architecture:
 | `_sysmetrics.py` | `SystemMonitor` background thread (CPU/mem/GPU) |
 | `_types.py` | `RepoInfo`/`WorkerInfo` dataclasses |
 | `_sync.py` | `SyncEngine` — background upload of the DuckDB spool to the hosted platform (idempotent batches, persisted outbox, artifact uploads); active only when `WADDLE_API_URL`/`WADDLE_API_KEY` are set |
-| `cli.py` | CLI entry point: `init`, `ls`, `dashboard`, `sync` |
+| `cli.py` | CLI entry point: `init`, `ls`, `sync` |
 
-The dashboard is an Evidence.dev project in `evidence/` (SQL + markdown over the
-`evidence_*` views), launched by `waddle dashboard`. There is no in-process web server —
-the old Starlette/WebSocket + Plotly dashboard (`_server.py`, `_dashboard_api.py`,
-`static/index.html`) was retired.
+There is no local dashboard and no in-process web server. The `evidence_*` views in
+`_schema.py` are the SQL analysis contract over a spool DB, consumed by agents (the
+glued `waddle-dashboard` skill). The Evidence.dev dashboard that originally read them
+was retired 2026-07-19 to `archive/evidence/` (its `waddle dashboard` CLI command was
+deleted); the older Starlette/WebSocket + Plotly dashboard was retired before that.
 
 The repo's second half is the **hosted platform**: `waddle_server/` (FastAPI control
 plane :8400 over Postgres + ClickHouse + R2, the compaction worker, the org-jailed
@@ -39,7 +40,6 @@ Examples live in `examples/` and tests in `tests/`. Runtime artifacts (`.waddle/
 - `pytest tests/` — run the test suite.
 - `python examples/quickstart.py` — emit sample runs for manual verification.
 - `waddle ls` — list recent runs in terminal.
-- `waddle dashboard` — snapshot the DuckDB and serve the Evidence dashboard (Node ≥18; first run installs `evidence/node_modules`).
 
 ## Coding Style & Naming Conventions
 

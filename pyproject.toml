@@ -19,7 +19,6 @@ keywords = [
     "duckdb",
     "wandb",
     "weights-and-biases",
-    "dashboard",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -73,8 +72,7 @@ Repository = "https://github.com/Sentient-X/waddleml"
 Issues = "https://github.com/Sentient-X/waddleml/issues"
 
 # Hatchling ships the whole package dir (py.typed included) and emits path-based
-# editables that pyright can resolve — the workspace norm. The Evidence dashboard
-# (evidence/) is a dev tool that lives beside the package, not shipped in the wheel.
+# editables that pyright can resolve — the workspace norm.
 # waddle_server ships too (its migrations are package data); without the `server`
 # extra its imports simply aren't satisfiable — the base SDK install stays light.
 [tool.hatch.build.targets.wheel]

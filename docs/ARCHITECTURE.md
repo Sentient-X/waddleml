@@ -14,9 +14,9 @@ The local DuckDB file is the supported initial deployment. Quack remote transpor
 behind the same writer API after its beta protocol stabilizes. It is not required for local
 durability.
 
-The dashboard is the Evidence.dev project under `evidence/`, querying the `evidence_*` views
-(`_schema.py`): the runs overview, a per-run deep dive generated for every run, and multi-run
-comparison. `waddle dashboard` snapshots the DuckDB and serves it, refreshing the snapshot on
-an interval so the dashboard tracks a running job without contending for DuckDB's writer lock.
-Dashboards are replaceable projections over the views — the built-in Starlette/Plotly server
-that once played this role was retired in favor of this SQL-native surface.
+Dashboards are replaceable projections over the `evidence_*` views (`_schema.py`), which
+remain the SQL analysis contract over a spool DB. Two projections have already been
+replaced: the built-in Starlette/Plotly server, then the Evidence.dev project (retired
+2026-07-19, kept in `archive/evidence/`). Today the projections are the hosted console
+(`ui/`) over the synced platform data, and — laptop-local — agents querying the views
+directly over a lock-free snapshot (the glued `waddle-dashboard` skill).

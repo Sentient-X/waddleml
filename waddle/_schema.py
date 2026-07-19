@@ -93,10 +93,14 @@ ALTER TABLE metrics ADD COLUMN IF NOT EXISTS node_id VARCHAR DEFAULT 'localhost'
 ALTER TABLE metrics ADD COLUMN IF NOT EXISTS attempt INTEGER DEFAULT 0;
 
 
--- Views prefixed evidence_ are the read contract for the Evidence dashboard
--- (packages/waddleml/evidence/). They exist so dashboard pages — and agents
--- generating new pages — write plain SQL instead of re-deriving joins and JSON
--- extraction. Everything downstream reads these, never the raw tables.
+-- Views prefixed evidence_ are the analysis read contract over a spool DB:
+-- agents (the glued `waddle-dashboard` skill above all) query them instead of
+-- re-deriving joins, decimation, and JSON extraction from the raw tables.
+-- The name is historical — they were born as the read contract for the retired
+-- Evidence.dev dashboard (now archive/evidence/). Renaming them would break
+-- every existing spool snapshot, so they keep the prefix.
+-- (NB: _db.py naively splits this DDL on the semicolon character — never use
+-- one inside a comment.)
 
 -- Long metric stream joined to its run: one row per (run, key, step).
 CREATE OR REPLACE VIEW evidence_run_metrics AS

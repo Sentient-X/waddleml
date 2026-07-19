@@ -6,7 +6,7 @@ Logs accuracy, loss, and learned parameters per epoch.
 Usage:
     python examples/classification.py
     python examples/classification.py --epochs 200 --lr 0.1
-    waddle dashboard
+    waddle ls
 """
 
 import argparse

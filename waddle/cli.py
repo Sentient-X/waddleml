@@ -1,18 +1,10 @@
 #!/usr/bin/env python3
-"""Waddle CLI: init, ls, dashboard.
-
-`dashboard` launches the Evidence.dev dashboard (packages/waddleml/evidence/)
-against a snapshot of a run's DuckDB, refreshed on an interval so the dashboard
-tracks a running job without ever contending for DuckDB's single-writer lock.
-"""
+"""Waddle CLI: init, ls, sync."""
 
 from __future__ import annotations
 
 import argparse
-import shutil
-import subprocess
 import sys
-import threading
 from pathlib import Path
 
 GITIGNORE_LINES = [".waddle/"]
@@ -76,112 +68,6 @@ def cmd_ls(a: argparse.Namespace) -> int:
     return 0
 
 
-# ---------- dashboard ----------
-
-def cmd_dashboard(a: argparse.Namespace) -> int:
-    db_path = _find_db(a.db)
-    if not db_path:
-        print("no waddle.duckdb found. run a training script with waddle.init() first, "
-              "or pass --db <path>.", file=sys.stderr)
-        return 1
-    live = Path(db_path)
-
-    evidence_dir = Path(a.evidence_dir) if a.evidence_dir else _evidence_dir()
-    if not (evidence_dir / "package.json").exists():
-        print(f"Evidence project not found at {evidence_dir}. The dashboard ships with the "
-              "waddleml source tree; run from a checkout or pass --evidence-dir.", file=sys.stderr)
-        return 1
-
-    npm = shutil.which("npm")
-    if npm is None:
-        print("npm not found. The Evidence dashboard needs Node.js (>=18).", file=sys.stderr)
-        return 1
-
-    if not (evidence_dir / "node_modules").exists():
-        if a.no_install:
-            print(f"dependencies not installed. run `npm install` in {evidence_dir}.", file=sys.stderr)
-            return 1
-        print(f"[waddle] installing dashboard dependencies in {evidence_dir} (first run only)…")
-        if subprocess.run([npm, "install"], cwd=evidence_dir).returncode != 0:
-            print("npm install failed.", file=sys.stderr)
-            return 1
-
-    snapshot = evidence_dir / "sources" / "waddle" / "waddle.duckdb"
-    _snapshot_db(live, snapshot)
-    _ensure_views(snapshot)
-    print(f"[waddle] dashboard for {live}")
-    print(f"[waddle] snapshot -> {snapshot} (refresh every {a.refresh}s)")
-    # Run sources once up front so the first page load is already fresh instead of
-    # waiting out the first refresh interval.
-    subprocess.run([npm, "run", "sources"], cwd=evidence_dir, capture_output=True)
-
-    stop = threading.Event()
-    watcher = threading.Thread(
-        target=_refresh_loop, args=(live, snapshot, evidence_dir, npm, a.refresh, stop), daemon=True
-    )
-    watcher.start()
-
-    proc = subprocess.Popen(
-        [npm, "run", "dev", "--", "--port", str(a.port), "--host", a.host],
-        cwd=evidence_dir,
-    )
-    try:
-        proc.wait()
-    except KeyboardInterrupt:
-        proc.terminate()
-    finally:
-        stop.set()
-    return proc.returncode or 0
-
-
-def _snapshot_db(live: Path, dest: Path) -> None:
-    """Copy the live DB (and its WAL) so Evidence reads a consistent, lock-free copy.
-
-    DuckDB replays a copied .wal on open, so copying both files captures state up
-    to the last flushed write even while training holds the file open.
-    """
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(live, dest)
-    live_wal = Path(str(live) + ".wal")
-    dest_wal = Path(str(dest) + ".wal")
-    if live_wal.exists():
-        shutil.copy2(live_wal, dest_wal)
-    elif dest_wal.exists():
-        dest_wal.unlink()
-
-
-def _ensure_views(snapshot: Path) -> None:
-    """Apply the current schema (idempotent) to the snapshot so the evidence_*
-    views exist even for DBs written by an older waddle. Safe: the snapshot is our
-    private copy, so this write never contends with the live training process."""
-    import duckdb
-
-    from ._schema import SCHEMA_DDL
-
-    conn = duckdb.connect(str(snapshot))
-    try:
-        conn.execute(SCHEMA_DDL)
-    finally:
-        conn.close()
-
-
-def _refresh_loop(
-    live: Path, dest: Path, evidence_dir: Path, npm: str, interval: float, stop: threading.Event
-) -> None:
-    last_mtime: float | None = None
-    while not stop.wait(interval):
-        try:
-            mtime = live.stat().st_mtime
-        except OSError:
-            continue
-        if mtime == last_mtime:
-            continue
-        last_mtime = mtime
-        _snapshot_db(live, dest)
-        _ensure_views(dest)
-        subprocess.run([npm, "run", "sources"], cwd=evidence_dir, capture_output=True)
-
-
 # ---------- sync ----------
 
 def cmd_sync(a: argparse.Namespace) -> int:
@@ -192,7 +78,8 @@ def cmd_sync(a: argparse.Namespace) -> int:
 
     config = SyncConfig.from_env()
     if config is None:
-        print("WADDLE_API_URL and WADDLE_API_KEY must be set.", file=sys.stderr)
+        print("WADDLE_API_URL must be set (plus WADDLE_API_KEY outside the "
+              "auth-optional dev server).", file=sys.stderr)
         return 1
     db_path = _find_db(a.db)
     if not db_path:
@@ -233,10 +120,6 @@ def cmd_sync(a: argparse.Namespace) -> int:
 
 # ---------- helpers ----------
 
-def _evidence_dir() -> Path:
-    return Path(__file__).resolve().parent.parent / "evidence"
-
-
 def _find_db(explicit: str | None = None) -> str | None:
     """Find the DuckDB file: explicit path, then cwd, then walk up to the git root."""
     if explicit and Path(explicit).exists():
@@ -273,15 +156,6 @@ def build() -> argparse.ArgumentParser:
     pl.add_argument("--db", help="path to waddle.duckdb")
     pl.add_argument("-n", "--limit", type=int, default=20, help="max runs to show")
     pl.set_defaults(func=cmd_ls)
-
-    pd = sub.add_parser("dashboard", help="Launch the Evidence.dev dashboard")
-    pd.add_argument("--db", help="path to waddle.duckdb (default: nearest .waddle/)")
-    pd.add_argument("--host", default="localhost")
-    pd.add_argument("--port", type=int, default=3000)
-    pd.add_argument("--refresh", type=float, default=30.0, help="snapshot refresh interval, seconds")
-    pd.add_argument("--evidence-dir", help="override the Evidence project location")
-    pd.add_argument("--no-install", action="store_true", help="fail instead of running npm install")
-    pd.set_defaults(func=cmd_dashboard)
 
     ps = sub.add_parser("sync", help="Backfill a spool DB to the hosted platform")
     ps.add_argument("--db", help="path to waddle.duckdb (default: nearest .waddle/)")

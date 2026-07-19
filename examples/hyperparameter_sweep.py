@@ -1,4 +1,4 @@
-"""Hyperparameter sweep — launch multiple runs, then compare in the dashboard.
+"""Hyperparameter sweep — launch multiple runs, then compare them.
 
 Trains the same linear regression model with different learning rates,
 producing multiple runs you can compare side-by-side.
@@ -6,7 +6,6 @@ producing multiple runs you can compare side-by-side.
 Usage:
     python examples/hyperparameter_sweep.py
     waddle ls                    # see all 4 runs
-    waddle dashboard             # open /compare and select runs
 """
 
 import random
@@ -67,7 +66,7 @@ def main():
     print("-" * 50)
     best = min(results, key=lambda r: r[3])
     print(f"Best: lr={best[0]} with MSE={best[3]:.4f}")
-    print("\nRun 'waddle dashboard' to compare all runs in the dashboard.")
+    print("\nRun 'waddle ls' to see all runs; compare them in the console or via SQL.")
 
 
 if __name__ == "__main__":

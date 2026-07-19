@@ -6,7 +6,7 @@ config, per-epoch metrics, final evaluation, tags, and a model artifact.
 Usage:
     python examples/linear_regression.py
     python examples/linear_regression.py --epochs 100 --lr 0.03
-    waddle dashboard
+    waddle ls
 """
 
 import argparse
