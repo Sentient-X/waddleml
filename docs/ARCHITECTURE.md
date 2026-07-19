@@ -20,3 +20,14 @@ replaced: the built-in Starlette/Plotly server, then the Evidence.dev project (d
 2026-07-19). Today the projections are the hosted console
 (`ui/`) over the synced platform data, and — laptop-local — agents querying the views
 directly over a lock-free snapshot (the glued `waddle-dashboard` skill).
+
+Hosted, the Evidence idea returns rederived as **reports as code**
+(`waddle_server/reports.py`): org-scoped markdown documents (named SQL fences,
+`${query}` chaining as parenthesized-subquery substitution, `${params.x}`, component
+tags) compiled to a typed query DAG — cycles and unknown references fail closed at
+save — and rendered by executing every query in one pass of the org-jailed SQL
+sandbox. Evidence is safe splicing text into SQL only because its queries run in the
+author's own client-local DuckDB; the sandbox is the server-side analog of that law,
+so the hosted dialect inherits the safety model by construction. The substrate is
+open: `PUT /api/v1/datasets/{name}` lets any producer (the factory is the first)
+publish tabular snapshots that instantly become views in the sandbox and in reports.

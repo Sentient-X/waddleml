@@ -29,6 +29,16 @@ export type LogLine = schemas["LogLineOut"];
 
 export type SqlQuery = schemas["SqlQueryIn"];
 export type SqlResult = schemas["SqlResultOut"];
+export type ColumnType = schemas["ColumnType"];
+
+// Reports-as-code — org-scoped markdown+SQL docs compiled and rendered server-side.
+export type ReportSummary = schemas["ReportSummaryOut"];
+export type Report = schemas["ReportOut"];
+export type SaveReportIn = schemas["SaveReportIn"];
+export type RenderReportIn = schemas["RenderReportIn"];
+export type PreviewReportIn = schemas["PreviewReportIn"];
+export type RenderBlock = schemas["RenderBlockOut"];
+export type RenderReport = schemas["RenderReportOut"];
 
 export type RunLineage = schemas["RunLineageOut"];
 export type ArtifactVersion = schemas["ArtifactVersionOut"];

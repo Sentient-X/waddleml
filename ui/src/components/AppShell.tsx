@@ -1,5 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { GitCompare, Moon, Rocket, Sun, Table2, Terminal, Waypoints } from "lucide-react";
+import {
+  FileText,
+  GitCompare,
+  Moon,
+  Rocket,
+  Sun,
+  Table2,
+  Terminal,
+  Waypoints,
+} from "lucide-react";
 import { NavLink } from "react-router-dom";
 import {
   Badge,
@@ -16,6 +25,7 @@ const NAV = [
   { to: "/compare", label: "Compare", icon: GitCompare, end: false },
   { to: "/projects", label: "Projects", icon: Table2, end: false },
   { to: "/sql", label: "SQL", icon: Terminal, end: false },
+  { to: "/reports", label: "Reports", icon: FileText, end: false },
   { to: "/launch", label: "Launch", icon: Rocket, end: false },
 ] as const;
 

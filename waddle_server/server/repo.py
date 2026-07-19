@@ -322,3 +322,75 @@ async def org_limits(conn: AsyncConnection[Any], org_id: UUID) -> OrgLimitsRow |
             (org_id,),
         )
         return await cur.fetchone()
+
+
+@dataclass(frozen=True, slots=True)
+class ReportRow:
+    org_id: UUID
+    name: str
+    title: str | None
+    description: str | None
+    body: str
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+_REPORT_COLUMNS: LiteralString = (
+    "org_id, name, title, description, body, updated_by, created_at, updated_at"
+)
+
+
+async def upsert_report(
+    conn: AsyncConnection[Any],
+    org_id: UUID,
+    name: str,
+    *,
+    title: str | None,
+    description: str | None,
+    body: str,
+    updated_by: str | None,
+) -> ReportRow:
+    async with conn.cursor(row_factory=class_row(ReportRow)) as cur:
+        await cur.execute(
+            f"""
+            INSERT INTO reports (org_id, name, title, description, body, updated_by)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (org_id, name) DO UPDATE
+                SET title = EXCLUDED.title, description = EXCLUDED.description,
+                    body = EXCLUDED.body, updated_by = EXCLUDED.updated_by,
+                    updated_at = now()
+            RETURNING {_REPORT_COLUMNS}
+            """,
+            (org_id, name, title, description, body, updated_by),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        return row
+
+
+async def list_reports(conn: AsyncConnection[Any], org_id: UUID) -> list[ReportRow]:
+    async with conn.cursor(row_factory=class_row(ReportRow)) as cur:
+        await cur.execute(
+            f"SELECT {_REPORT_COLUMNS} FROM reports WHERE org_id = %s ORDER BY name",
+            (org_id,),
+        )
+        return await cur.fetchall()
+
+
+async def get_report(
+    conn: AsyncConnection[Any], org_id: UUID, name: str
+) -> ReportRow | None:
+    async with conn.cursor(row_factory=class_row(ReportRow)) as cur:
+        await cur.execute(
+            f"SELECT {_REPORT_COLUMNS} FROM reports WHERE org_id = %s AND name = %s",
+            (org_id, name),
+        )
+        return await cur.fetchone()
+
+
+async def delete_report(conn: AsyncConnection[Any], org_id: UUID, name: str) -> bool:
+    result = await conn.execute(
+        "DELETE FROM reports WHERE org_id = %s AND name = %s", (org_id, name)
+    )
+    return result.rowcount > 0

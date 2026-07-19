@@ -13,34 +13,43 @@ from __future__ import annotations
 
 import gzip
 import hashlib
-from collections.abc import AsyncGenerator, AsyncIterator
+import tempfile
+from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path as FsPath
 from typing import Any
 from uuid import UUID
 
+import duckdb
 import pydantic
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg import AsyncConnection
 from sx_auth.client import AuthClient
 from sx_observability import ObservabilityMiddleware, configure_logging, get_logger
 
-from waddle_server import sqlbox
+from waddle_server import reports, sqlbox
 from waddle_server.config import WaddleSettings
 from waddle_server.errors import (
     BatchDigestMismatchError,
     BatchLimitError,
+    DatasetNameError,
+    MissingParamsError,
     QueryLimitError,
     QuotaExceededError,
+    ReportCompileError,
+    ReportNotFoundError,
     RunNotFoundError,
     SqlSandboxError,
 )
-from waddle_server.model import RunState, WaddleRole
+from waddle_server.model import ColumnType, RunState, WaddleRole
 from waddle_server.server import artifacts, ch, db, quotas, repo
 from waddle_server.server.auth import WaddlePrincipal, require_role, resolve_principal
 from waddle_server.server.schemas import (
+    DATASET_NAME_PATTERN,
+    REPORT_NAME_PATTERN,
     AliasIn,
     ArtifactFileOut,
     ArtifactVersionOut,
@@ -49,6 +58,8 @@ from waddle_server.server.schemas import (
     CommitArtifactIn,
     CreateRunIn,
     CreateUploadSessionIn,
+    DatasetInfoOut,
+    DatasetOut,
     ErrorOut,
     FinishRunIn,
     HealthOut,
@@ -56,11 +67,19 @@ from waddle_server.server.schemas import (
     LogLineOut,
     MetricSeriesOut,
     MetricsQueryIn,
+    PreviewReportIn,
     ProjectOut,
+    PutDatasetIn,
+    RenderBlockOut,
+    RenderReportIn,
+    RenderReportOut,
+    ReportOut,
+    ReportSummaryOut,
     RunDetailOut,
     RunLineageOut,
     RunOut,
     RunRef,
+    SaveReportIn,
     SeriesPointOut,
     SqlQueryIn,
     SqlResultOut,
@@ -68,7 +87,13 @@ from waddle_server.server.schemas import (
     UploadTargetOut,
     WorkerOut,
 )
-from waddle_server.server.storage import ObjectStore, blob_key
+from waddle_server.server.storage import (
+    RESERVED_DATASETS,
+    ObjectStore,
+    blob_key,
+    parquet_key,
+    write_parquet,
+)
 
 log = get_logger(__name__)
 
@@ -470,7 +495,239 @@ def build_app(
             raise HTTPException(
                 422, ErrorOut(code=f"sql_{err.kind}", message=str(err)).model_dump()
             ) from err
-        return SqlResultOut(columns=result.columns, rows=result.rows, truncated=result.truncated)
+        return _sql_out(result)
+
+    def _sql_out(result: sqlbox.SqlResult) -> SqlResultOut:
+        return SqlResultOut(
+            columns=result.columns,
+            column_types=result.column_types,
+            rows=result.rows,
+            truncated=result.truncated,
+        )
+
+    # ── reports as code ──────────────────────────────────────────────────────
+
+    def _compile_or_422(body: str) -> reports.CompiledReport:
+        try:
+            return reports.compile_report(body)
+        except ReportCompileError as err:
+            raise HTTPException(
+                422, ErrorOut(code=f"report_{err.kind}", message=str(err)).model_dump()
+            ) from err
+
+    def _report_out(row: repo.ReportRow, compiled: reports.CompiledReport) -> ReportOut:
+        return ReportOut(
+            name=row.name,
+            title=row.title,
+            description=row.description,
+            updated_by=row.updated_by,
+            updated_at=row.updated_at,
+            body=row.body,
+            queries=sorted(compiled.queries),
+            required_params=sorted(compiled.required_params),
+        )
+
+    def _block_out(
+        block: reports.Block,
+        results: Mapping[str, sqlbox.SqlResult],
+        params: Mapping[str, str],
+    ) -> RenderBlockOut:
+        if isinstance(block, reports.MarkdownBlock):
+            return RenderBlockOut(
+                kind="markdown", text=reports.resolve_markdown(block.text, results, params)
+            )
+        return RenderBlockOut(
+            kind="component",
+            component=block.kind.value,
+            props=dict(block.props),
+            query=block.query,
+            children=[_block_out(child, results, params) for child in block.children],
+        )
+
+    async def _render(
+        c: AsyncConnection[Any],
+        pr: WaddlePrincipal,
+        compiled: reports.CompiledReport,
+        *,
+        name: str | None,
+        params: dict[str, str],
+        max_rows: int,
+    ) -> RenderReportOut:
+        try:
+            final_sql = reports.render_sql(compiled, params)
+        except MissingParamsError as err:
+            raise _error(422, err, err.code) from err
+        try:
+            outcomes = await sqlbox.run_queries(
+                c, blobs, pr.org_id, queries=final_sql, max_rows=max_rows
+            )
+        except SqlSandboxError as err:
+            raise HTTPException(
+                422, ErrorOut(code=f"sql_{err.kind}", message=str(err)).model_dump()
+            ) from err
+        results = {q: r for q, r in outcomes.items() if isinstance(r, sqlbox.SqlResult)}
+        return RenderReportOut(
+            name=name,
+            title=compiled.title,
+            description=compiled.description,
+            required_params=sorted(compiled.required_params),
+            params=params,
+            blocks=[_block_out(b, results, params) for b in compiled.blocks],
+            results={q: _sql_out(r) for q, r in results.items()},
+            query_errors={
+                q: r.message for q, r in outcomes.items() if isinstance(r, sqlbox.QueryFailure)
+            },
+        )
+
+    @app.get("/api/v1/reports", response_model=list[ReportSummaryOut])
+    async def list_reports(
+        c: AsyncConnection[Any] = Depends(conn), pr: WaddlePrincipal = Depends(principal)
+    ) -> list[ReportSummaryOut]:
+        require_role(pr, WaddleRole.READER)
+        return [
+            ReportSummaryOut(
+                name=r.name,
+                title=r.title,
+                description=r.description,
+                updated_by=r.updated_by,
+                updated_at=r.updated_at,
+            )
+            for r in await repo.list_reports(c, pr.org_id)
+        ]
+
+    async def _report_or_404(
+        c: AsyncConnection[Any], pr: WaddlePrincipal, name: str
+    ) -> repo.ReportRow:
+        row = await repo.get_report(c, pr.org_id, name)
+        if row is None:
+            raise _error(404, ReportNotFoundError(name), ReportNotFoundError.code)
+        return row
+
+    @app.get("/api/v1/reports/{name}", response_model=ReportOut)
+    async def get_report(
+        name: str = Path(pattern=REPORT_NAME_PATTERN),
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> ReportOut:
+        require_role(pr, WaddleRole.READER)
+        row = await _report_or_404(c, pr, name)
+        return _report_out(row, _compile_or_422(row.body))
+
+    @app.put("/api/v1/reports/{name}", response_model=ReportOut)
+    async def save_report(
+        body: SaveReportIn,
+        name: str = Path(pattern=REPORT_NAME_PATTERN),
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> ReportOut:
+        """Compile-validate then upsert: a body the compiler rejects is never
+        stored (a saved report always renders or fails only on data)."""
+        require_role(pr, WaddleRole.WRITER)
+        compiled = _compile_or_422(body.body)
+        row = await repo.upsert_report(
+            c,
+            pr.org_id,
+            name,
+            title=compiled.title,
+            description=compiled.description,
+            body=body.body,
+            updated_by=pr.subject,
+        )
+        return _report_out(row, compiled)
+
+    @app.delete("/api/v1/reports/{name}", status_code=204)
+    async def delete_report(
+        name: str = Path(pattern=REPORT_NAME_PATTERN),
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> None:
+        require_role(pr, WaddleRole.WRITER)
+        if not await repo.delete_report(c, pr.org_id, name):
+            raise _error(404, ReportNotFoundError(name), ReportNotFoundError.code)
+
+    @app.post("/api/v1/reports/preview", response_model=RenderReportOut)
+    async def preview_report(
+        body: PreviewReportIn,
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> RenderReportOut:
+        """Render an unsaved body — the authoring loop for humans and agents."""
+        require_role(pr, WaddleRole.READER)
+        compiled = _compile_or_422(body.body)
+        return await _render(
+            c, pr, compiled, name=None, params=body.params, max_rows=body.max_rows
+        )
+
+    @app.post("/api/v1/reports/{name}/render", response_model=RenderReportOut)
+    async def render_report(
+        body: RenderReportIn,
+        name: str = Path(pattern=REPORT_NAME_PATTERN),
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> RenderReportOut:
+        require_role(pr, WaddleRole.READER)
+        row = await _report_or_404(c, pr, name)
+        compiled = _compile_or_422(row.body)
+        return await _render(
+            c, pr, compiled, name=name, params=body.params, max_rows=body.max_rows
+        )
+
+    # ── the datasets door (producer → org Parquet substrate) ─────────────────
+
+    _DUCK_TYPES: dict[ColumnType, str] = {
+        ColumnType.NUMBER: "DOUBLE",
+        ColumnType.STRING: "VARCHAR",
+        ColumnType.BOOLEAN: "BOOLEAN",
+        ColumnType.DATE: "TIMESTAMP",
+    }
+
+    @app.put("/api/v1/datasets/{dataset}", response_model=DatasetOut)
+    async def put_dataset(
+        body: PutDatasetIn,
+        dataset: str = Path(pattern=DATASET_NAME_PATTERN),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> DatasetOut:
+        """Replace the org's snapshot of one tabular dataset. Everything under
+        the org's Parquet prefix is a view in the SQL sandbox and in reports —
+        this door is how other pillars (factory, pipeline) publish their
+        tables into the substrate."""
+        require_role(pr, WaddleRole.WRITER)
+        if dataset in RESERVED_DATASETS:
+            raise _error(
+                422,
+                DatasetNameError(f"dataset {dataset!r} is platform-owned"),
+                DatasetNameError.code,
+            )
+        width = len(body.columns)
+        if any(len(row) != width for row in body.rows):
+            raise _error(
+                422,
+                DatasetNameError(f"every row must have exactly {width} values"),
+                DatasetNameError.code,
+            )
+        columns = [(col.name, _DUCK_TYPES[col.type]) for col in body.columns]
+        with tempfile.TemporaryDirectory() as scratch:
+            dest = FsPath(scratch) / "snapshot.parquet"
+            try:
+                write_parquet([tuple(row) for row in body.rows], columns, dest)
+            except duckdb.Error as err:
+                raise _error(
+                    422,
+                    DatasetNameError(f"rows do not fit the declared columns: {err}"),
+                    DatasetNameError.code,
+                ) from err
+            blobs.put_file_replace(dest, parquet_key(pr.org_id, dataset, "snapshot"))
+        return DatasetOut(dataset=dataset, rows=len(body.rows))
+
+    @app.get("/api/v1/datasets", response_model=list[DatasetInfoOut])
+    async def list_datasets(pr: WaddlePrincipal = Depends(principal)) -> list[DatasetInfoOut]:
+        require_role(pr, WaddleRole.READER)
+        prefix = f"orgs/{pr.org_id}/parquet/"
+        counts: dict[str, int] = {}
+        for key in blobs.list_keys(prefix):
+            name = key[len(prefix) :].split("/", 1)[0]
+            counts[name] = counts.get(name, 0) + 1
+        return [DatasetInfoOut(dataset=n, files=c) for n, c in sorted(counts.items())]
 
     # ── artifacts ────────────────────────────────────────────────────────────
 

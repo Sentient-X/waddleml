@@ -155,6 +155,17 @@
         "title": "BatchAck",
         "type": "object"
       },
+      "ColumnType": {
+        "description": "Coarse column types riding every SQL result (Evidence's evidenceType\nvocabulary): enough for formatting and axis inference, no more.",
+        "enum": [
+          "number",
+          "string",
+          "boolean",
+          "date"
+        ],
+        "title": "ColumnType",
+        "type": "string"
+      },
       "CommitArtifactIn": {
         "additionalProperties": false,
         "properties": {
@@ -316,6 +327,61 @@
           "files"
         ],
         "title": "CreateUploadSessionIn",
+        "type": "object"
+      },
+      "DatasetColumnIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "pattern": "^[A-Za-z_]\\w{0,63}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ColumnType"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "title": "DatasetColumnIn",
+        "type": "object"
+      },
+      "DatasetInfoOut": {
+        "properties": {
+          "dataset": {
+            "title": "Dataset",
+            "type": "string"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset",
+          "files"
+        ],
+        "title": "DatasetInfoOut",
+        "type": "object"
+      },
+      "DatasetOut": {
+        "properties": {
+          "dataset": {
+            "title": "Dataset",
+            "type": "string"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset",
+          "rows"
+        ],
+        "title": "DatasetOut",
         "type": "object"
       },
       "FinishRunIn": {
@@ -502,6 +568,36 @@
         "title": "MetricsQueryIn",
         "type": "object"
       },
+      "PreviewReportIn": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "max_rows": {
+            "default": 1000,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Max Rows",
+            "type": "integer"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "PreviewReportIn",
+        "type": "object"
+      },
       "ProjectOut": {
         "properties": {
           "created_at": {
@@ -519,6 +615,355 @@
           "created_at"
         ],
         "title": "ProjectOut",
+        "type": "object"
+      },
+      "PutDatasetIn": {
+        "additionalProperties": false,
+        "description": "A full tabular snapshot, replacing the dataset's previous snapshot.\nRows are scalars only; the server writes the Parquet.",
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetColumnIn"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Columns",
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "maxItems": 100000,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "columns",
+          "rows"
+        ],
+        "title": "PutDatasetIn",
+        "type": "object"
+      },
+      "RenderBlockOut": {
+        "description": "One rendered page block. Markdown arrives with value/param expressions\nalready resolved; components carry verbatim props \u2014 the console's\ncomponent registry owns their interpretation.",
+        "properties": {
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/RenderBlockOut"
+            },
+            "title": "Children",
+            "type": "array"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
+          },
+          "kind": {
+            "enum": [
+              "markdown",
+              "component"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "props": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Props",
+            "type": "object"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "RenderBlockOut",
+        "type": "object"
+      },
+      "RenderReportIn": {
+        "additionalProperties": false,
+        "properties": {
+          "max_rows": {
+            "default": 1000,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Max Rows",
+            "type": "integer"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "title": "RenderReportIn",
+        "type": "object"
+      },
+      "RenderReportOut": {
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/RenderBlockOut"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "object"
+          },
+          "query_errors": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Query Errors",
+            "type": "object"
+          },
+          "required_params": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Params",
+            "type": "array"
+          },
+          "results": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SqlResultOut"
+            },
+            "title": "Results",
+            "type": "object"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "description",
+          "required_params",
+          "params",
+          "blocks",
+          "results",
+          "query_errors"
+        ],
+        "title": "RenderReportOut",
+        "type": "object"
+      },
+      "ReportOut": {
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "queries": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Queries",
+            "type": "array"
+          },
+          "required_params": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Params",
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "description",
+          "updated_by",
+          "updated_at",
+          "body",
+          "queries",
+          "required_params"
+        ],
+        "title": "ReportOut",
+        "type": "object"
+      },
+      "ReportSummaryOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "description",
+          "updated_by",
+          "updated_at"
+        ],
+        "title": "ReportSummaryOut",
         "type": "object"
       },
       "RunDetailOut": {
@@ -852,6 +1297,22 @@
         "title": "RunState",
         "type": "string"
       },
+      "SaveReportIn": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "SaveReportIn",
+        "type": "object"
+      },
       "SeriesPointOut": {
         "properties": {
           "step": {
@@ -911,6 +1372,13 @@
       },
       "SqlResultOut": {
         "properties": {
+          "column_types": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnType"
+            },
+            "title": "Column Types",
+            "type": "array"
+          },
           "columns": {
             "items": {
               "type": "string"
@@ -933,6 +1401,7 @@
         },
         "required": [
           "columns",
+          "column_types",
           "rows",
           "truncated"
         ],
@@ -1355,6 +1824,79 @@
         "summary": "Set Artifact Alias"
       }
     },
+    "/api/v1/datasets": {
+      "get": {
+        "operationId": "list_datasets_api_v1_datasets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DatasetInfoOut"
+                  },
+                  "title": "Response List Datasets Api V1 Datasets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Datasets"
+      }
+    },
+    "/api/v1/datasets/{dataset}": {
+      "put": {
+        "description": "Replace the org's snapshot of one tabular dataset. Everything under\nthe org's Parquet prefix is a view in the SQL sandbox and in reports \u2014\nthis door is how other pillars (factory, pipeline) publish their\ntables into the substrate.",
+        "operationId": "put_dataset_api_v1_datasets__dataset__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "title": "Dataset",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutDatasetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Dataset"
+      }
+    },
     "/api/v1/projects": {
       "get": {
         "operationId": "list_projects_api_v1_projects_get",
@@ -1498,6 +2040,237 @@
           }
         },
         "summary": "Query Sql"
+      }
+    },
+    "/api/v1/reports": {
+      "get": {
+        "operationId": "list_reports_api_v1_reports_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReportSummaryOut"
+                  },
+                  "title": "Response List Reports Api V1 Reports Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Reports"
+      }
+    },
+    "/api/v1/reports/preview": {
+      "post": {
+        "description": "Render an unsaved body \u2014 the authoring loop for humans and agents.",
+        "operationId": "preview_report_api_v1_reports_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewReportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenderReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Report"
+      }
+    },
+    "/api/v1/reports/{name}": {
+      "delete": {
+        "operationId": "delete_report_api_v1_reports__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Report"
+      },
+      "get": {
+        "operationId": "get_report_api_v1_reports__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Report"
+      },
+      "put": {
+        "description": "Compile-validate then upsert: a body the compiler rejects is never\nstored (a saved report always renders or fails only on data).",
+        "operationId": "save_report_api_v1_reports__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveReportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Report"
+      }
+    },
+    "/api/v1/reports/{name}/render": {
+      "post": {
+        "operationId": "render_report_api_v1_reports__name__render_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,127}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenderReportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenderReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Render Report"
       }
     },
     "/api/v1/runs": {

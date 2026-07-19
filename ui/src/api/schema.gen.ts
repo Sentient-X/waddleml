@@ -89,6 +89,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/datasets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Datasets */
+        get: operations["list_datasets_api_v1_datasets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datasets/{dataset}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Dataset
+         * @description Replace the org's snapshot of one tabular dataset. Everything under
+         *     the org's Parquet prefix is a view in the SQL sandbox and in reports —
+         *     this door is how other pillars (factory, pipeline) publish their
+         *     tables into the substrate.
+         */
+        put: operations["put_dataset_api_v1_datasets__dataset__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects": {
         parameters: {
             query?: never;
@@ -155,6 +195,83 @@ export interface paths {
          *     logs) — isolation by construction in the sqlbox, never by WHERE clause.
          */
         post: operations["query_sql_api_v1_query_sql_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Reports */
+        get: operations["list_reports_api_v1_reports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Report
+         * @description Render an unsaved body — the authoring loop for humans and agents.
+         */
+        post: operations["preview_report_api_v1_reports_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Report */
+        get: operations["get_report_api_v1_reports__name__get"];
+        /**
+         * Save Report
+         * @description Compile-validate then upsert: a body the compiler rejects is never
+         *     stored (a saved report always renders or fails only on data).
+         */
+        put: operations["save_report_api_v1_reports__name__put"];
+        post?: never;
+        /** Delete Report */
+        delete: operations["delete_report_api_v1_reports__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/{name}/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Render Report */
+        post: operations["render_report_api_v1_reports__name__render_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -330,6 +447,13 @@ export interface components {
             /** Warnings */
             warnings: string[];
         };
+        /**
+         * ColumnType
+         * @description Coarse column types riding every SQL result (Evidence's evidenceType
+         *     vocabulary): enough for formatting and axis inference, no more.
+         * @enum {string}
+         */
+        ColumnType: "number" | "string" | "boolean" | "date";
         /** CommitArtifactIn */
         CommitArtifactIn: {
             /** Collection */
@@ -390,6 +514,26 @@ export interface components {
         CreateUploadSessionIn: {
             /** Files */
             files: components["schemas"]["UploadFileIn"][];
+        };
+        /** DatasetColumnIn */
+        DatasetColumnIn: {
+            /** Name */
+            name: string;
+            type: components["schemas"]["ColumnType"];
+        };
+        /** DatasetInfoOut */
+        DatasetInfoOut: {
+            /** Dataset */
+            dataset: string;
+            /** Files */
+            files: number;
+        };
+        /** DatasetOut */
+        DatasetOut: {
+            /** Dataset */
+            dataset: string;
+            /** Rows */
+            rows: number;
         };
         /** FinishRunIn */
         FinishRunIn: {
@@ -465,6 +609,20 @@ export interface components {
             /** Step Min */
             step_min?: number | null;
         };
+        /** PreviewReportIn */
+        PreviewReportIn: {
+            /** Body */
+            body: string;
+            /**
+             * Max Rows
+             * @default 1000
+             */
+            max_rows: number;
+            /** Params */
+            params?: {
+                [key: string]: string;
+            };
+        };
         /** ProjectOut */
         ProjectOut: {
             /**
@@ -474,6 +632,117 @@ export interface components {
             created_at: string;
             /** Name */
             name: string;
+        };
+        /**
+         * PutDatasetIn
+         * @description A full tabular snapshot, replacing the dataset's previous snapshot.
+         *     Rows are scalars only; the server writes the Parquet.
+         */
+        PutDatasetIn: {
+            /** Columns */
+            columns: components["schemas"]["DatasetColumnIn"][];
+            /** Rows */
+            rows: (string | number | boolean | null)[][];
+        };
+        /**
+         * RenderBlockOut
+         * @description One rendered page block. Markdown arrives with value/param expressions
+         *     already resolved; components carry verbatim props — the console's
+         *     component registry owns their interpretation.
+         */
+        RenderBlockOut: {
+            /** Children */
+            children?: components["schemas"]["RenderBlockOut"][];
+            /** Component */
+            component?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "markdown" | "component";
+            /** Props */
+            props?: {
+                [key: string]: string;
+            };
+            /** Query */
+            query?: string | null;
+            /** Text */
+            text?: string | null;
+        };
+        /** RenderReportIn */
+        RenderReportIn: {
+            /**
+             * Max Rows
+             * @default 1000
+             */
+            max_rows: number;
+            /** Params */
+            params?: {
+                [key: string]: string;
+            };
+        };
+        /** RenderReportOut */
+        RenderReportOut: {
+            /** Blocks */
+            blocks: components["schemas"]["RenderBlockOut"][];
+            /** Description */
+            description: string | null;
+            /** Name */
+            name: string | null;
+            /** Params */
+            params: {
+                [key: string]: string;
+            };
+            /** Query Errors */
+            query_errors: {
+                [key: string]: string;
+            };
+            /** Required Params */
+            required_params: string[];
+            /** Results */
+            results: {
+                [key: string]: components["schemas"]["SqlResultOut"];
+            };
+            /** Title */
+            title: string | null;
+        };
+        /** ReportOut */
+        ReportOut: {
+            /** Body */
+            body: string;
+            /** Description */
+            description: string | null;
+            /** Name */
+            name: string;
+            /** Queries */
+            queries: string[];
+            /** Required Params */
+            required_params: string[];
+            /** Title */
+            title: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated By */
+            updated_by: string | null;
+        };
+        /** ReportSummaryOut */
+        ReportSummaryOut: {
+            /** Description */
+            description: string | null;
+            /** Name */
+            name: string;
+            /** Title */
+            title: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated By */
+            updated_by: string | null;
         };
         /** RunDetailOut */
         RunDetailOut: {
@@ -590,6 +859,11 @@ export interface components {
          * @enum {string}
          */
         RunState: "running" | "completed" | "failed" | "aborted";
+        /** SaveReportIn */
+        SaveReportIn: {
+            /** Body */
+            body: string;
+        };
         /** SeriesPointOut */
         SeriesPointOut: {
             /** Step */
@@ -618,6 +892,8 @@ export interface components {
         };
         /** SqlResultOut */
         SqlResultOut: {
+            /** Column Types */
+            column_types: components["schemas"]["ColumnType"][];
             /** Columns */
             columns: string[];
             /** Rows */
@@ -870,6 +1146,61 @@ export interface operations {
             };
         };
     };
+    list_datasets_api_v1_datasets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetInfoOut"][];
+                };
+            };
+        };
+    };
+    put_dataset_api_v1_datasets__dataset__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutDatasetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_projects_api_v1_projects_get: {
         parameters: {
             query?: never;
@@ -976,6 +1307,189 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SqlResultOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_reports_api_v1_reports_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportSummaryOut"][];
+                };
+            };
+        };
+    };
+    preview_report_api_v1_reports_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewReportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RenderReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_report_api_v1_reports__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_report_api_v1_reports__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveReportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_report_api_v1_reports__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    render_report_api_v1_reports__name__render_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenderReportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RenderReportOut"];
                 };
             };
             /** @description Validation Error */

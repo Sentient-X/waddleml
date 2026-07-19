@@ -13,8 +13,7 @@ jobs grow real dependencies). Each sweep, per org:
    against its content address; a mismatch is logged loudly (corruption is an
    operator page, never an auto-delete — nothing here ever deletes data).
 
-DuckDB does the Parquet writing (Arrow in → COPY TO parquet), keeping the
-worker free of a pandas/pyarrow dependency.
+Parquet writing is `storage.write_parquet` (DuckDB, no pandas/pyarrow).
 """
 
 from __future__ import annotations
@@ -22,19 +21,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import tempfile
-from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import duckdb
 import psycopg
 from sx_observability import configure_logging, get_logger
 
 from waddle_server.config import WaddleSettings
 from waddle_server.server import artifacts, ch, db
-from waddle_server.server.storage import ObjectStore, parquet_key
+from waddle_server.server.storage import ObjectStore, parquet_key, write_parquet
 
 log = get_logger(__name__)
 
@@ -68,21 +65,6 @@ RUN_COLUMNS = [
     ("created_at", "TIMESTAMPTZ"), ("started_at", "TIMESTAMPTZ"),
     ("finished_at", "TIMESTAMPTZ"),
 ]
-
-
-def _write_parquet(
-    rows: Sequence[Sequence[Any]], columns: list[tuple[str, str]], dest: Path
-) -> None:
-    conn = duckdb.connect()
-    try:
-        ddl = ", ".join(f'"{name}" {kind}' for name, kind in columns)
-        conn.execute(f"CREATE TABLE export ({ddl})")
-        if rows:
-            placeholders = ", ".join("?" for _ in columns)
-            conn.executemany(f"INSERT INTO export VALUES ({placeholders})", rows)
-        conn.execute(f"COPY export TO '{dest}' (FORMAT parquet)")
-    finally:
-        conn.close()
 
 
 class Compactor:
@@ -147,7 +129,7 @@ class Compactor:
         )
         with tempfile.TemporaryDirectory() as scratch:
             dest = Path(scratch) / "part.parquet"
-            _write_parquet(list(result.result_rows), columns, dest)
+            write_parquet(list(result.result_rows), columns, dest)
             self._store.put_file_replace(dest, parquet_key(org_id, dataset, partition))
         log.info(
             "exported parquet partition",
@@ -172,7 +154,7 @@ class Compactor:
             return
         with tempfile.TemporaryDirectory() as scratch:
             dest = Path(scratch) / "runs.parquet"
-            _write_parquet([tuple(row) for row in runs], RUN_COLUMNS, dest)
+            write_parquet([tuple(row) for row in runs], RUN_COLUMNS, dest)
             self._store.put_file_replace(dest, parquet_key(org_id, "runs", "snapshot"))
 
     async def _sample_digests(self, conn: psycopg.AsyncConnection[Any], org_id: UUID) -> None:

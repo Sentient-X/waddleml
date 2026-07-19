@@ -145,12 +145,99 @@ async def sql(
     Views available: runs (run_id, project, name, state, group_name, job_type,
     config, summary, commit_sha, created_at, started_at, finished_at), metrics
     (run_id, metric_name, step, ts, value, rank, node_id, attempt), logs
-    (run_id, ts, level, source, message). Full DuckDB SQL — joins, windows,
-    PIVOT, regressions — sandboxed to your org's data only. metrics/logs cover
-    what the hourly compaction has exported; use waddle.metrics.series for
+    (run_id, ts, level, source, message), plus one view per uploaded substrate
+    dataset (waddle.datasets.list). Full DuckDB SQL — joins, windows, PIVOT,
+    regressions — sandboxed to your org's data only. metrics/logs cover what
+    the hourly compaction has exported; use waddle.metrics.series for
     to-the-second freshness."""
     return await _call(
         ctx, "POST", "/api/v1/query/sql", json_body={"sql": query, "max_rows": max_rows}
+    )
+
+
+@mcp.tool(name="waddle.reports.list")
+async def reports_list(ctx: Context | None = None) -> list[dict[str, Any]]:  # type: ignore[type-arg]
+    """Your organization's saved reports (name, title, description)."""
+    return await _call(ctx, "GET", "/api/v1/reports")
+
+
+@mcp.tool(name="waddle.reports.get")
+async def reports_get(name: str, ctx: Context | None = None) -> dict[str, Any]:  # type: ignore[type-arg]
+    """One report's markdown source plus its query list and required params."""
+    return await _call(ctx, "GET", f"/api/v1/reports/{name}")
+
+
+@mcp.tool(name="waddle.reports.save")
+async def reports_save(
+    name: str,
+    body: str,
+    ctx: Context | None = None,  # type: ignore[type-arg]
+) -> dict[str, Any]:
+    """Save (create or replace) a report. `body` is Evidence-dialect markdown:
+    frontmatter (title/description), named ```sql fences (full DuckDB over the
+    org views — runs, metrics, logs, plus any uploaded datasets), ${other_query}
+    chaining, ${params.x} runtime parameters, and component tags (BigValue,
+    Value, LineChart, BarChart, AreaChart, DataTable/Column, ReferenceLine,
+    Grid, Details). A body the compiler rejects is never stored — the error
+    names the defect."""
+    return await _call(ctx, "PUT", f"/api/v1/reports/{name}", json_body={"body": body})
+
+
+@mcp.tool(name="waddle.reports.render")
+async def reports_render(
+    name: str,
+    params: dict[str, str] | None = None,
+    max_rows: int = 1000,
+    ctx: Context | None = None,  # type: ignore[type-arg]
+) -> dict[str, Any]:
+    """Render a saved report: every query executes in the org SQL sandbox;
+    returns resolved markdown blocks, component tree, and per-query results."""
+    return await _call(
+        ctx,
+        "POST",
+        f"/api/v1/reports/{name}/render",
+        json_body={"params": params or {}, "max_rows": max_rows},
+    )
+
+
+@mcp.tool(name="waddle.reports.preview")
+async def reports_preview(
+    body: str,
+    params: dict[str, str] | None = None,
+    max_rows: int = 1000,
+    ctx: Context | None = None,  # type: ignore[type-arg]
+) -> dict[str, Any]:
+    """Render report markdown WITHOUT saving it — the authoring iteration loop."""
+    return await _call(
+        ctx,
+        "POST",
+        "/api/v1/reports/preview",
+        json_body={"body": body, "params": params or {}, "max_rows": max_rows},
+    )
+
+
+@mcp.tool(name="waddle.datasets.list")
+async def datasets_list(ctx: Context | None = None) -> list[dict[str, Any]]:  # type: ignore[type-arg]
+    """The org's Parquet substrate datasets — every name here is a SQL view in
+    waddle.sql and in reports."""
+    return await _call(ctx, "GET", "/api/v1/datasets")
+
+
+@mcp.tool(name="waddle.datasets.put")
+async def datasets_put(
+    dataset: str,
+    columns: list[dict[str, str]],
+    rows: list[list[Any]],
+    ctx: Context | None = None,  # type: ignore[type-arg]
+) -> dict[str, Any]:
+    """Replace one tabular dataset snapshot in the org substrate. columns:
+    [{"name": ..., "type": number|string|boolean|date}]. Reserved names
+    (metrics/logs/runs) are refused."""
+    return await _call(
+        ctx,
+        "PUT",
+        f"/api/v1/datasets/{dataset}",
+        json_body={"columns": columns, "rows": rows},
     )
 
 

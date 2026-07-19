@@ -42,6 +42,22 @@ the `waddle.*` MCP storefront, and the console UI (`ui/`, :5179). It resolves it
 dependencies only inside the `glued` workspace (install with the `server` extra);
 the SDK above stays dependency-light and works anywhere.
 
+Two capabilities ride the same org-Parquet substrate the SQL sandbox jails:
+
+- **Reports as code** (`waddle_server/reports.py` — the Evidence.dev dialect,
+  rederived): an org-scoped report is a markdown doc with named ```` ```sql ````
+  fences, `${other_query}` chaining, `${params.x}` parameters, and declarative
+  component tags. Saved bodies are compile-validated (DAG-or-fail, typed
+  errors); a render executes every query in one jailed sandbox pass and returns
+  resolved blocks plus typed results. Humans read them in the console's Reports
+  tab; agents author them via `waddle.reports.{list,get,save,render,preview}`.
+  Examples: `examples/reports/`.
+- **The datasets door** (`PUT /api/v1/datasets/{name}`): any producer publishes
+  tabular snapshots into its org's substrate (typed columns + rows in, Parquet
+  out); every dataset is instantly a view in `waddle.sql` and in reports. The
+  factory's operational exports are the first cross-pillar producer — capture
+  supply joins training outcomes in one report.
+
 ## Quick Start
 
 ### 1. Install

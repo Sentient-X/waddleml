@@ -10,7 +10,9 @@ security order is load-bearing:
    ``lock_configuration = true`` — DuckDB can now read the staged directory and
    physically nothing else (no other files, no URLs, no extension
    install/load), and the user's SQL cannot undo any of it.
-4. Only then does the user's SQL execute, with a fetch cap.
+4. Only then do the job's queries execute, each with a fetch cap. One spec may
+   carry many named queries (a report render); they share the staging and the
+   jail, and each succeeds or fails independently.
 """
 
 from __future__ import annotations
@@ -22,6 +24,20 @@ from datetime import date, datetime
 from typing import Any
 
 import duckdb
+
+_NUMERIC_MARKS = ("INT", "FLOAT", "DOUBLE", "DECIMAL", "NUMBER", "NUMERIC", "REAL")
+
+
+def _column_type(type_code: object) -> str:
+    """DuckDB's cursor type name → the coarse wire ColumnType vocabulary."""
+    name = str(type_code).upper()
+    if "BOOL" in name:
+        return "boolean"
+    if any(mark in name for mark in _NUMERIC_MARKS):
+        return "number"
+    if "DATE" in name or "TIME" in name:
+        return "date"
+    return "string"
 
 
 def _json_safe(value: Any) -> Any:
@@ -43,7 +59,6 @@ def main() -> int:
         )
     except ValueError:  # some platforms (macOS) refuse RLIMIT_AS; DuckDB's own
         pass  # memory_limit below still bounds the query
-
     conn = duckdb.connect(":memory:")
     conn.execute(f"SET memory_limit = '{spec['memory_limit_bytes'] // (1 << 20)}MB'")
     conn.execute("SET threads = 2")
@@ -61,22 +76,22 @@ def main() -> int:
     conn.execute("SET lock_configuration = true")
 
     max_rows = int(spec["max_rows"])
-    try:
-        cursor = conn.execute(spec["sql"])
-        rows = cursor.fetchmany(max_rows + 1)
-        columns = [d[0] for d in cursor.description or []]
-    except duckdb.Error as error:
-        json.dump({"error": {"code": "query_failed", "message": str(error)}}, sys.stdout)
-        return 1
-    truncated = len(rows) > max_rows
-    json.dump(
-        {
-            "columns": columns,
+    results: dict[str, Any] = {}
+    for name, sql in spec["queries"].items():
+        try:
+            cursor = conn.execute(sql)
+            rows = cursor.fetchmany(max_rows + 1)
+            description = cursor.description or []
+        except duckdb.Error as error:
+            results[name] = {"error": {"code": "query_failed", "message": str(error)}}
+            continue
+        results[name] = {
+            "columns": [d[0] for d in description],
+            "column_types": [_column_type(d[1]) for d in description],
             "rows": [[_json_safe(v) for v in row] for row in rows[:max_rows]],
-            "truncated": truncated,
-        },
-        sys.stdout,
-    )
+            "truncated": len(rows) > max_rows,
+        }
+    json.dump({"results": results}, sys.stdout)
     return 0
 
 

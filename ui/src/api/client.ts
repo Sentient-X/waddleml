@@ -14,6 +14,9 @@ import type {
   MetricSeries,
   MetricsQuery,
   Project,
+  RenderReport,
+  Report,
+  ReportSummary,
   Run,
   RunDetail,
   RunLineage,
@@ -81,6 +84,18 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+function putJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson<T>(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function del(path: string): Promise<null> {
+  return requestJson<null>(path, { method: "DELETE" });
+}
+
 export interface RunFilter {
   project?: string;
   state?: RunState;
@@ -110,4 +125,28 @@ export const waddleApi = {
     getJson<ArtifactVersion>(`/v1/artifacts/${artifactId}`),
   querySql: (sql: string, maxRows = 1000): Promise<SqlResult> =>
     postJson<SqlResult>("/v1/query/sql", { sql, max_rows: maxRows }),
+
+  // Reports-as-code.
+  listReports: (): Promise<ReportSummary[]> => getJson<ReportSummary[]>("/v1/reports"),
+  getReport: (name: string): Promise<Report> =>
+    getJson<Report>(`/v1/reports/${encodeURIComponent(name)}`),
+  saveReport: (name: string, body: string): Promise<Report> =>
+    putJson<Report>(`/v1/reports/${encodeURIComponent(name)}`, { body }),
+  deleteReport: (name: string): Promise<null> =>
+    del(`/v1/reports/${encodeURIComponent(name)}`),
+  renderReport: (
+    name: string,
+    params: Record<string, string> = {},
+    maxRows = 1000,
+  ): Promise<RenderReport> =>
+    postJson<RenderReport>(`/v1/reports/${encodeURIComponent(name)}/render`, {
+      params,
+      max_rows: maxRows,
+    }),
+  previewReport: (
+    body: string,
+    params: Record<string, string> = {},
+    maxRows = 1000,
+  ): Promise<RenderReport> =>
+    postJson<RenderReport>("/v1/reports/preview", { body, params, max_rows: maxRows }),
 };

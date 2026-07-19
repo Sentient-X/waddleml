@@ -9,6 +9,8 @@ import { ComparePage } from "@/pages/ComparePage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { SqlPage } from "@/pages/SqlPage";
 import { LaunchPage } from "@/pages/LaunchPage";
+import { ReportsPage } from "@/pages/ReportsPage";
+import { ReportPage } from "@/pages/ReportPage";
 
 export function App() {
   return (
@@ -19,6 +21,9 @@ export function App() {
         <Route path="/compare" element={<ComparePage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/sql" element={<SqlPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/reports/new" element={<ReportPage isNew />} />
+        <Route path="/reports/:name" element={<ReportPage />} />
         <Route path="/launch" element={<LaunchPage />} />
         <Route
           path="/not-found"

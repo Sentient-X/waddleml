@@ -7,11 +7,15 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
-from waddle_server.model import LogLevel, RunState
+from waddle_server.model import ColumnType, LogLevel, RunState
 
 RUN_ID_PATTERN = r"^[a-f0-9]{32}$"
+REPORT_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,127}$"
+DATASET_NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 
 
 class HealthOut(BaseModel):
@@ -272,5 +276,94 @@ class SqlQueryIn(BaseModel):
 
 class SqlResultOut(BaseModel):
     columns: list[str]
+    column_types: list[ColumnType]
     rows: list[list[object]]
     truncated: bool
+
+
+# ── reports as code ──────────────────────────────────────────────────────────
+
+
+class ReportSummaryOut(BaseModel):
+    name: str
+    title: str | None
+    description: str | None
+    updated_by: str | None
+    updated_at: datetime
+
+
+class ReportOut(ReportSummaryOut):
+    body: str
+    queries: list[str]
+    required_params: list[str]
+
+
+class SaveReportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body: str = Field(min_length=1, max_length=200_000)
+
+
+class RenderReportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    params: dict[str, str] = Field(default_factory=dict)
+    max_rows: int = Field(default=1000, ge=1, le=10_000)
+
+
+class PreviewReportIn(RenderReportIn):
+    body: str = Field(min_length=1, max_length=200_000)
+
+
+class RenderBlockOut(BaseModel):
+    """One rendered page block. Markdown arrives with value/param expressions
+    already resolved; components carry verbatim props — the console's
+    component registry owns their interpretation."""
+
+    kind: Literal["markdown", "component"]
+    text: str | None = None
+    component: str | None = None
+    props: dict[str, str] = Field(default_factory=dict)
+    query: str | None = None
+    children: list["RenderBlockOut"] = Field(default_factory=list["RenderBlockOut"])
+
+
+class RenderReportOut(BaseModel):
+    name: str | None
+    title: str | None
+    description: str | None
+    required_params: list[str]
+    params: dict[str, str]
+    blocks: list[RenderBlockOut]
+    results: dict[str, SqlResultOut]
+    query_errors: dict[str, str]
+
+
+# ── the datasets door (producer uploads to the org Parquet substrate) ────────
+
+
+class DatasetColumnIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(pattern=r"^[A-Za-z_]\w{0,63}$")
+    type: ColumnType
+
+
+class PutDatasetIn(BaseModel):
+    """A full tabular snapshot, replacing the dataset's previous snapshot.
+    Rows are scalars only; the server writes the Parquet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    columns: list[DatasetColumnIn] = Field(min_length=1, max_length=64)
+    rows: list[list[str | int | float | bool | None]] = Field(max_length=100_000)
+
+
+class DatasetOut(BaseModel):
+    dataset: str
+    rows: int
+
+
+class DatasetInfoOut(BaseModel):
+    dataset: str
+    files: int

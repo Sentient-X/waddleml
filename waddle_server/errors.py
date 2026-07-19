@@ -60,3 +60,43 @@ class SqlSandboxError(WaddleServerError):
     def __init__(self, kind: str, detail: str) -> None:
         super().__init__(detail)
         self.kind = kind
+
+
+class ReportCompileError(WaddleServerError):
+    """A report body was rejected by the compiler; ``kind`` is the taxonomy
+    (bad_frontmatter / bad_query / duplicate_query / unknown_reference /
+    cycle / unknown_component / bad_component)."""
+
+    code = "report_compile_error"
+
+    def __init__(self, kind: str, detail: str) -> None:
+        super().__init__(detail)
+        self.kind = kind
+
+
+class ReportNotFoundError(WaddleServerError):
+    code = "report_not_found"
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"no report {name!r} in this organization")
+        self.name = name
+
+
+class MissingParamsError(WaddleServerError):
+    """A render was attempted without values for every ``${params.x}`` the
+    report requires."""
+
+    code = "missing_params"
+
+    def __init__(self, missing: list[str]) -> None:
+        super().__init__(f"missing report params: {', '.join(missing)}")
+        self.missing = missing
+
+
+class DatasetNameError(WaddleServerError):
+    """A dataset upload used a reserved or malformed dataset name."""
+
+    code = "invalid_dataset"
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)

@@ -26,10 +26,11 @@ older Starlette/WebSocket + Plotly dashboard was retired before that.
 
 The repo's second half is the **hosted platform**: `waddle_server/` (FastAPI control
 plane :8400 over Postgres + ClickHouse + R2, the compaction worker, the org-jailed
-DuckDB SQL sandbox, and the `waddle.*` MCP server :8410) and `ui/` (the console,
-:5179). Server code is py3.12/pyright-strict and resolves only inside the glued
-workspace (`server` extra); the SDK stays py3.9 + duckdb-only — `tests/test_purity.py`
-pins both budgets.
+DuckDB SQL sandbox, **reports as code** — `reports.py`, the Evidence.dev dialect
+rederived over the sandbox, with the `PUT /api/v1/datasets/{name}` producer door —
+and the `waddle.*` MCP server :8410) and `ui/` (the console, :5179). Server code is
+py3.12/pyright-strict and resolves only inside the glued workspace (`server` extra);
+the SDK stays py3.9 + duckdb-only — `tests/test_purity.py` pins both budgets.
 
 Examples live in `examples/` and tests in `tests/`. Runtime artifacts (`.waddle/waddle.duckdb`) are generated during runs and should remain untracked.
 

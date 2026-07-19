@@ -7,6 +7,12 @@ files, then disables **and locks** external access before the user's SQL runs.
 The query can express anything DuckDB can — it simply has nothing else to read.
 Resource ceilings: rlimits in the child (CPU, address space), a wall-clock kill
 from the parent, and a row cap on results.
+
+Every dataset a producer has exported under ``orgs/{org}/parquet/`` becomes a
+view (the open substrate contract: the compactor writes metrics/logs/runs;
+the datasets door accepts e.g. factory_orders); ``runs`` is always the fresh
+Postgres snapshot. One job may carry many named queries (a report render) —
+they share the staging and the jail, and succeed or fail independently.
 """
 
 from __future__ import annotations
@@ -23,8 +29,9 @@ from uuid import UUID
 from psycopg import AsyncConnection
 
 from waddle_server.errors import SqlSandboxError
-from waddle_server.server.storage import ObjectStore
-from waddle_server.worker.compact import RUN_COLUMNS, _write_parquet
+from waddle_server.model import ColumnType
+from waddle_server.server.storage import DATASET_NAME_RE, ObjectStore, write_parquet
+from waddle_server.worker.compact import RUN_COLUMNS
 
 WALL_TIMEOUT_S = 30.0
 CPU_LIMIT_S = 25
@@ -34,18 +41,28 @@ MEMORY_LIMIT_BYTES = 1 << 31  # 2 GiB address space for the child
 @dataclass(frozen=True, slots=True)
 class SqlResult:
     columns: list[str]
+    column_types: list[ColumnType]
     rows: list[list[Any]]
     truncated: bool
 
 
-async def run_sql(
+@dataclass(frozen=True, slots=True)
+class QueryFailure:
+    kind: str
+    message: str
+
+
+async def run_queries(
     conn: AsyncConnection[Any],
     store: ObjectStore,
     org_id: UUID,
     *,
-    sql: str,
+    queries: dict[str, str],
     max_rows: int,
-) -> SqlResult:
+) -> dict[str, SqlResult | QueryFailure]:
+    """Stage the org's data once, run every named query in one jailed child.
+    Whole-batch failures (timeout, crash) raise; per-query SQL errors come
+    back as QueryFailure so a report can render its healthy panels."""
     with tempfile.TemporaryDirectory(prefix="waddle-sqlbox-") as scratch_str:
         scratch = Path(scratch_str)
         datasets = await _stage_org_data(conn, store, org_id, scratch)
@@ -53,7 +70,7 @@ async def run_sql(
             {
                 "datasets": {name: [str(p) for p in paths] for name, paths in datasets.items()},
                 "scratch": str(scratch),
-                "sql": sql,
+                "queries": queries,
                 "max_rows": max_rows,
                 "cpu_limit_s": CPU_LIMIT_S,
                 "memory_limit_bytes": MEMORY_LIMIT_BYTES,
@@ -76,17 +93,37 @@ async def run_sql(
             await child.wait()
             raise SqlSandboxError("timeout", f"query exceeded {WALL_TIMEOUT_S:.0f}s") from err
     if child.returncode != 0:
-        try:
-            error = json.loads(stdout or b"{}").get("error")
-        except json.JSONDecodeError:
-            error = None
-        if isinstance(error, dict):
-            raise SqlSandboxError(str(error.get("code", "query_failed")), str(error.get("message")))
         raise SqlSandboxError("crashed", (stderr or b"sandbox died")[-2000:].decode(errors="replace"))
-    result = json.loads(stdout)
-    return SqlResult(
-        columns=result["columns"], rows=result["rows"], truncated=result["truncated"]
-    )
+    payload = json.loads(stdout)
+    outcomes: dict[str, SqlResult | QueryFailure] = {}
+    for name, result in payload["results"].items():
+        error = result.get("error")
+        if error is not None:
+            outcomes[name] = QueryFailure(kind=str(error["code"]), message=str(error["message"]))
+        else:
+            outcomes[name] = SqlResult(
+                columns=result["columns"],
+                column_types=[ColumnType(t) for t in result["column_types"]],
+                rows=result["rows"],
+                truncated=result["truncated"],
+            )
+    return outcomes
+
+
+async def run_sql(
+    conn: AsyncConnection[Any],
+    store: ObjectStore,
+    org_id: UUID,
+    *,
+    sql: str,
+    max_rows: int,
+) -> SqlResult:
+    outcome = (
+        await run_queries(conn, store, org_id, queries={"query": sql}, max_rows=max_rows)
+    )["query"]
+    if isinstance(outcome, QueryFailure):
+        raise SqlSandboxError(outcome.kind, outcome.message)
+    return outcome
 
 
 async def _stage_org_data(
@@ -97,16 +134,19 @@ async def _stage_org_data(
     The staged file set IS the security boundary: nothing outside
     ``orgs/{org_id}/parquet/`` is ever touched, and the child never sees a
     credential or a URL."""
-    datasets: dict[str, list[Path]] = {"metrics": [], "logs": [], "runs": []}
+    datasets: dict[str, list[Path]] = {}
     prefix = f"orgs/{org_id}/parquet/"
     for key in store.list_keys(prefix):
         dataset = key[len(prefix) :].split("/", 1)[0]
-        if dataset not in ("metrics", "logs"):
-            continue  # runs snapshot below is fresher than the worker's export
+        # `runs` is always the fresher Postgres snapshot below; a name that
+        # fails the dataset law never becomes a view (it would be spliced into
+        # the child's CREATE VIEW statement).
+        if dataset == "runs" or DATASET_NAME_RE.fullmatch(dataset) is None:
+            continue
         dest = scratch / dataset / key.rsplit("/", 1)[-1]
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(store.get_bytes(key))
-        datasets[dataset].append(dest)
+        datasets.setdefault(dataset, []).append(dest)
 
     runs = await (
         await conn.execute(
@@ -122,6 +162,6 @@ async def _stage_org_data(
     ).fetchall()
     runs_path = scratch / "runs" / "snapshot.parquet"
     runs_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_parquet([tuple(row) for row in runs], RUN_COLUMNS, runs_path)
-    datasets["runs"].append(runs_path)
+    write_parquet([tuple(row) for row in runs], RUN_COLUMNS, runs_path)
+    datasets["runs"] = [runs_path]
     return datasets

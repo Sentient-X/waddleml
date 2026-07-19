@@ -28,6 +28,16 @@ class LogLevel(StrEnum):
     ERROR = "error"
 
 
+class ColumnType(StrEnum):
+    """Coarse column types riding every SQL result (Evidence's evidenceType
+    vocabulary): enough for formatting and axis inference, no more."""
+
+    NUMBER = "number"
+    STRING = "string"
+    BOOLEAN = "boolean"
+    DATE = "date"
+
+
 class WaddleRole(StrEnum):
     """The waddle audience roles (sx_authd migration 0003). Authorization is
     org-granular: a role applies to the whole org's tracking data — scoped

@@ -210,6 +210,9 @@ class FakeObjectStore(ObjectStore):
     def get_bytes(self, key: str) -> bytes:
         return self.objects[key]
 
+    def put_file_replace(self, path, key: str) -> None:
+        self.objects[key] = path.read_bytes()
+
     def list_keys(self, prefix: str):
         return (key for key in sorted(self.objects) if key.startswith(prefix))
 
