@@ -119,6 +119,12 @@ const COMPONENTS: { label: string; detail: string; template: string }[] = [
       '<SankeyDiagram data={${query}} source="${source}" target="${target}" value="${value}" title="${title}" />',
   },
   {
+    label: "<SegmentTimeline",
+    detail: "labeled start/end spans per track",
+    template:
+      '<SegmentTimeline data={${query}} track="${track}" start="${start}" end="${end}" label="${label}" title="${title}" />',
+  },
+  {
     label: "<ReferenceLine",
     detail: "chart annotation (child)",
     template: '<ReferenceLine data={${query}} x="${x}" label="${label}" />',

@@ -16,7 +16,7 @@ import { DataTable, KpiStat, Sparkline, cn, type DataTableColumn } from "@sx/ui"
 
 import type { RenderBlock, SqlResult } from "@/api/types";
 import { alignForType, applyFmt, formatByType } from "@/lib/reportFormat";
-import { buildChartOption, type ChartReference, type ReportChartKind } from "./charts";
+import { buildChartOption, segmentTrackCount, type ChartReference, type ReportChartKind } from "./charts";
 import {
   ButtonGroup,
   Dropdown,
@@ -526,6 +526,12 @@ export function ReportComponent({ block, ctx }: { block: RenderBlock; ctx: Rende
       return <Chart result={result} props={props} kind="funnel" children={block.children} ctx={ctx} />;
     case "SankeyDiagram":
       return <Chart result={result} props={props} kind="sankey" children={block.children} ctx={ctx} />;
+    case "SegmentTimeline": {
+      // Default height scales with the lane count so N tracks stay readable.
+      const lanes = result ? segmentTrackCount(result, props) : 1;
+      const sized = { ...props, height: props.height ?? String(Math.min(480, 64 + lanes * 34)) };
+      return <Chart result={result} props={sized} kind="segment" children={block.children} ctx={ctx} />;
+    }
     case "DataTable":
       return <ReportTable result={result} props={props} children={block.children} />;
     case "Dropdown":

@@ -18,7 +18,8 @@ export type ReportChartKind =
   | "histogram"
   | "heatmap"
   | "funnel"
-  | "sankey";
+  | "sankey"
+  | "segment";
 
 /** One vertical annotation drawn as a markLine; value carries the x cell raw. */
 export interface ChartReference {
@@ -530,6 +531,139 @@ function buildSankey(result: SqlResult, props: Record<string, string>): EChartsO
   } as EChartsOption;
 }
 
+/* ── segment timeline ──────────────────────────────────────────────────── */
+
+/** Rows needed to size a SegmentTimeline before building it: one lane per
+ *  distinct `track` value (single unnamed lane when the prop is absent). */
+export function segmentTrackCount(result: SqlResult, props: Record<string, string>): number {
+  const ti = columnIndex(result, props.track ?? "");
+  if (ti < 0) return 1;
+  return new Set(result.rows.map((row) => String(row[ti]))).size || 1;
+}
+
+/** Labeled [start, end] spans on parallel tracks over one shared time axis —
+ *  the subtask-annotation comparison view (gold vs model segmentation,
+ *  escalation windows, capture sessions). Same label → same color on every
+ *  track, so boundary agreement reads at a glance. */
+function buildSegmentTimeline(
+  result: SqlResult,
+  props: Record<string, string>,
+): EChartsOption | null {
+  const theme = chartTheme();
+  const si = columnIndex(result, props.start ?? "");
+  const ei = columnIndex(result, props.end ?? "");
+  const li = columnIndex(result, props.label ?? "");
+  if (si < 0 || ei < 0 || li < 0) return null;
+  const ti = columnIndex(result, props.track ?? "");
+  const timeAxis = isDateColumn(result, props.start ?? "");
+  const toT = (v: unknown): number | null =>
+    timeAxis ? (Number.isFinite(Date.parse(String(v))) ? Date.parse(String(v)) : null) : toNumberOrNull(v);
+
+  const tracks: string[] = [];
+  const trackIndex = new Map<string, number>();
+  const labelColor = new Map<string, string>();
+  // value: [trackIdx, start, end]; label/color ride alongside for renderItem.
+  const data: { value: [number, number, number]; label: string; color: string }[] = [];
+  for (const row of result.rows) {
+    const t0 = toT(row[si]);
+    const t1 = toT(row[ei]);
+    if (t0 === null || t1 === null) continue;
+    const track = ti >= 0 ? String(row[ti]) : "";
+    if (!trackIndex.has(track)) {
+      trackIndex.set(track, tracks.length);
+      tracks.push(track);
+    }
+    const label = String(row[li]);
+    if (!labelColor.has(label)) labelColor.set(label, PALETTE[labelColor.size % PALETTE.length]);
+    data.push({
+      value: [trackIndex.get(track)!, Math.min(t0, t1), Math.max(t0, t1)],
+      label,
+      color: labelColor.get(label)!,
+    });
+  }
+  if (data.length === 0) return null;
+
+  const fmtT = (n: number) =>
+    timeAxis ? new Date(n).toLocaleString() : Number(n.toPrecision(4)).toString();
+
+  return {
+    grid: { left: 8, right: 16, top: 8, bottom: 28, containLabel: true },
+    tooltip: {
+      trigger: "item",
+      ...tooltipCommon(theme),
+      formatter: (p: { dataIndex: number }) => {
+        const d = data[p.dataIndex];
+        const lane = tracks[d.value[0]];
+        return `${d.label}<br/>${fmtT(d.value[1])} – ${fmtT(d.value[2])}${lane ? `<br/>${lane}` : ""}`;
+      },
+    },
+    xAxis: {
+      type: timeAxis ? "time" : "value",
+      min: "dataMin",
+      max: "dataMax",
+      ...axisCommon(theme),
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: "category",
+      data: tracks,
+      inverse: true,
+      ...axisCommon(theme),
+      splitLine: { show: false },
+      axisLabel: { color: theme.label, fontSize: 10, show: tracks.some((t) => t !== "") },
+    },
+    series: [
+      {
+        type: "custom",
+        // renderItem draws one rounded span; the label is clipped to the span's
+        // width so short segments degrade to tooltip-only, like the source view.
+        renderItem: (
+          _params: unknown,
+          api: {
+            value: (i: number) => number;
+            coord: (v: [number, number]) => [number, number];
+            size: (v: [number, number]) => [number, number];
+          },
+        ) => {
+          const lane = api.value(0);
+          const [x0, y] = api.coord([api.value(1), lane]);
+          const [x1] = api.coord([api.value(2), lane]);
+          const laneHeight = api.size([0, 1])[1];
+          const h = Math.min(26, laneHeight * 0.72);
+          const width = Math.max(1.5, x1 - x0);
+          const d = data[(_params as { dataIndex: number }).dataIndex];
+          const children: object[] = [
+            {
+              type: "rect",
+              shape: { x: x0, y: y - h / 2, width, height: h, r: 3 },
+              style: { fill: d.color, opacity: 0.85 },
+            },
+          ];
+          if (width > 40) {
+            children.push({
+              type: "text",
+              style: {
+                x: x0 + 5,
+                y,
+                text: d.label,
+                fill: "#fff",
+                fontSize: 10,
+                verticalAlign: "middle",
+                overflow: "truncate",
+                width: width - 10,
+              },
+            });
+          }
+          return { type: "group", children };
+        },
+        encode: { x: [1, 2], y: 0 },
+        data: data.map((d) => d.value),
+        clip: true,
+      },
+    ],
+  } as EChartsOption;
+}
+
 /** Dispatch a report chart kind to its option builder. Returns null when the
  *  named columns are absent, so the registry can show an honest notice. */
 export function buildChartOption(
@@ -555,5 +689,7 @@ export function buildChartOption(
       return buildFunnel(result, props);
     case "sankey":
       return buildSankey(result, props);
+    case "segment":
+      return buildSegmentTimeline(result, props);
   }
 }

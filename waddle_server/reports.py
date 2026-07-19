@@ -40,7 +40,9 @@ class ComponentKind(StrEnum):
     error). The console owns how each renders; unknown props pass through.
 
     Groups mirror Evidence's inventory: values (BigValue with sparkline/
-    comparison, Value, Delta, Sparkline), xy + statistical + relational charts,
+    comparison, Value, Delta, Sparkline), xy + statistical + relational charts
+    plus SegmentTimeline (labeled start/end spans on parallel tracks over one
+    time axis — the robot-episode/annotation comparison view),
     the rich DataTable (Column contentType= bar | delta | link), **inputs**
     (Dropdown/ButtonGroup/TextInput/Slider — each binds one ``${params.name}``
     and re-renders on change), and layout (Grid, Tabs/Tab, Details, Alert,
@@ -59,6 +61,7 @@ class ComponentKind(StrEnum):
     HEATMAP = "Heatmap"
     FUNNEL_CHART = "FunnelChart"
     SANKEY_DIAGRAM = "SankeyDiagram"
+    SEGMENT_TIMELINE = "SegmentTimeline"
     DATA_TABLE = "DataTable"
     COLUMN = "Column"
     REFERENCE_LINE = "ReferenceLine"
@@ -89,6 +92,7 @@ _CHART_KINDS = _XY_CHART_KINDS | frozenset(
         ComponentKind.HEATMAP,
         ComponentKind.FUNNEL_CHART,
         ComponentKind.SANKEY_DIAGRAM,
+        ComponentKind.SEGMENT_TIMELINE,
     }
 )
 #: input components: each binds one report param (its `name` prop); a declared

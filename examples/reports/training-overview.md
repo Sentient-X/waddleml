@@ -64,6 +64,21 @@ Sorted best-first; `vs best` is each run's distance from the project's best late
     <Column id=duration_s title="Duration (s)" contentType=bar fmt='#,##0' align=right />
 </DataTable>
 
+## Schedule
+
+Each lane is a run; the span is its wall-clock life, colored by how it ended.
+
+```sql run_spans
+select r.name as run, r.started_at as t0,
+       coalesce(r.finished_at, now()) as t1, r.state
+from runs r
+where r.project = '${params.project}' and r.started_at is not null
+order by r.started_at
+```
+
+<SegmentTimeline data={run_spans} track=run start=t0 end=t1 label=state
+    title="Run wall-clock schedule" />
+
 ## Curves
 
 ```sql loss_curves

@@ -154,6 +154,20 @@ def test_tabs_only_hold_tabs() -> None:
     assert err.value.kind == "bad_component"
 
 
+def test_segment_timeline_is_a_data_component() -> None:
+    report = compile_report(
+        "```sql spans\nselect 'gold' as track, 0.0 as t0, 1.5 as t1, 'grasp' as label\n```\n"
+        "<SegmentTimeline data={spans} track=track start=t0 end=t1 label=label />\n"
+    )
+    block = report.blocks[-1]
+    assert isinstance(block, ComponentBlock)
+    assert block.kind == ComponentKind.SEGMENT_TIMELINE
+    assert block.query == "spans"
+    with pytest.raises(ReportCompileError) as err:
+        compile_report("<SegmentTimeline track=t start=a end=b label=l />\n")
+    assert err.value.kind == "bad_component"  # charts require data={...}
+
+
 def test_component_without_its_query_fails_closed() -> None:
     with pytest.raises(ReportCompileError) as err:
         compile_report("<BigValue data={ghost} value=x />")
