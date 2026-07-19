@@ -12,11 +12,6 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": "http://localhost:8400",
-      // The launch form talks to train serve, a separate backend.
-      "/train-api": {
-        target: "http://localhost:8500",
-        rewrite: (p) => p.replace(/^\/train-api/, ""),
-      },
     },
   },
 });

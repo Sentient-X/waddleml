@@ -7,7 +7,6 @@ import { RunsPage } from "@/pages/RunsPage";
 import { RunDetailPage } from "@/pages/RunDetailPage";
 import { ComparePage } from "@/pages/ComparePage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
-import { LaunchPage } from "@/pages/LaunchPage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { ResearchPage } from "@/pages/ResearchPage";
 import { ReportViewPage } from "@/pages/ReportViewPage";
@@ -26,7 +25,6 @@ export function App() {
         <Route path="/reports/new" element={<ReportEditorPage isNew />} />
         <Route path="/reports/:id" element={<ReportViewPage />} />
         <Route path="/reports/:id/edit" element={<ReportEditorPage />} />
-        <Route path="/launch" element={<LaunchPage />} />
         <Route
           path="/not-found"
           element={
