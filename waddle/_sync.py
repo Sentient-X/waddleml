@@ -65,18 +65,20 @@ CREATE TABLE IF NOT EXISTS sync_outbox (
 @dataclass(frozen=True)
 class SyncConfig:
     api_url: str
-    api_key: str
+    # Empty = no credential sent: works against a dev server in auth-optional
+    # mode (runs land in its dev org); a prod server rejects with 401 and the
+    # engine keeps spooling — fail closed, nothing lost.
+    api_key: str = ""
     project_override: Optional[str] = None
 
     @staticmethod
     def from_env() -> Optional["SyncConfig"]:
         url = os.environ.get("WADDLE_API_URL")
-        key = os.environ.get("WADDLE_API_KEY")
-        if not url or not key:
+        if not url:
             return None
         return SyncConfig(
             api_url=url.rstrip("/"),
-            api_key=key,
+            api_key=os.environ.get("WADDLE_API_KEY", ""),
             project_override=os.environ.get("WADDLE_PROJECT") or None,
         )
 
@@ -386,12 +388,14 @@ class SyncEngine:
             headers={"content-type": "application/json"},
         )
 
+    def _headers(self, headers: Dict[str, str]) -> Dict[str, str]:
+        if self._config.api_key:
+            return {**headers, "authorization": f"Bearer {self._config.api_key}"}
+        return headers
+
     def _request(self, method: str, path: str, *, body: bytes, headers: Dict[str, str]) -> None:
         request = urllib.request.Request(
-            self._config.api_url + path,
-            data=body,
-            method=method,
-            headers={**headers, "authorization": f"Bearer {self._config.api_key}"},
+            self._config.api_url + path, data=body, method=method, headers=self._headers(headers)
         )
         with urllib.request.urlopen(request, timeout=10):
             pass
@@ -400,10 +404,7 @@ class SyncEngine:
         self, method: str, path: str, *, body: bytes, headers: Dict[str, str]
     ) -> Dict[str, Any]:
         request = urllib.request.Request(
-            self._config.api_url + path,
-            data=body,
-            method=method,
-            headers={**headers, "authorization": f"Bearer {self._config.api_key}"},
+            self._config.api_url + path, data=body, method=method, headers=self._headers(headers)
         )
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.loads(response.read())

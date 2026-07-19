@@ -23,7 +23,7 @@ import asyncio
 import hashlib
 import tempfile
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -46,6 +46,10 @@ DIGEST_SAMPLE_MAX_BYTES = 64 * 1024 * 1024
 async def _org_ids(conn: psycopg.AsyncConnection[Any]) -> list[UUID]:
     rows = await (await conn.execute("SELECT DISTINCT org_id FROM runs")).fetchall()
     return [row[0] for row in rows]
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
 METRIC_COLUMNS = [
@@ -89,7 +93,7 @@ class Compactor:
 
     async def sweep_once(self) -> None:
         async with await psycopg.AsyncConnection.connect(self._cfg.pg_dsn) as conn:
-            conn.autocommit = True
+            await conn.set_autocommit(True)
             expired = await artifacts.expire_stale_sessions(conn)
             if expired:
                 log.info("expired upload sessions", extra={"count": expired})
@@ -105,7 +109,10 @@ class Compactor:
                 " WHERE org_id = {org:UUID} GROUP BY m",
                 parameters={"org": str(org_id)},
             )
-            for month, max_ts in months.result_rows:
+            for month, raw_max_ts in months.result_rows:
+                # ClickHouse client datetimes are naive UTC; Postgres timestamptz
+                # is aware — normalize before comparing or storing.
+                max_ts = _as_utc(raw_max_ts)
                 partition = f"month={month}"
                 stale = await (
                     await conn.execute(
@@ -114,7 +121,7 @@ class Compactor:
                         (org_id, dataset, partition),
                     )
                 ).fetchone()
-                if stale is not None and stale[0] is not None and stale[0] >= max_ts:
+                if stale is not None and stale[0] is not None and _as_utc(stale[0]) >= max_ts:
                     continue
                 await self._export_ch_partition(org_id, dataset, table, int(month), partition)
                 await conn.execute(

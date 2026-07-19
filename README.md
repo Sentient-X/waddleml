@@ -25,7 +25,8 @@ waddle dashboard
 - **DuckDB storage** — fast, single-file database in `.waddle/waddle.duckdb`. No server process needed.
 - **System metrics** — optional background thread captures CPU, memory, and GPU utilization.
 - **SQL-native dashboard** — an [Evidence.dev](https://evidence.dev) project (`evidence/`) reading the `evidence_*` DuckDB views: a filterable runs overview, a per-run deep-dive generated for every run, and multi-run comparison. `waddle dashboard` snapshots the DB and serves it live.
-- **Hosted platform sync (optional)** — set `WADDLE_API_URL` + `WADDLE_API_KEY` and every
+- **Hosted platform sync (optional)** — set `WADDLE_API_URL` (plus `WADDLE_API_KEY`
+  outside the auth-optional dev server) and every
   run also streams to the Sentient-X waddle platform: the local DuckDB is the durable
   spool, a background thread uploads idempotent batches (at-least-once wire,
   exactly-once logical), artifacts ride presigned uploads, and a crashed or offline

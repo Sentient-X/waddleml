@@ -21,6 +21,7 @@ class FakeServer:
 
     def __init__(self):
         self.requests = []  # (path, decompressed_body_bytes)
+        self.auth_headers = []
         self.batch_digests = {}  # batch_id -> sha256 of body
         self.fail_batches = False
         fake = self
@@ -31,6 +32,7 @@ class FakeServer:
                 if self.headers.get("content-encoding") == "gzip":
                     body = gzip.decompress(body)
                 fake.requests.append((self.path, body))
+                fake.auth_headers.append(self.headers.get("authorization"))
                 if "/batches" in self.path:
                     if fake.fail_batches:
                         self.send_response(503)
@@ -188,3 +190,16 @@ def test_env_wires_engine_and_finish_reports_state(tmp_path, server, monkeypatch
     finish = json.loads(server.requests[-1][1])
     assert server.requests[-1][0].endswith("/finish") and finish["state"] == "completed"
     assert [p["value"] for p in server.delivered_points()] == [0.5, 0.25]
+
+
+def test_url_alone_activates_keyless_sync(tmp_path, server, monkeypatch):
+    # Dev convenience: against an auth-optional dev server no key is needed —
+    # the engine sends NO authorization header (empty is never introspected).
+    monkeypatch.setenv("WADDLE_API_URL", server.url)
+    monkeypatch.delenv("WADDLE_API_KEY", raising=False)
+    run = waddle.init(project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False)
+    assert run._sync is not None
+    run.log({"loss": 1.0})
+    run.finish()
+    assert [p["value"] for p in server.delivered_points()] == [1.0]
+    assert set(server.auth_headers) == {None}

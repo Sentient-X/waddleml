@@ -40,9 +40,10 @@ class WaddlePrincipal:
 
 
 def _present_credential(request: Request) -> tuple[str, bool] | None:
-    """The presented credential and whether it is a session token."""
+    """The presented credential and whether it is a session token. An empty
+    header value counts as absent (never introspect the empty string)."""
     auth = request.headers.get("authorization")
-    if auth and auth.lower().startswith("bearer "):
+    if auth and auth.lower().startswith("bearer ") and auth[7:].strip():
         return auth[7:].strip(), False
     key = request.headers.get("x-api-key")
     if key:
