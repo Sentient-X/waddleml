@@ -37,6 +37,9 @@ class RunRow:
     job_type: str | None
     config: dict[str, object]
     summary: dict[str, object]
+    research_outcome: (
+        dict[str, object] | None
+    )  # none-ok: absent until a research trial finishes
     commit_sha: str | None
     environment: dict[str, object]
     created_by: UUID | None
@@ -66,9 +69,20 @@ class OrgLimitsRow:
     max_points_per_batch: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class ResearchSessionRow:
+    project_name: str
+    session_name: str
+    phase_count: int
+    trial_count: int
+    running_count: int
+    started_at: datetime
+    updated_at: datetime
+
+
 _RUN_COLUMNS: LiteralString = """
     r.org_id, r.id, r.project_id, p.name AS project_name, r.name, r.display_name,
-    r.state, r.group_name, r.job_type, r.config, r.summary, r.commit_sha,
+    r.state, r.group_name, r.job_type, r.config, r.summary, r.research_outcome, r.commit_sha,
     r.environment, r.created_by, r.created_at, r.started_at, r.finished_at,
     r.heartbeat_at
 """
@@ -140,7 +154,9 @@ async def upsert_run(
                                            THEN runs.environment
                                            ELSE EXCLUDED.environment END,
                         state = CASE WHEN %(resume)s THEN 'running' ELSE runs.state END,
-                        finished_at = CASE WHEN %(resume)s THEN NULL ELSE runs.finished_at END
+                        finished_at = CASE WHEN %(resume)s THEN NULL ELSE runs.finished_at END,
+                        research_outcome = CASE WHEN %(resume)s THEN NULL
+                                                ELSE runs.research_outcome END
                 RETURNING *
             )
             SELECT {_RUN_COLUMNS} FROM upserted r JOIN projects p ON p.id = r.project_id
@@ -247,6 +263,67 @@ async def list_workers(
         return await cur.fetchall()
 
 
+async def list_research_sessions(
+    conn: AsyncConnection[Any], org_id: UUID, *, limit: int
+) -> list[ResearchSessionRow]:
+    async with conn.cursor(row_factory=class_row(ResearchSessionRow)) as cur:
+        await cur.execute(
+            """
+            SELECT p.name AS project_name,
+                   COALESCE(r.config -> '_waddle_research' ->> 'session_name', p.name)
+                       AS session_name,
+                   count(DISTINCT (
+                       r.group_name,
+                       r.config -> '_waddle_research' ->> 'objective_name',
+                       r.config -> '_waddle_research' ->> 'goal'
+                   ))::integer AS phase_count,
+                   count(*)::integer AS trial_count,
+                   count(*) FILTER (WHERE r.state = 'running')::integer AS running_count,
+                   min(r.started_at) AS started_at,
+                   max(COALESCE(r.heartbeat_at, r.finished_at, r.started_at)) AS updated_at
+            FROM runs r JOIN projects p ON p.id = r.project_id
+            WHERE r.org_id = %s AND r.job_type = 'autoresearch'
+            GROUP BY p.name,
+                     COALESCE(r.config -> '_waddle_research' ->> 'session_name', p.name)
+            ORDER BY updated_at DESC
+            LIMIT %s
+            """,
+            (org_id, limit),
+        )
+        return await cur.fetchall()
+
+
+async def list_research_session_runs(
+    conn: AsyncConnection[Any],
+    org_id: UUID,
+    *,
+    project: str,
+    session_name: str,
+    limit: int,
+) -> list[RunRow]:
+    async with conn.cursor(row_factory=class_row(RunRow)) as cur:
+        await cur.execute(
+            f"""
+            SELECT {_RUN_COLUMNS} FROM runs r JOIN projects p ON p.id = r.project_id
+            WHERE r.org_id = %(org)s
+              AND r.job_type = 'autoresearch'
+              AND p.name = %(project)s
+              AND COALESCE(
+                    r.config -> '_waddle_research' ->> 'session_name', p.name
+                  ) = %(session)s
+            ORDER BY r.started_at, r.created_at, r.id
+            LIMIT %(limit)s
+            """,
+            {
+                "org": org_id,
+                "project": project,
+                "session": session_name,
+                "limit": limit,
+            },
+        )
+        return await cur.fetchall()
+
+
 async def finish_run(
     conn: AsyncConnection[Any],
     org_id: UUID,
@@ -254,19 +331,27 @@ async def finish_run(
     *,
     state: RunState,
     summary: dict[str, object] | None,
+    research_outcome: dict[str, object] | None,
 ) -> RunRow | None:
     async with conn.cursor(row_factory=class_row(RunRow)) as cur:
         await cur.execute(
             f"""
             WITH updated AS (
                 UPDATE runs SET state = %s, finished_at = now(),
-                                summary = summary || %s::jsonb
+                                summary = summary || %s::jsonb,
+                                research_outcome = COALESCE(%s::jsonb, research_outcome)
                 WHERE org_id = %s AND id = %s
                 RETURNING *
             )
             SELECT {_RUN_COLUMNS} FROM updated r JOIN projects p ON p.id = r.project_id
             """,
-            (state.value, json.dumps(summary or {}), org_id, run_id),
+            (
+                state.value,
+                json.dumps(summary or {}),
+                json.dumps(research_outcome) if research_outcome is not None else None,
+                org_id,
+                run_id,
+            ),
         )
         return await cur.fetchone()
 

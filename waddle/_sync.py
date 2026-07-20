@@ -154,11 +154,16 @@ class SyncEngine:
             self._ensure_run_registered()
             self._drain(deadline=None)
 
-    def finish_once(self, state: str) -> None:
+    def finish_once(
+        self, state: str, research_outcome: Optional[Dict[str, Any]] = None
+    ) -> None:
         """Synchronously mirror one terminal spool state; raises on failure."""
         if state not in {"completed", "failed", "aborted"}:
             raise SyncStateError(f"unsupported terminal run state {state!r}")
-        self._post_json(f"/api/v1/runs/{self._run_id}/finish", {"state": state})
+        body: Dict[str, Any] = {"state": state}
+        if research_outcome is not None:
+            body["research_outcome"] = research_outcome
+        self._post_json(f"/api/v1/runs/{self._run_id}/finish", body)
 
     def upload_artifact(
         self, name: str, path: str, kind: str, sha256: str, size_bytes: int
@@ -174,7 +179,12 @@ class SyncEngine:
         """Called after log(); wakes the uploader early when a lot is pending."""
         self._wake.set()
 
-    def finalize(self, state: str, timeout_s: float = 5.0) -> None:
+    def finalize(
+        self,
+        state: str,
+        timeout_s: float = 5.0,
+        research_outcome: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Final drain + best-effort run finish; bounded so shutdown never hangs."""
         deadline = time.time() + timeout_s
         self._stop.set()
@@ -185,7 +195,10 @@ class SyncEngine:
             with self._mutex:
                 self._ensure_run_registered()
                 self._drain(deadline=deadline)
-            self._post_json(f"/api/v1/runs/{self._run_id}/finish", {"state": state})
+            body: Dict[str, Any] = {"state": state}
+            if research_outcome is not None:
+                body["research_outcome"] = research_outcome
+            self._post_json(f"/api/v1/runs/{self._run_id}/finish", body)
         except Exception:
             pass  # spool keeps the truth; `waddle sync` can deliver later
 

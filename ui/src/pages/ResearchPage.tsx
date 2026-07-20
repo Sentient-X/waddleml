@@ -1,90 +1,61 @@
-import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FlaskConical, GitBranch } from "lucide-react";
 import {
   DataTable,
   EmptyState,
-  KpiStat,
   PageHeader,
   StatusDot,
   type DataTableColumn,
 } from "@sx/ui";
 
 import { waddleApi } from "@/api/client";
-import { formatCount, formatDateTime, runDuration } from "@/lib/format";
-import {
-  researchSessionPath,
-  researchSessionsFrom,
-  type ResearchSession,
-} from "@/lib/research";
+import type { ResearchSessionSummary } from "@/api/types";
+import { formatDateTime, runDuration } from "@/lib/format";
+import { researchSessionPath } from "@/lib/research";
 
 export function ResearchPage() {
   const navigate = useNavigate();
-  const runsQuery = useQuery({
-    queryKey: ["research-runs"],
-    queryFn: () => waddleApi.listRuns({ jobType: "autoresearch", limit: 1000 }),
-    refetchInterval: 5000,
+  const sessionsQuery = useQuery({
+    queryKey: ["research-sessions"],
+    queryFn: () => waddleApi.listResearchSessions(),
+    refetchInterval: (query) =>
+      query.state.data?.some((session) => session.running_count > 0) ? 15_000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
-  const sessions = useMemo(() => researchSessionsFrom(runsQuery.data ?? []), [runsQuery.data]);
-  const active = sessions.filter((session) =>
-    session.runs.some((run) => run.state === "running"),
-  ).length;
-  const campaignCount = sessions.reduce((total, session) => total + session.campaigns.length, 0);
-  const trialCount = sessions.reduce((total, session) => total + session.runs.length, 0);
 
-  const columns: DataTableColumn<ResearchSession>[] = [
+  const columns: DataTableColumn<ResearchSessionSummary>[] = [
     {
       key: "name",
       header: "Research run",
-      sort: (session) => session.name,
+      sort: (session) => session.session_name,
       cell: (session) => (
-        <div className="flex flex-col">
-          <span className="font-medium">{session.name}</span>
-          <span className="text-[11px] text-muted-foreground">
-            {session.campaigns.length} campaign{session.campaigns.length === 1 ? "" : "s"} ·{" "}
-            {session.runs.length} trials
-          </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <StatusDot tone={session.running_count > 0 ? "live" : "idle"} />
+          <div className="min-w-0">
+            <div className="truncate font-medium">{session.session_name}</div>
+            <div className="truncate text-[11px] text-muted-foreground">{session.project}</div>
+          </div>
         </div>
       ),
     },
     {
-      key: "project",
-      header: "Project",
-      headerClassName: "hidden md:table-cell",
-      cellClassName: "hidden md:table-cell",
-      sort: (session) => session.project,
-      cell: (session) => session.project,
-    },
-    {
-      key: "activity",
-      header: "Activity",
-      sort: (session) =>
-        session.runs.some((run) => run.state === "running") ? "active" : "recorded",
-      cell: (session) =>
-        session.runs.some((run) => run.state === "running") ? (
-          <StatusDot tone="live" label="active" />
-        ) : (
-          <StatusDot tone="idle" label="recorded" />
-        ),
-    },
-    {
-      key: "started",
-      header: "Started · UTC",
-      headerClassName: "hidden xl:table-cell",
-      cellClassName: "hidden xl:table-cell",
+      key: "progress",
+      header: "Work",
       mono: true,
-      sort: (session) => session.startedAt,
-      cell: (session) => formatDateTime(session.startedAt),
+      sort: (session) => session.trial_count,
+      cell: (session) =>
+        `${session.trial_count} trials · ${session.phase_count} phases${session.running_count > 0 ? ` · ${session.running_count} live` : ""}`,
     },
     {
       key: "updated",
-      header: "Last evidence · UTC",
-      headerClassName: "hidden lg:table-cell",
-      cellClassName: "hidden lg:table-cell",
+      header: "Updated · UTC",
+      headerClassName: "hidden md:table-cell",
+      cellClassName: "hidden md:table-cell",
       mono: true,
-      sort: (session) => session.updatedAt,
-      cell: (session) => formatDateTime(session.updatedAt),
+      sort: (session) => session.updated_at,
+      cell: (session) => formatDateTime(session.updated_at),
     },
     {
       key: "duration",
@@ -94,50 +65,45 @@ export function ResearchPage() {
       align: "right",
       mono: true,
       sort: (session) =>
-        new Date(session.updatedAt).getTime() - new Date(session.startedAt).getTime(),
-      cell: (session) => runDuration(session.startedAt, session.updatedAt),
+        new Date(session.updated_at).getTime() - new Date(session.started_at).getTime(),
+      cell: (session) => runDuration(session.started_at, session.updated_at),
     },
   ];
 
-  if (runsQuery.isError) {
+  if (sessionsQuery.isError) {
     return (
       <EmptyState
         icon={<FlaskConical />}
         title="Couldn't load research runs"
-        hint={(runsQuery.error as Error).message}
+        hint={(sessionsQuery.error as Error).message}
       />
     );
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <PageHeader
-        title="Research runs"
-        description="Long-running optimization sessions, with campaigns and candidate trials nested inside."
+        title="Research"
+        description="Optimization sessions. Open one to inspect its trajectory and decisions."
       />
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiStat label="Research runs" value={formatCount(sessions.length)} />
-        <KpiStat label="Active now" value={formatCount(active)} />
-        <KpiStat label="Campaigns" value={formatCount(campaignCount)} />
-        <KpiStat label="Candidate trials" value={formatCount(trialCount)} />
-      </div>
-
       <DataTable
         columns={columns}
-        rows={sessions}
-        rowKey={(session) => session.key}
+        rows={sessionsQuery.data ?? []}
+        rowKey={(session) => `${session.project}:${session.session_name}`}
         defaultSort={{ key: "updated", dir: "desc" }}
-        loading={runsQuery.isLoading}
+        loading={sessionsQuery.isLoading}
         onRowClick={(session) => navigate(researchSessionPath(session))}
         empty={
           <EmptyState
             icon={<GitBranch />}
             title="No research runs yet"
-            hint="Start a Waddle autoresearch trial; its session, campaign, and trial tree will appear on the next sync."
+            hint="Start an autoresearch trial; its session appears after sync."
           />
         }
       />
+      <p className="text-[10px] text-muted-foreground">
+        Active sessions refresh every 15 seconds; completed sessions refresh on focus.
+      </p>
     </div>
   );
 }

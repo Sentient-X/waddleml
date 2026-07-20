@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 import waddle
-from waddle import ResearchGoal, ResearchTrial
+from waddle import ResearchDecision, ResearchGoal, ResearchOutcome, ResearchTrial
 from waddle._db import WaddleDB
 from waddle._sync import SyncConfig, SyncEngine
 from waddle.cli import cmd_sync
@@ -287,7 +287,13 @@ def test_research_contract_is_registered_with_hosted_run(tmp_path, server, monke
         system_metrics=False,
     )
     run.log({"latency/p99_ms": 25.0})
-    run.finish()
+    run.finish(
+        research_outcome=ResearchOutcome(
+            decision=ResearchDecision.BASELINE,
+            evidence="native p99 is 25 ms",
+            conclusion="use this as the campaign reference",
+        )
+    )
 
     created = json.loads(server.requests[0][1])
     assert created["group_name"] == "m10-5090"
@@ -300,6 +306,14 @@ def test_research_contract_is_registered_with_hosted_run(tmp_path, server, monke
         "session_name": "overnight-sm120",
         "subject_run_id": "b" * 32,
         "parent_run_id": None,
+    }
+    finished = json.loads(server.requests[-1][1])
+    assert finished["research_outcome"] == {
+        "decision": "baseline",
+        "evidence": "native p99 is 25 ms",
+        "conclusion": "use this as the campaign reference",
+        "failed_gates": [],
+        "next_step": None,
     }
 
 

@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 from ._db import WaddleDB
 from ._run import Run
 from . import _state
-from ._types import ResearchTrial, WorkerInfo
+from ._types import ResearchOutcome, ResearchTrial, WorkerInfo
 
 
 def _gpu_name() -> Optional[str]:
@@ -204,10 +204,10 @@ def log_artifact(
     return run.log_artifact(name, path, kind, inline)
 
 
-def finish() -> None:
+def finish(research_outcome: Optional[ResearchOutcome] = None) -> None:
     """Finish the active run."""
     run = _state.get_active_run()
     if run is None:
         return
-    run.finish()
+    run.finish(research_outcome=research_outcome)
     _state.set_active_run(None)

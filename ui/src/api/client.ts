@@ -20,6 +20,8 @@ import type {
   ReportSummary,
   ReportVersion,
   ReportVersionDetail,
+  ResearchSessionSummary,
+  ResearchSessionTrial,
   Run,
   RunDetail,
   RunLineage,
@@ -107,6 +109,15 @@ export interface RunFilter {
 }
 
 export const waddleApi = {
+  listResearchSessions: (limit = 200): Promise<ResearchSessionSummary[]> =>
+    getJson<ResearchSessionSummary[]>(`/v1/research/sessions?limit=${limit}`),
+  getResearchSession: (
+    project: string,
+    sessionName: string,
+  ): Promise<ResearchSessionTrial[]> =>
+    getJson<ResearchSessionTrial[]>(
+      `/v1/research/sessions/${encodeURIComponent(project)}/${encodeURIComponent(sessionName)}`,
+    ),
   listRuns: (filter: RunFilter = {}): Promise<Run[]> => {
     const params = new URLSearchParams();
     if (filter.project) params.set("project", filter.project);

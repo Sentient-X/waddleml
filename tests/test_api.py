@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 
 import waddle
-from waddle import ResearchGoal, ResearchTrial, ResearchTrialError
+from waddle import (
+    ResearchDecision,
+    ResearchGoal,
+    ResearchOutcome,
+    ResearchTrial,
+    ResearchTrialError,
+)
 from waddle._db import WaddleDB
 from waddle import _state
 
@@ -315,6 +321,67 @@ def test_research_record_rejects_reserved_config_and_invalid_index(
             config={"_waddle_research": {}},
             system_metrics=False,
         )
+
+
+def test_research_proposal_and_outcome_are_durable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.chdir(tmp_path)
+    run = waddle.init(
+        db_path=str(tmp_path / "research-outcome.duckdb"),
+        research=ResearchTrial(
+            campaign="m10",
+            trial_index=1,
+            objective_name="latency/p99_ms",
+            goal=ResearchGoal.MINIMIZE,
+            hypothesis="fuse the epilogue",
+            rationale="the trace shows three launch-bound elementwise kernels",
+            expected_outcome="p99 falls by at least 2% with unchanged actions",
+            falsification_criteria="any correctness gate fails or p99 improves by less than 2%",
+        ),
+        system_metrics=False,
+    )
+    run.log({"latency/p99_ms": 20.0})
+    run.finish(
+        research_outcome=ResearchOutcome(
+            decision=ResearchDecision.KEEP,
+            evidence="p99 improved 3.1%; all registered correctness gates passed",
+            conclusion="the fused epilogue removes measurable launch overhead",
+            next_step="confirm in three clean processes",
+        )
+    )
+
+    config_json, outcome_json = run._db.fetchone(
+        "SELECT config, research_outcome FROM runs WHERE id = $1", [run.id]
+    )
+    proposal = json.loads(config_json)["_waddle_research"]
+    outcome = json.loads(outcome_json)
+    assert proposal["rationale"].startswith("the trace")
+    assert proposal["expected_outcome"].startswith("p99 falls")
+    assert proposal["falsification_criteria"].startswith("any correctness")
+    assert outcome == {
+        "conclusion": "the fused epilogue removes measurable launch overhead",
+        "decision": "keep",
+        "evidence": "p99 improved 3.1%; all registered correctness gates passed",
+        "failed_gates": [],
+        "next_step": "confirm in three clean processes",
+    }
+
+
+def test_ordinary_run_rejects_research_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.chdir(tmp_path)
+    run = waddle.init(db_path=str(tmp_path / "ordinary.duckdb"), system_metrics=False)
+    with pytest.raises(ResearchTrialError, match="requires a research trial"):
+        run.finish(
+            research_outcome=ResearchOutcome(
+                decision=ResearchDecision.INCONCLUSIVE,
+                evidence="no research contract exists",
+                conclusion="this is an ordinary run",
+            )
+        )
+    run.finish()
 
 
 def test_research_session_preserves_legacy_positional_parent() -> None:

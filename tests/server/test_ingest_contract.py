@@ -253,7 +253,85 @@ def test_research_trials_roundtrip_and_filter(
             "session_name": "overnight-sm120",
             "parent_run_id": root_id,
             "subject_run_id": None,
+            "rationale": None,
+            "expected_outcome": None,
+            "falsification_criteria": None,
         }
+
+
+def test_research_sessions_are_compact_and_outcomes_are_immutable(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
+    client, _ = rig
+    with client:
+        root_id = uuid4().hex
+        assert _create_research_run(client, root_id, trial_index=0).status_code == 200
+        outcome = {
+            "decision": "baseline",
+            "evidence": "native p99 is 25 ms and all gates passed",
+            "conclusion": "this is the comparison reference",
+            "failed_gates": [],
+            "next_step": "test static buffers",
+        }
+        done = client.post(
+            f"/api/v1/runs/{root_id}/finish",
+            headers={"x-api-key": "key-a-writer"},
+            json={
+                "state": "completed",
+                "summary": {"latency/p99_ms": 25.0},
+                "research_outcome": outcome,
+            },
+        )
+        assert done.status_code == 200
+        assert done.json()["research_outcome"] == outcome
+
+        sessions = client.get(
+            "/api/v1/research/sessions",
+            headers={"x-api-key": "key-a-reader"},
+        ).json()
+        assert sessions == [
+            {
+                "project": "edge-inference",
+                "session_name": "overnight-sm120",
+                "phase_count": 1,
+                "trial_count": 1,
+                "running_count": 0,
+                "started_at": "2026-07-19T00:00:00Z",
+                "updated_at": done.json()["finished_at"],
+            }
+        ]
+        trials = client.get(
+            "/api/v1/research/sessions/edge-inference/overnight-sm120",
+            headers={"x-api-key": "key-a-reader"},
+        ).json()
+        assert len(trials) == 1
+        assert set(trials[0]) == {
+            "run_id",
+            "project",
+            "name",
+            "state",
+            "campaign",
+            "research",
+            "research_outcome",
+            "objective_value",
+            "commit_sha",
+            "started_at",
+            "finished_at",
+            "heartbeat_at",
+        }
+        assert trials[0]["objective_value"] == 25.0
+        assert "config" not in trials[0] and "summary" not in trials[0]
+
+        conflict = client.post(
+            f"/api/v1/runs/{root_id}/finish",
+            headers={"x-api-key": "key-a-writer"},
+            json={
+                "state": "completed",
+                "research_outcome": {**outcome, "decision": "discard"},
+            },
+        )
+        assert conflict.status_code == 422
+        assert conflict.json()["detail"]["code"] == "invalid_research_trial"
 
 
 def test_research_contract_supports_cross_phase_lineage_and_rejects_foreign_links(

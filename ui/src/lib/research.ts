@@ -1,6 +1,11 @@
-import type { ResearchTrial, Run } from "@/api/types";
+import type {
+  ResearchDecision,
+  ResearchSessionSummary,
+  ResearchSessionTrial,
+  ResearchTrial,
+} from "@/api/types";
 
-export type ResearchRun = Run & { group_name: string; research: ResearchTrial };
+export type ResearchRun = ResearchSessionTrial;
 
 export interface ResearchCampaign {
   key: string;
@@ -45,23 +50,18 @@ export interface ResearchTrajectoryPhase {
   points: ResearchTrajectoryPoint[];
 }
 
-export type ResearchVerdict = "baseline" | "kept" | "discarded" | "running" | "failed";
+export type ResearchVerdict =
+  | ResearchDecision
+  | "running";
 
 export interface ResearchAnalysis {
   verdict: ResearchVerdict;
-  conclusion: string;
-  evidence: string;
+  source: "controller" | "legacy-derived";
+  evidence: string | null;
+  conclusion: string | null;
   failedGates: string[];
+  nextStep: string | null;
   baselineImprovement: number | null;
-}
-
-export function isResearchRun(run: Run): run is ResearchRun {
-  return run.group_name !== null && run.research !== null;
-}
-
-export function researchSessionName(run: ResearchRun): string {
-  const explicit = run.research.session_name?.trim();
-  return explicit || run.project;
 }
 
 export function researchSessionKey(project: string, name: string): string {
@@ -79,9 +79,7 @@ function campaignKey(
 }
 
 export function objectiveValue(run: ResearchRun): number | null {
-  if (run.state !== "completed") return null;
-  const value = run.summary[run.research.objective_name];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return run.state === "completed" ? run.objective_value : null;
 }
 
 export function orderedRuns(runs: readonly ResearchRun[]): ResearchRun[] {
@@ -96,64 +94,57 @@ function latestTimestamp(run: ResearchRun): number {
   return new Date(run.heartbeat_at ?? run.finished_at ?? run.started_at).getTime();
 }
 
-export function researchSessionsFrom(runs: readonly Run[]): ResearchSession[] {
-  const sessionMembers = new Map<string, ResearchRun[]>();
+export function researchSessionFrom(
+  project: string,
+  sessionName: string,
+  runs: readonly ResearchRun[],
+): ResearchSession | null {
+  if (runs.length === 0) return null;
+  const campaignMembers = new Map<string, ResearchRun[]>();
   for (const run of runs) {
-    if (!isResearchRun(run)) continue;
-    const sessionName = researchSessionName(run);
-    const key = researchSessionKey(run.project, sessionName);
-    const bucket = sessionMembers.get(key) ?? [];
+    const key = campaignKey(
+      project,
+      sessionName,
+      run.campaign,
+      run.research.objective_name,
+      run.research.goal,
+    );
+    const bucket = campaignMembers.get(key) ?? [];
     bucket.push(run);
-    sessionMembers.set(key, bucket);
+    campaignMembers.set(key, bucket);
   }
-
-  return [...sessionMembers.entries()]
-    .map(([key, members]) => {
-      const campaignMembers = new Map<string, ResearchRun[]>();
-      for (const run of members) {
-        const sessionName = researchSessionName(run);
-        const key = campaignKey(
-          run.project,
-          sessionName,
-          run.group_name,
-          run.research.objective_name,
-          run.research.goal,
-        );
-        const bucket = campaignMembers.get(key) ?? [];
-        bucket.push(run);
-        campaignMembers.set(key, bucket);
-      }
-      const campaigns = [...campaignMembers.entries()]
-        .map(([key, campaignRuns]) => {
-          const ordered = orderedRuns(campaignRuns);
-          const first = ordered[0];
-          return {
-            key,
-            project: first.project,
-            sessionName: researchSessionName(first),
-            name: first.group_name,
-            objectiveName: first.research.objective_name,
-            goal: first.research.goal,
-            runs: ordered,
-          } satisfies ResearchCampaign;
-        })
-        .sort((a, b) => latestTimestamp(a.runs[0]) - latestTimestamp(b.runs[0]));
-      const startedAt = new Date(
-        Math.min(...members.map((run) => new Date(run.started_at).getTime())),
-      ).toISOString();
-      const updatedAt = new Date(Math.max(...members.map(latestTimestamp))).toISOString();
-      const first = members[0];
+  const campaigns = [...campaignMembers.entries()]
+    .map(([key, campaignRuns]) => {
+      const ordered = orderedRuns(campaignRuns);
+      const first = ordered[0];
       return {
         key,
-        project: first.project,
-        name: researchSessionName(first),
-        campaigns,
-        runs: [...members].sort((a, b) => latestTimestamp(a) - latestTimestamp(b)),
-        startedAt,
-        updatedAt,
-      } satisfies ResearchSession;
+        project,
+        sessionName,
+        name: first.campaign,
+        objectiveName: first.research.objective_name,
+        goal: first.research.goal,
+        runs: ordered,
+      } satisfies ResearchCampaign;
     })
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    .sort(
+      (a, b) =>
+        new Date(a.runs[0].started_at).getTime() -
+        new Date(b.runs[0].started_at).getTime(),
+    );
+  return {
+    key: researchSessionKey(project, sessionName),
+    project,
+    name: sessionName,
+    campaigns,
+    runs: [...runs].sort(
+      (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime(),
+    ),
+    startedAt: new Date(
+      Math.min(...runs.map((run) => new Date(run.started_at).getTime())),
+    ).toISOString(),
+    updatedAt: new Date(Math.max(...runs.map(latestTimestamp))).toISOString(),
+  };
 }
 
 export function researchTreeRows(runs: readonly ResearchRun[]): ResearchTreeRow[] {
@@ -194,36 +185,21 @@ function directionalImprovement(
   return Math.abs(baseline) > 1e-12 ? (delta / Math.abs(baseline)) * 100 : delta * 100;
 }
 
-function scalarFlag(value: unknown): boolean | null {
-  if (value === true || value === 1) return true;
-  if (value === false || value === 0) return false;
-  return null;
+function derivedVerdict(
+  run: ResearchRun,
+  value: number | null,
+  isBaseline: boolean,
+  improvesIncumbent: boolean,
+): ResearchVerdict {
+  if (run.state === "running") return "running";
+  if (run.state === "failed" || run.state === "aborted") return "fail";
+  if (value === null) return "inconclusive";
+  if (isBaseline) return "baseline";
+  return improvesIncumbent ? "keep" : "discard";
 }
 
-function recordedConclusion(run: ResearchRun): string | null {
-  for (const key of ["rejection_reason", "verdict", "promotion_blocker"]) {
-    const value = run.config[key];
-    if (
-      typeof value === "string" &&
-      value.trim() &&
-      !(key === "verdict" && value.trim().toLowerCase() === "valid")
-    ) {
-      return value.trim();
-    }
-  }
-  return null;
-}
-
-function failedResearchGates(run: ResearchRun): string[] {
-  return Object.entries(run.summary).flatMap(([key, value]) => {
-    const correctnessGate = key.startsWith("correctness/") && /(pass|passed)$/.test(key);
-    const decisionGate = key === "determinism/pass" || key === "retention/pass";
-    return (correctnessGate || decisionGate) && scalarFlag(value) === false ? [key] : [];
-  });
-}
-
-function percentText(value: number): string {
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+function accepted(verdict: ResearchVerdict): boolean {
+  return verdict === "baseline" || verdict === "keep";
 }
 
 export function researchAnalyses(campaign: ResearchCampaign): Map<string, ResearchAnalysis> {
@@ -234,79 +210,30 @@ export function researchAnalyses(campaign: ResearchCampaign): Map<string, Resear
   });
   const baseline = evaluated[0]?.value;
   let incumbent = baseline;
+
   for (const run of campaign.runs) {
     const value = objectiveValue(run);
-    const failedGates = failedResearchGates(run);
-    const recorded = recordedConclusion(run);
-    if (run.state === "running") {
-      analyses.set(run.run_id, {
-        verdict: "running",
-        conclusion: "Evaluation is still running; no selection decision is implied.",
-        evidence: "Waiting for a completed objective and terminal gates.",
-        failedGates,
-        baselineImprovement: null,
-      });
-      continue;
-    }
-    if (run.state === "failed" || run.state === "aborted") {
-      analyses.set(run.run_id, {
-        verdict: "failed",
-        conclusion: recorded ?? `Run ${run.state}; the attempted idea remains visible.`,
-        evidence: "No failed execution can become the accepted incumbent.",
-        failedGates,
-        baselineImprovement: null,
-      });
-      continue;
-    }
-    if (value === null || baseline === undefined || incumbent === undefined) {
-      analyses.set(run.run_id, {
-        verdict: "discarded",
-        conclusion: recorded ?? "Completed without a finite value for the declared objective.",
-        evidence: `Missing ${campaign.objectiveName}; it cannot enter the incumbent line.`,
-        failedGates,
-        baselineImprovement: null,
-      });
-      continue;
-    }
-
-    const baselineImprovement = directionalImprovement(campaign, baseline, value);
     const isBaseline = run.run_id === evaluated[0]?.run.run_id;
-    const explicitlyKept =
-      scalarFlag(run.config.retained) === true || scalarFlag(run.summary["retention/pass"]) === true;
-    const explicitlyDiscarded =
-      scalarFlag(run.config.retained) === false ||
-      scalarFlag(run.summary["retention/pass"]) === false ||
-      (typeof run.config.rejection_reason === "string" && run.config.rejection_reason.trim() !== "") ||
-      failedGates.length > 0;
-    const improvesIncumbent = better(campaign.goal, value, incumbent);
-    const accepted = isBaseline || explicitlyKept || (!explicitlyDiscarded && improvesIncumbent);
-    const verdict: ResearchVerdict = isBaseline ? "baseline" : accepted ? "kept" : "discarded";
-    if (accepted && better(campaign.goal, value, incumbent)) incumbent = value;
-
-    let evidence: string;
-    if (isBaseline) {
-      evidence = `${campaign.objectiveName} = ${value}; this is the phase comparison baseline.`;
-    } else if (failedGates.length > 0) {
-      evidence = `${percentText(baselineImprovement)} versus baseline, but failed ${failedGates.join(", ")}.`;
-    } else if (accepted) {
-      evidence = `${percentText(baselineImprovement)} versus baseline with no recorded decision gate failing.`;
-    } else {
-      evidence = `${percentText(baselineImprovement)} versus baseline; it did not replace the accepted incumbent.`;
-    }
-    const conclusion =
-      recorded ??
-      (verdict === "baseline"
-        ? "Reference point for this campaign phase."
-        : verdict === "kept"
-          ? "Working: accepted onto the phase incumbent staircase."
-          : "Discarded: retained as evidence, not as the running best.");
+    const improvesIncumbent =
+      value !== null && incumbent !== undefined && better(campaign.goal, value, incumbent);
+    const outcome = run.research_outcome;
+    const verdict = outcome?.decision ?? derivedVerdict(run, value, isBaseline, improvesIncumbent);
+    const baselineImprovement =
+      value !== null && baseline !== undefined
+        ? directionalImprovement(campaign, baseline, value)
+        : null;
     analyses.set(run.run_id, {
       verdict,
-      conclusion,
-      evidence,
-      failedGates,
+      source: outcome ? "controller" : "legacy-derived",
+      evidence: outcome?.evidence ?? null,
+      conclusion: outcome?.conclusion ?? null,
+      failedGates: outcome?.failed_gates ?? [],
+      nextStep: outcome?.next_step ?? null,
       baselineImprovement,
     });
+    if (accepted(verdict) && value !== null && incumbent !== undefined) {
+      if (better(campaign.goal, value, incumbent)) incumbent = value;
+    }
   }
   return analyses;
 }
@@ -322,13 +249,10 @@ export function researchTrajectory(session: ResearchSession): ResearchTrajectory
     if (baseline === undefined) return [];
     const analyses = researchAnalyses(campaign);
     let incumbent = baseline;
-    const points = evaluated.map(({ run, value }) => {
+    const points = evaluated.flatMap(({ run, value }) => {
       const analysis = analyses.get(run.run_id);
-      if (!analysis) return null;
-      if (
-        (analysis.verdict === "baseline" || analysis.verdict === "kept") &&
-        better(campaign.goal, value, incumbent)
-      ) {
+      if (!analysis) return [];
+      if (accepted(analysis.verdict) && better(campaign.goal, value, incumbent)) {
         incumbent = value;
       }
       const point = {
@@ -341,16 +265,9 @@ export function researchTrajectory(session: ResearchSession): ResearchTrajectory
         analysis,
       } satisfies ResearchTrajectoryPoint;
       ordinal += 1;
-      return point;
-    }).filter((point): point is ResearchTrajectoryPoint => point !== null);
-    return [
-      {
-        campaign,
-        phaseIndex,
-        zeroBaseline: Math.abs(baseline) <= 1e-12,
-        points,
-      } satisfies ResearchTrajectoryPhase,
-    ];
+      return [point];
+    });
+    return [{ campaign, phaseIndex, zeroBaseline: Math.abs(baseline) <= 1e-12, points }];
   });
 }
 
@@ -369,9 +286,8 @@ export function bestRun(campaign: ResearchCampaign): ResearchRun | null {
   for (const run of campaign.runs) {
     const value = objectiveValue(run);
     const verdict = analyses.get(run.run_id)?.verdict;
-    const accepted = verdict === "baseline" || verdict === "kept";
     if (
-      accepted &&
+      (verdict === "baseline" || verdict === "keep") &&
       value !== null &&
       (selectedValue === null || better(campaign.goal, value, selectedValue))
     ) {
@@ -382,6 +298,8 @@ export function bestRun(campaign: ResearchCampaign): ResearchRun | null {
   return selected;
 }
 
-export function researchSessionPath(session: Pick<ResearchSession, "project" | "name">): string {
-  return `/research/${encodeURIComponent(session.project)}/${encodeURIComponent(session.name)}`;
+export function researchSessionPath(
+  session: Pick<ResearchSessionSummary, "project" | "session_name">,
+): string {
+  return `/research/${encodeURIComponent(session.project)}/${encodeURIComponent(session.session_name)}`;
 }

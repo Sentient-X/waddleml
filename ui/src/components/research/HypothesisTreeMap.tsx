@@ -49,16 +49,18 @@ function lines(value: string): [string, string] {
 
 function verdictColor(analysis: ResearchAnalysis): string {
   switch (analysis.verdict) {
-    case "kept":
+    case "keep":
       return "#16a34a";
     case "baseline":
       return "#2563eb";
-    case "failed":
+    case "fail":
       return "#dc2626";
     case "running":
       return "#7c3aed";
-    case "discarded":
+    case "discard":
       return "#64748b";
+    case "inconclusive":
+      return "#d97706";
   }
 }
 
@@ -72,10 +74,12 @@ function treeLayout(session: ResearchSession): TreeLayout {
       analysis:
         analyses.get(run.run_id) ??
         ({
-          verdict: "discarded",
-          conclusion: "No derived outcome is available.",
-          evidence: "No derived outcome is available.",
+          verdict: "inconclusive",
+          source: "legacy-derived",
+          conclusion: null,
+          evidence: null,
           failedGates: [],
+          nextStep: null,
           baselineImprovement: null,
         } satisfies ResearchAnalysis),
     }));
@@ -292,7 +296,11 @@ export function HypothesisTreeMap({
                       {secondLine}
                     </text>
                   ) : null}
-                  <title>{`${node.analysis.evidence}\n${node.analysis.conclusion}`}</title>
+                  <title>
+                    {node.analysis.source === "controller"
+                      ? `${node.analysis.evidence ?? ""}\n${node.analysis.conclusion ?? ""}`
+                      : "Legacy trial: no controller-authored conclusion was recorded."}
+                  </title>
                 </g>
               );
             })}
@@ -300,7 +308,7 @@ export function HypothesisTreeMap({
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 border-t px-4 py-2 text-[10px] text-muted-foreground">
           <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-blue-600" />baseline</span>
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-green-600" />working / kept</span>
+          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-green-600" />kept</span>
           <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-slate-500" />discarded</span>
           <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-red-600" />failed</span>
           <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-violet-600" />running</span>

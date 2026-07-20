@@ -7,11 +7,17 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from waddle_server.model import ColumnType, LogLevel, ResearchGoal, RunState
+from waddle_server.model import (
+    ColumnType,
+    LogLevel,
+    ResearchDecision,
+    ResearchGoal,
+    RunState,
+)
 
 RUN_ID_PATTERN = r"^[a-f0-9]{32}$"
 REPORT_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,127}$"
@@ -39,6 +45,33 @@ class ResearchTrial(BaseModel):
         Field(  # none-ok: only evaluation trials target another run
             default=None, pattern=RUN_ID_PATTERN
         )
+    )
+    rationale: str | None = Field(  # none-ok: legacy trials did not record it
+        default=None, min_length=1, max_length=16 * 1024, pattern=r"\S"
+    )
+    expected_outcome: str | None = Field(  # none-ok: legacy trials did not record it
+        default=None, min_length=1, max_length=16 * 1024, pattern=r"\S"
+    )
+    falsification_criteria: str | None = (
+        Field(  # none-ok: legacy trials did not record it
+            default=None, min_length=1, max_length=16 * 1024, pattern=r"\S"
+        )
+    )
+
+
+class ResearchOutcome(BaseModel):
+    """Evidence authored by the controller after the immutable evaluator returns."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: ResearchDecision
+    evidence: str = Field(min_length=1, max_length=32 * 1024, pattern=r"\S")
+    conclusion: str = Field(min_length=1, max_length=32 * 1024, pattern=r"\S")
+    failed_gates: list[
+        Annotated[str, Field(min_length=1, max_length=512, pattern=r"\S")]
+    ] = Field(default_factory=list, max_length=256)
+    next_step: str | None = Field(  # none-ok: terminal campaigns have no next action
+        default=None, min_length=1, max_length=16 * 1024, pattern=r"\S"
     )
 
 
@@ -125,6 +158,9 @@ class RunOut(BaseModel):
     group_name: str | None
     job_type: str | None
     research: ResearchTrial | None  # none-ok: ordinary runs are not research trials
+    research_outcome: (
+        ResearchOutcome | None
+    )  # none-ok: running and legacy trials lack one
     config: dict[str, object]
     summary: dict[str, object]
     commit_sha: str | None
@@ -176,8 +212,8 @@ class BatchIn(BaseModel):
     attempt: int = Field(ge=0, default=0)
     sequence_start: int = Field(ge=0)
     sequence_end: int = Field(ge=0)
-    metrics: list[MetricPointIn] = Field(default_factory=list)
-    logs: list[LogLineIn] = Field(default_factory=list)
+    metrics: list[MetricPointIn] = Field(default_factory=list[MetricPointIn])
+    logs: list[LogLineIn] = Field(default_factory=list[LogLineIn])
 
 
 class BatchAck(BaseModel):
@@ -191,6 +227,36 @@ class FinishRunIn(BaseModel):
 
     state: RunState = RunState.COMPLETED
     summary: dict[str, object] = Field(default_factory=dict)
+    research_outcome: ResearchOutcome | None = (
+        None  # none-ok: ordinary and legacy clients finish without research evidence
+    )
+
+
+class ResearchSessionSummaryOut(BaseModel):
+    project: str
+    session_name: str
+    phase_count: int
+    trial_count: int
+    running_count: int
+    started_at: datetime
+    updated_at: datetime
+
+
+class ResearchSessionTrialOut(BaseModel):
+    run_id: str
+    project: str
+    name: str
+    state: RunState
+    campaign: str
+    research: ResearchTrial
+    research_outcome: (
+        ResearchOutcome | None
+    )  # none-ok: running and legacy trials lack one
+    objective_value: float | None  # none-ok: failed/running trials may have no score
+    commit_sha: str | None
+    started_at: datetime
+    finished_at: datetime | None
+    heartbeat_at: datetime | None
 
 
 class MetricsQueryIn(BaseModel):

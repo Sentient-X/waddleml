@@ -35,9 +35,11 @@ waddle ls        # terminal
 - **Autoresearch observation** — attach a typed `ResearchTrial` to ordinary runs; the hosted
   Research view groups a long optimization session into campaign phases, then derives each
   phase's live candidate tree and minimize/maximize incumbent curve. A direction-aware unified
-  trajectory keeps every attempt as scatter while accepted improvements form the incumbent
-  staircase. A graphical hypothesis tree and evidence-derived synthesis make the whole search
-  legible without Waddle taking ownership of the optimizer.
+  trajectory keeps every attempt as scatter while accepted improvements form one monotonic
+  incumbent staircase. When phases use different objectives, it sums each phase's accepted,
+  direction-adjusted gain into an explicitly labeled progress index; raw objective values remain
+  in trial detail. A graphical hypothesis tree and controller-authored learning list make the whole
+  search legible without Waddle fabricating analysis or taking ownership of the optimizer.
 
 ## The hosted platform (this repo's second half)
 
@@ -130,9 +132,9 @@ each evaluated candidate as a normal run:
 
 ```python
 import waddle
-from waddle import ResearchGoal, ResearchTrial
+from waddle import ResearchDecision, ResearchGoal, ResearchOutcome, ResearchTrial
 
-with waddle.init(
+run = waddle.init(
     project="edge-inference",
     name="static-buffers",
     research=ResearchTrial(
@@ -142,11 +144,22 @@ with waddle.init(
         objective_name="latency/p99_ms",
         goal=ResearchGoal.MINIMIZE,
         hypothesis="static buffers remove allocation overhead",
+        rationale="the trace attributes repeated time to allocation and launch overhead",
+        expected_outcome="p99 improves by at least 2% with identical actions",
+        falsification_criteria="any correctness gate fails or p99 improves by less than 2%",
         parent_run_id="4f3c9e4d4c864d73bf86917e9bc11ba0",
     ),
-):
-    result = run_frozen_evaluator()
-    waddle.log(result.metrics, step=7)
+)
+result = run_frozen_evaluator()
+waddle.log(result.metrics, step=7)
+run.finish(
+    research_outcome=ResearchOutcome(
+        decision=ResearchDecision.KEEP,
+        evidence="p99 improved 3.1%; every registered correctness gate passed",
+        conclusion="static buffers removed material launch-path overhead",
+        next_step="confirm in three clean processes",
+    )
+)
 ```
 
 The session name joins related campaign phases into one top-level Research run. A phase is derived
@@ -156,6 +169,12 @@ within that campaign family. A phase root may have no parent or may point back t
 that motivated the phase. Legacy research records without `session_name` are grouped by project,
 so an existing overnight history becomes one run without rewriting evidence. Remote outages do
 not interrupt the loop because the local DuckDB remains the durable spool.
+
+Proposal context and terminal outcomes are controller-authored facts. Waddle does not generate
+explanations: `ResearchTrial` carries the rationale, expected outcome, and falsification criteria;
+`ResearchOutcome` carries the decision, evidence, conclusion, failed gates, and next step. Legacy,
+running, or interrupted trials may lack those additive fields. The console labels the omission and
+uses only terminal state plus objective order for its explicitly marked legacy selection line.
 
 An evaluator uses `subject_run_id` to identify the run whose artifact or policy it measures. This
 edge may cross campaign phases inside the same research session. `parent_run_id` is the search-tree

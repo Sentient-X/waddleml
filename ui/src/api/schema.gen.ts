@@ -320,6 +320,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/research/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Research Sessions */
+        get: operations["list_research_sessions_api_v1_research_sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/research/sessions/{project}/{session_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Research Session */
+        get: operations["get_research_session_api_v1_research_sessions__project___session_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs": {
         parameters: {
             query?: never;
@@ -588,6 +622,7 @@ export interface components {
         };
         /** FinishRunIn */
         FinishRunIn: {
+            research_outcome?: components["schemas"]["ResearchOutcome"] | null;
             /** @default completed */
             state: components["schemas"]["RunState"];
             /** Summary */
@@ -844,16 +879,91 @@ export interface components {
             version: number;
         };
         /**
+         * ResearchDecision
+         * @description Controller-authored terminal decision for one research trial.
+         * @enum {string}
+         */
+        ResearchDecision: "baseline" | "keep" | "discard" | "fail" | "inconclusive";
+        /**
          * ResearchGoal
          * @description Direction of one immutable autoresearch objective.
          * @enum {string}
          */
         ResearchGoal: "minimize" | "maximize";
         /**
+         * ResearchOutcome
+         * @description Evidence authored by the controller after the immutable evaluator returns.
+         */
+        ResearchOutcome: {
+            /** Conclusion */
+            conclusion: string;
+            decision: components["schemas"]["ResearchDecision"];
+            /** Evidence */
+            evidence: string;
+            /** Failed Gates */
+            failed_gates?: string[];
+            /** Next Step */
+            next_step?: string | null;
+        };
+        /** ResearchSessionSummaryOut */
+        ResearchSessionSummaryOut: {
+            /** Phase Count */
+            phase_count: number;
+            /** Project */
+            project: string;
+            /** Running Count */
+            running_count: number;
+            /** Session Name */
+            session_name: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Trial Count */
+            trial_count: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ResearchSessionTrialOut */
+        ResearchSessionTrialOut: {
+            /** Campaign */
+            campaign: string;
+            /** Commit Sha */
+            commit_sha: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Heartbeat At */
+            heartbeat_at: string | null;
+            /** Name */
+            name: string;
+            /** Objective Value */
+            objective_value: number | null;
+            /** Project */
+            project: string;
+            research: components["schemas"]["ResearchTrial"];
+            research_outcome: components["schemas"]["ResearchOutcome"] | null;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            state: components["schemas"]["RunState"];
+        };
+        /**
          * ResearchTrial
          * @description Candidate facts stored beside an ordinary Waddle run.
          */
         ResearchTrial: {
+            /** Expected Outcome */
+            expected_outcome?: string | null;
+            /** Falsification Criteria */
+            falsification_criteria?: string | null;
             goal: components["schemas"]["ResearchGoal"];
             /** Hypothesis */
             hypothesis: string;
@@ -861,6 +971,8 @@ export interface components {
             objective_name: string;
             /** Parent Run Id */
             parent_run_id?: string | null;
+            /** Rationale */
+            rationale?: string | null;
             /** Session Name */
             session_name?: string | null;
             /** Subject Run Id */
@@ -897,6 +1009,7 @@ export interface components {
             /** Project */
             project: string;
             research: components["schemas"]["ResearchTrial"] | null;
+            research_outcome: components["schemas"]["ResearchOutcome"] | null;
             /** Run Id */
             run_id: string;
             /**
@@ -988,6 +1101,7 @@ export interface components {
             /** Project */
             project: string;
             research: components["schemas"]["ResearchTrial"] | null;
+            research_outcome: components["schemas"]["ResearchOutcome"] | null;
             /** Run Id */
             run_id: string;
             /**
@@ -1762,6 +1876,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReportVersionDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_research_sessions_api_v1_research_sessions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchSessionSummaryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_research_session_api_v1_research_sessions__project___session_name__get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project: string;
+                session_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchSessionTrialOut"][];
                 };
             };
             /** @description Validation Error */

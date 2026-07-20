@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 
 from ._db import WaddleDB
 from ._sync import SyncConfig, SyncEngine
-from ._types import ResearchTrial, ResearchTrialError, WorkerInfo
+from ._types import ResearchOutcome, ResearchTrial, ResearchTrialError, WorkerInfo
 
 RESEARCH_CONFIG_KEY = "_waddle_research"
 RESEARCH_JOB_TYPE = "autoresearch"
@@ -101,6 +101,7 @@ class Run:
         self._step = 0
         self._finished = False
         self._worker = worker
+        self._is_research = research is not None
         self._sysmon: Any = None
 
         # create run record; `environment` (built by init) is the reproduce-
@@ -133,6 +134,14 @@ class Run:
                 research_dict["session_name"] = research.session_name
             if research.subject_run_id is not None:
                 research_dict["subject_run_id"] = research.subject_run_id
+            if research.rationale is not None:
+                research_dict["rationale"] = research.rationale
+            if research.expected_outcome is not None:
+                research_dict["expected_outcome"] = research.expected_outcome
+            if research.falsification_criteria is not None:
+                research_dict["falsification_criteria"] = (
+                    research.falsification_criteria
+                )
             config_dict[RESEARCH_CONFIG_KEY] = research_dict
             group_name = research.campaign
             job_type = RESEARCH_JOB_TYPE
@@ -169,7 +178,8 @@ class Run:
                    config = EXCLUDED.config,
                    lineage = EXCLUDED.lineage,
                    group_name = EXCLUDED.group_name,
-                   job_type = EXCLUDED.job_type"""
+                   job_type = EXCLUDED.job_type,
+                   research_outcome = NULL"""
         db.execute(
             insert_run,
             [
@@ -394,9 +404,24 @@ class Run:
 
     # ---- lifecycle ----
 
-    def finish(self, status: str = "completed") -> None:
+    def finish(
+        self,
+        status: str = "completed",
+        research_outcome: Optional[ResearchOutcome] = None,
+    ) -> None:
         if self._finished:
             return
+        if research_outcome is not None and not self._is_research:
+            raise ResearchTrialError("research_outcome requires a research trial")
+        outcome_dict: Optional[Dict[str, Any]] = None
+        if research_outcome is not None:
+            outcome_dict = {
+                "decision": research_outcome.decision.value,
+                "evidence": research_outcome.evidence,
+                "conclusion": research_outcome.conclusion,
+                "failed_gates": list(research_outcome.failed_gates),
+                "next_step": research_outcome.next_step,
+            }
         self._finished = True
         if self._log_handler is not None:
             logging.getLogger().removeHandler(self._log_handler)
@@ -404,11 +429,18 @@ class Run:
         if self._sysmon:
             self._sysmon.stop()
         self._db.execute(
-            "UPDATE runs SET status = $1, ended_at = $2 WHERE id = $3",
-            [status, time.time(), self.id],
+            "UPDATE runs SET status = $1, ended_at = $2, research_outcome = $3 WHERE id = $4",
+            [
+                status,
+                time.time(),
+                json.dumps(outcome_dict, ensure_ascii=False, sort_keys=True)
+                if outcome_dict is not None
+                else None,
+                self.id,
+            ],
         )
         if self._sync is not None:
-            self._sync.finalize(status)
+            self._sync.finalize(status, research_outcome=outcome_dict)
 
     # ---- context manager ----
 

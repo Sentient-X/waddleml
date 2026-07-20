@@ -23,6 +23,16 @@ class ResearchGoal(StrEnum):
     MAXIMIZE = "maximize"
 
 
+class ResearchDecision(StrEnum):
+    """Controller-authored terminal decision for one research trial."""
+
+    BASELINE = "baseline"
+    KEEP = "keep"
+    DISCARD = "discard"
+    FAIL = "fail"
+    INCONCLUSIVE = "inconclusive"
+
+
 class LogLevel(StrEnum):
     DEBUG = "debug"
     INFO = "info"

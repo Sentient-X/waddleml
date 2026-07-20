@@ -429,6 +429,16 @@
       "FinishRunIn": {
         "additionalProperties": false,
         "properties": {
+          "research_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "state": {
             "$ref": "#/components/schemas/RunState",
             "default": "completed"
@@ -1108,6 +1118,18 @@
         "title": "ReportVersionOut",
         "type": "object"
       },
+      "ResearchDecision": {
+        "description": "Controller-authored terminal decision for one research trial.",
+        "enum": [
+          "baseline",
+          "keep",
+          "discard",
+          "fail",
+          "inconclusive"
+        ],
+        "title": "ResearchDecision",
+        "type": "string"
+      },
       "ResearchGoal": {
         "description": "Direction of one immutable autoresearch objective.",
         "enum": [
@@ -1117,10 +1139,241 @@
         "title": "ResearchGoal",
         "type": "string"
       },
+      "ResearchOutcome": {
+        "additionalProperties": false,
+        "description": "Evidence authored by the controller after the immutable evaluator returns.",
+        "properties": {
+          "conclusion": {
+            "maxLength": 32768,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Conclusion",
+            "type": "string"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ResearchDecision"
+          },
+          "evidence": {
+            "maxLength": 32768,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Evidence",
+            "type": "string"
+          },
+          "failed_gates": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Failed Gates",
+            "type": "array"
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Step"
+          }
+        },
+        "required": [
+          "decision",
+          "evidence",
+          "conclusion"
+        ],
+        "title": "ResearchOutcome",
+        "type": "object"
+      },
+      "ResearchSessionSummaryOut": {
+        "properties": {
+          "phase_count": {
+            "title": "Phase Count",
+            "type": "integer"
+          },
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "running_count": {
+            "title": "Running Count",
+            "type": "integer"
+          },
+          "session_name": {
+            "title": "Session Name",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "trial_count": {
+            "title": "Trial Count",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "session_name",
+          "phase_count",
+          "trial_count",
+          "running_count",
+          "started_at",
+          "updated_at"
+        ],
+        "title": "ResearchSessionSummaryOut",
+        "type": "object"
+      },
+      "ResearchSessionTrialOut": {
+        "properties": {
+          "campaign": {
+            "title": "Campaign",
+            "type": "string"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "objective_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective Value"
+          },
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "research": {
+            "$ref": "#/components/schemas/ResearchTrial"
+          },
+          "research_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          }
+        },
+        "required": [
+          "run_id",
+          "project",
+          "name",
+          "state",
+          "campaign",
+          "research",
+          "research_outcome",
+          "objective_value",
+          "commit_sha",
+          "started_at",
+          "finished_at",
+          "heartbeat_at"
+        ],
+        "title": "ResearchSessionTrialOut",
+        "type": "object"
+      },
       "ResearchTrial": {
         "additionalProperties": false,
         "description": "Candidate facts stored beside an ordinary Waddle run.",
         "properties": {
+          "expected_outcome": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Outcome"
+          },
+          "falsification_criteria": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Falsification Criteria"
+          },
           "goal": {
             "$ref": "#/components/schemas/ResearchGoal"
           },
@@ -1147,6 +1400,20 @@
               }
             ],
             "title": "Parent Run Id"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "minLength": 1,
+                "pattern": "\\S",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
           },
           "session_name": {
             "anyOf": [
@@ -1297,6 +1564,16 @@
               }
             ]
           },
+          "research_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "run_id": {
             "title": "Run Id",
             "type": "string"
@@ -1331,6 +1608,7 @@
           "group_name",
           "job_type",
           "research",
+          "research_outcome",
           "config",
           "summary",
           "commit_sha",
@@ -1626,6 +1904,16 @@
               }
             ]
           },
+          "research_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "run_id": {
             "title": "Run Id",
             "type": "string"
@@ -1653,6 +1941,7 @@
           "group_name",
           "job_type",
           "research",
+          "research_outcome",
           "config",
           "summary",
           "commit_sha",
@@ -2845,6 +3134,120 @@
           }
         },
         "summary": "Get Report Version"
+      }
+    },
+    "/api/v1/research/sessions": {
+      "get": {
+        "operationId": "list_research_sessions_api_v1_research_sessions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ResearchSessionSummaryOut"
+                  },
+                  "title": "Response List Research Sessions Api V1 Research Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Research Sessions"
+      }
+    },
+    "/api/v1/research/sessions/{project}/{session_name}": {
+      "get": {
+        "operationId": "get_research_session_api_v1_research_sessions__project___session_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Project",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_name",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Session Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5000,
+              "maximum": 5000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ResearchSessionTrialOut"
+                  },
+                  "title": "Response Get Research Session Api V1 Research Sessions  Project   Session Name  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Research Session"
       }
     },
     "/api/v1/runs": {

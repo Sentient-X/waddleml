@@ -57,7 +57,7 @@ implemented and verified on 2026-07-20 after observing the first overnight M10 c
 |---|---|---|---|
 | Start session | session identity -> research run | Establishes the top-level history that related phases join. | One typed field on each candidate; no parallel store. |
 | Start campaign | session, objective, direction, source -> campaign id | Establishes immutable phase comparison context; rejects malformed input. | One metadata write. |
-| Record candidate | campaign, parent, hypothesis, source identity, metrics, state -> node | Appends one node; failed candidates remain visible. | One evaluation plus metadata/metric writes. |
+| Record candidate | campaign, parent, proposal context, source identity, metrics, state, outcome -> node | Appends one node; failed candidates remain visible. | One evaluation plus metadata/metric writes. |
 | Select incumbent | ordered valid nodes -> candidate | Applies min or max consistently. | Linear in visible nodes; derivable at query/UI time. |
 | Inspect branch | selected candidate -> parent/children and facts | Read-only projection. | Metadata query plus optional artifact fetch. |
 | Evaluate candidate | subject run, evaluator command -> evaluation run | Creates the run before execution, retains failure, and ingests scorecard/artifacts on success. | Evaluator cost plus ordinary Waddle writes. |
@@ -106,12 +106,14 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
 
 ## Proposed normal form
 
-- Minimal independent objects: ordinary Waddle run; `ResearchTrial` record (session, campaign,
-  trial index, objective, direction, hypothesis, optional parent, optional evaluated subject);
-  existing scalar metrics and source identity.
+- Minimal independent objects: ordinary Waddle run; `ResearchTrial` proposal record (session,
+  campaign, trial index, objective, direction, hypothesis, rationale, expected outcome,
+  falsification criteria, optional parent, optional evaluated subject); optional terminal
+  `ResearchOutcome` (decision, evidence, conclusion, failed gates, next step); existing scalar
+  metrics and source identity.
 - Derived objects/operations: research-session list, ordered campaign phases, direction-adjusted
   attempt scatter plus accepted-incumbent staircase, graphical hypothesis/evaluation tree,
-  evidence-derived working/discarded synthesis, per-phase rooted tree, baseline, current
+  controller-authored learning list, per-phase rooted tree, baseline, current
   incumbent, delta, best run, progress curve, valid/failed counts.
 - Boundary seams: one optional typed research record on `waddle.init`; the existing run-create
   API persists it; filtered run reads and MCP expose it; the console is read-only.
@@ -130,7 +132,7 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
 |---|---|---|---|---|---|---|
 | Functional | Fixture with baseline, two branches, one failure, and later improvement | Exact tree edges, statuses, selected best, and prefix incumbent | Supplied UI semantics | Exact | Deterministic | yes |
 | Compatibility | Existing SDK/server/UI test corpora and an old DuckDB schema | No regression; additive migration | Current Waddle behavior | Exact | Full focused suites | yes |
-| Live projection | Running fixture gaining one candidate | New node and curve point become visible | Weco recording interaction | Within the console's 5 s poll interval | 3 updates | yes |
+| Live projection | Running fixture gaining one candidate | New node and curve point become visible | Weco recording interaction | Within the active session's 5 s interval; no polling after completion | 3 updates | yes |
 | Scale | 1,000 candidate metadata records | Selection and rendering remain usable | Informative only | API/UI response under 1 s on dev hardware | 3 | no, follow-up |
 | Kernel quality | Train M10 frozen corpus and host | Correctness, p50/p95/p99, memory, sustained behavior | M10 definition of done | M10 tolerances | M10 protocol | outside Waddle |
 
@@ -161,7 +163,7 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
 
 | Metric | Upstream reported | Upstream reproduced | Fused | Tolerance | Verdict |
 |---|---:|---:|---:|---:|---|
-| Functional tree/incumbent behavior | Present in supplied Weco UI and canonical attempt/incumbent references | Characterized visually | Typed session/phase/parent/subject tree, all-attempt scatter, accepted-incumbent staircases, graphical hypothesis map, and evidence-derived synthesis | Exact fixture plus 76-trial desktop/mobile inspection | pass |
+| Functional tree/incumbent behavior | Present in supplied Weco UI and canonical attempt/incumbent references | Characterized visually | Typed session/phase/parent/subject tree, all-attempt scatter, accepted-incumbent staircase, graphical hypothesis map, and controller-authored learning list | Exact fixture plus 76-trial desktop/mobile inspection | pass |
 | Existing Waddle compatibility | n/a | Current tests are target baseline | 92 passed; OpenAPI regenerated; console typecheck and production build passed | No regression | pass |
 | Kernel performance | Weco shows kernel use cases, not this model/device result | Not attempted | Owned by Train M10 | M10 contract | out of scope |
 

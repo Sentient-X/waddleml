@@ -18,6 +18,10 @@ export type RunState = schemas["RunState"];
 export type Run = schemas["RunOut"];
 export type RunDetail = schemas["RunDetailOut"];
 export type ResearchTrial = schemas["ResearchTrial"];
+export type ResearchOutcome = schemas["ResearchOutcome"];
+export type ResearchDecision = schemas["ResearchDecision"];
+export type ResearchSessionSummary = schemas["ResearchSessionSummaryOut"];
+export type ResearchSessionTrial = schemas["ResearchSessionTrialOut"];
 export type Worker = schemas["WorkerOut"];
 export type Project = schemas["ProjectOut"];
 

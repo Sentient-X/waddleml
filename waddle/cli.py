@@ -166,7 +166,7 @@ def cmd_sync(a: argparse.Namespace) -> int:
         # fallback; dependency ordering below guarantees parent/subject targets exist first.
         query = (
             "SELECT id, project, name, status, started_at, commit_sha, config,"
-            " env, group_name, job_type FROM runs"
+            " env, group_name, job_type, research_outcome FROM runs"
             + (" WHERE id = $1" if a.run else "")
             + " ORDER BY started_at, id"
         )
@@ -190,6 +190,7 @@ def cmd_sync(a: argparse.Namespace) -> int:
             environment_json,
             group_name,
             job_type,
+            research_outcome_json,
         ) in rows:
             config_dict = json.loads(config_json or "{}")
             environment_dict = json.loads(environment_json or "{}")
@@ -205,6 +206,9 @@ def cmd_sync(a: argparse.Namespace) -> int:
             research_dict = config_dict.pop(RESEARCH_CONFIG_KEY, None)
             if research_dict is not None and not isinstance(research_dict, dict):
                 raise SyncSpoolError(f"run {run_id} research record is not an object")
+            research_outcome = json.loads(research_outcome_json or "null")
+            if research_outcome is not None and not isinstance(research_outcome, dict):
+                raise SyncSpoolError(f"run {run_id} research outcome is not an object")
             engine = SyncEngine(
                 db,
                 config,
@@ -228,7 +232,7 @@ def cmd_sync(a: argparse.Namespace) -> int:
             )
             engine.drain_once()
             if status in {"completed", "failed", "aborted"}:
-                engine.finish_once(status)
+                engine.finish_once(status, research_outcome=research_outcome)
             print(f"synced {run_id[:8]} ({project}/{name}, {status})")
     finally:
         db.close()

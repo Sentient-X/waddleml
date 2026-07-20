@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Optional, Tuple
 
 
 class ResearchGoal(str, Enum):
@@ -12,6 +12,16 @@ class ResearchGoal(str, Enum):
 
     MINIMIZE = "minimize"
     MAXIMIZE = "maximize"
+
+
+class ResearchDecision(str, Enum):
+    """Controller-authored terminal decision for one research trial."""
+
+    BASELINE = "baseline"
+    KEEP = "keep"
+    DISCARD = "discard"
+    FAIL = "fail"
+    INCONCLUSIVE = "inconclusive"
 
 
 class ResearchTrialError(ValueError):
@@ -34,6 +44,15 @@ class ResearchTrial:
     subject_run_id: Optional[str] = (
         None  # none-ok: only evaluation trials target another run
     )
+    rationale: Optional[str] = (
+        None  # none-ok: legacy trials predate structured proposal context
+    )
+    expected_outcome: Optional[str] = (
+        None  # none-ok: legacy trials predate structured proposal context
+    )
+    falsification_criteria: Optional[str] = (
+        None  # none-ok: legacy trials predate structured proposal context
+    )
 
     def __post_init__(self) -> None:
         if not self.campaign.strip():
@@ -50,6 +69,40 @@ class ResearchTrial:
             raise ResearchTrialError("parent_run_id must not be empty when present")
         if self.subject_run_id is not None and not self.subject_run_id.strip():
             raise ResearchTrialError("subject_run_id must not be empty when present")
+        for name, value in (
+            ("rationale", self.rationale),
+            ("expected_outcome", self.expected_outcome),
+            ("falsification_criteria", self.falsification_criteria),
+        ):
+            if value is not None and not value.strip():
+                raise ResearchTrialError(f"{name} must not be empty when present")
+
+
+@dataclass(frozen=True)
+class ResearchOutcome:
+    """Evidence and conclusion written by the controller after evaluation."""
+
+    decision: ResearchDecision
+    evidence: str
+    conclusion: str
+    failed_gates: Tuple[str, ...] = ()
+    next_step: Optional[str] = (
+        None  # none-ok: a terminal campaign or dead end has no next action
+    )
+
+    def __post_init__(self) -> None:
+        if not self.evidence.strip():
+            raise ResearchTrialError("research outcome evidence must not be empty")
+        if not self.conclusion.strip():
+            raise ResearchTrialError("research outcome conclusion must not be empty")
+        if any(not gate.strip() for gate in self.failed_gates):
+            raise ResearchTrialError(
+                "research outcome failed_gates must not contain blanks"
+            )
+        if self.next_step is not None and not self.next_step.strip():
+            raise ResearchTrialError(
+                "research outcome next_step must not be empty when present"
+            )
 
 
 @dataclass(frozen=True)

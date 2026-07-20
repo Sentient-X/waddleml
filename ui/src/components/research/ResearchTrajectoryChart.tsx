@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatScalar } from "@/lib/format";
 import type {
@@ -7,23 +7,28 @@ import type {
   ResearchTrajectoryPhase,
 } from "@/lib/research";
 
-const WIDTH_PER_POINT = 15;
-const MIN_WIDTH = 760;
-const HEIGHT = 340;
-const MARGIN = { top: 54, right: 24, bottom: 40, left: 58 } as const;
-
-function shortLabel(value: string): string {
-  return value.length <= 24 ? value : `${value.slice(0, 23)}…`;
-}
+const WIDTH_PER_POINT = 12;
+const MIN_WIDTH = 720;
+const HEIGHT = 304;
+const MARGIN = { top: 30, right: 18, bottom: 38, left: 58 } as const;
 
 function ticks(minimum: number, maximum: number): number[] {
   const span = maximum - minimum || 1;
   return Array.from({ length: 5 }, (_, index) => minimum + (span * index) / 4);
 }
 
-function stepPath(
-  points: readonly { x: number; y: number }[],
-): string {
+function ordinalTicks(pointCount: number): number[] {
+  if (pointCount <= 1) return [0];
+  const interval = Math.max(1, Math.ceil((pointCount - 1) / 8));
+  const values = Array.from(
+    { length: Math.floor((pointCount - 1) / interval) + 1 },
+    (_, index) => index * interval,
+  );
+  if (values.at(-1) !== pointCount - 1) values.push(pointCount - 1);
+  return values;
+}
+
+function stepPath(points: readonly { x: number; y: number }[]): string {
   if (points.length === 0) return "";
   return points
     .slice(1)
@@ -31,6 +36,10 @@ function stepPath(
       (path, point) => `${path} H ${point.x.toFixed(2)} V ${point.y.toFixed(2)}`,
       `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`,
     );
+}
+
+function shortLabel(value: string): string {
+  return value.length <= 28 ? value : `${value.slice(0, 27)}…`;
 }
 
 export function ResearchTrajectoryChart({
@@ -42,32 +51,78 @@ export function ResearchTrajectoryChart({
   selectedRunId: string;
   onSelect: (run: ResearchRun, campaign: ResearchCampaign) => void;
 }) {
-  const pointCount = phases.reduce((total, phase) => total + phase.points.length, 0);
-  const width = Math.max(MIN_WIDTH, pointCount * WIDTH_PER_POINT + MARGIN.left + MARGIN.right);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const update = () => setContainerWidth(container.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+  let acceptedOffset = 0;
+  const locatedPoints = phases.flatMap((phase) => {
+    const located = phase.points.map((point) => ({
+      point,
+      phase,
+      candidateScore: acceptedOffset + point.improvement,
+      incumbentScore: acceptedOffset + point.incumbentImprovement,
+    }));
+    acceptedOffset += Math.max(0, phase.points.at(-1)?.incumbentImprovement ?? 0);
+    return located;
+  });
+  const points = locatedPoints.map(({ point }) => point);
+  const width = Math.max(
+    MIN_WIDTH,
+    containerWidth,
+    points.length * WIDTH_PER_POINT + MARGIN.left + MARGIN.right,
+  );
   const plotWidth = width - MARGIN.left - MARGIN.right;
   const plotHeight = HEIGHT - MARGIN.top - MARGIN.bottom;
-  const values = phases.flatMap((phase) =>
-    phase.points.flatMap((point) => [point.improvement, point.incumbentImprovement]),
-  );
+  const values = locatedPoints.flatMap(({ candidateScore, incumbentScore }) => [
+    candidateScore,
+    incumbentScore,
+  ]);
   const rawMinimum = Math.min(0, ...values);
   const rawMaximum = Math.max(0, ...values);
-  const padding = Math.max(1, (rawMaximum - rawMinimum) * 0.12);
+  const padding = Math.max(0.5, (rawMaximum - rawMinimum) * 0.1);
   const minimum = rawMinimum - padding;
   const maximum = rawMaximum + padding;
   const x = (ordinal: number) =>
-    MARGIN.left + (pointCount <= 1 ? plotWidth / 2 : (ordinal / (pointCount - 1)) * plotWidth);
+    MARGIN.left +
+    (points.length <= 1 ? plotWidth / 2 : (ordinal / (points.length - 1)) * plotWidth);
   const y = (value: number) =>
     MARGIN.top + ((maximum - value) / (maximum - minimum)) * plotHeight;
   const yTicks = useMemo(() => ticks(minimum, maximum), [minimum, maximum]);
-  const zeroBaseline = phases.some((phase) => phase.zeroBaseline);
-  const phaseLabelInterval = Math.max(1, Math.ceil(phases.length / 18));
+  const xTicks = useMemo(() => ordinalTicks(points.length), [points.length]);
+  const incumbentPath = stepPath(
+    locatedPoints.map(({ point, incumbentScore }) => ({
+      x: x(point.ordinal),
+      y: y(incumbentScore),
+    })),
+  );
+  let priorIncumbent = Number.NEGATIVE_INFINITY;
+  const acceptedImprovements = locatedPoints.filter(({ incumbentScore }) => {
+    const improved = incumbentScore > priorIncumbent + 1e-9;
+    priorIncumbent = Math.max(priorIncumbent, incumbentScore);
+    return improved;
+  });
+  let lastLabelX = Number.NEGATIVE_INFINITY;
+  const labeledImprovements = acceptedImprovements.slice(1).filter(({ point }) => {
+    const position = x(point.ordinal);
+    if (position - lastLabelX < 72) return false;
+    lastLabelX = position;
+    return true;
+  });
 
   return (
     <div>
-      <div className="overflow-x-auto">
+      <div ref={containerRef} className="overflow-x-auto">
         <svg
           role="img"
-          aria-label="Every evaluated attempt as scatter points with the accepted incumbent staircase"
+          aria-label="All evaluated attempts as faint points and the accepted running best as one staircase"
           width={width}
           height={HEIGHT}
           viewBox={`0 0 ${width} ${HEIGHT}`}
@@ -81,155 +136,129 @@ export function ResearchTrajectoryChart({
                 y1={y(tick)}
                 y2={y(tick)}
                 stroke="currentColor"
-                className="text-border"
+                className="text-border/70"
               />
               <text
-                x={MARGIN.left - 9}
+                x={MARGIN.left - 8}
                 y={y(tick) + 4}
                 textAnchor="end"
-                className="fill-muted-foreground font-mono text-[10px]"
+                className="fill-muted-foreground font-mono text-[9px]"
               >
-                {tick.toFixed(1)}%
+                {tick.toFixed(1)}
               </text>
             </g>
           ))}
-          <line
-            x1={MARGIN.left}
-            x2={width - MARGIN.right}
-            y1={y(0)}
-            y2={y(0)}
-            stroke="currentColor"
-            strokeWidth={1.5}
-            className="text-muted-foreground"
-          />
+          {xTicks.map((tick) => (
+            <g key={tick}>
+              <line
+                x1={x(tick)}
+                x2={x(tick)}
+                y1={MARGIN.top}
+                y2={MARGIN.top + plotHeight}
+                stroke="currentColor"
+                className="text-border/50"
+              />
+              <text
+                x={x(tick)}
+                y={HEIGHT - 22}
+                textAnchor="middle"
+                className="fill-muted-foreground font-mono text-[9px]"
+              >
+                {tick + 1}
+              </text>
+            </g>
+          ))}
 
-          {phases.map((phase, phasePosition) => {
-            const first = phase.points[0];
-            const last = phase.points[phase.points.length - 1];
-            const previous = phases[phasePosition - 1]?.points.at(-1);
-            const next = phases[phasePosition + 1]?.points[0];
-            const left = previous ? (x(previous.ordinal) + x(first.ordinal)) / 2 : MARGIN.left;
-            const right = next ? (x(last.ordinal) + x(next.ordinal)) / 2 : width - MARGIN.right;
-            const incumbentPath = stepPath(
-              phase.points.map((point) => ({
-                x: x(point.ordinal),
-                y: y(point.incumbentImprovement),
-              })),
-            );
+          {locatedPoints.map(({ point, phase, candidateScore }) => {
+            const selected = point.run.run_id === selectedRunId;
+            const recorded = point.analysis.source === "controller";
             return (
-              <g key={phase.campaign.key}>
-                <rect
-                  x={left}
-                  y={MARGIN.top}
-                  width={right - left}
-                  height={plotHeight}
-                  className={phasePosition % 2 === 0 ? "fill-muted/20" : "fill-transparent"}
-                />
-                <line
-                  x1={left}
-                  x2={left}
-                  y1={MARGIN.top}
-                  y2={MARGIN.top + plotHeight}
-                  stroke="currentColor"
-                  strokeDasharray="3 4"
-                  className="text-border"
-                />
-                {phasePosition === 0 ||
-                phasePosition === phases.length - 1 ||
-                phasePosition % phaseLabelInterval === 0 ? (
-                  <text
-                    x={(left + right) / 2}
-                    y={20}
-                    textAnchor="middle"
-                    className="fill-muted-foreground font-mono text-[10px]"
-                  >
-                    P{phase.phaseIndex + 1}
-                  </text>
-                ) : null}
-                <path d={incumbentPath} fill="none" stroke="#16a34a" strokeWidth={2} />
-                {phase.points.map((point) => {
-                  const accepted =
-                    point.analysis.verdict === "baseline" || point.analysis.verdict === "kept";
-                  const baseline = point.analysis.verdict === "baseline";
-                  const failed = point.analysis.verdict === "failed";
-                  const selected = point.run.run_id === selectedRunId;
-                  return (
-                    <g key={point.run.run_id}>
-                      <circle
-                        cx={x(point.ordinal)}
-                        cy={y(point.improvement)}
-                        r={selected ? 5.5 : accepted ? 4.5 : 3.5}
-                        fill={baseline ? "#2563eb" : accepted ? "#16a34a" : failed ? "#dc2626" : "#64748b"}
-                        fillOpacity={accepted || selected ? 1 : 0.28}
-                        stroke={
-                          selected
-                            ? "#f8fafc"
-                            : baseline
-                              ? "#1e40af"
-                              : accepted
-                                ? "#166534"
-                                : "transparent"
-                        }
-                        strokeWidth={selected ? 2 : 1}
-                        className="cursor-pointer focus:outline-none"
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => onSelect(point.run, phase.campaign)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            onSelect(point.run, phase.campaign);
-                          }
-                        }}
-                      >
-                        <title>
-                          {`Phase ${phase.phaseIndex + 1} · trial ${point.run.research.trial_index} · ${point.analysis.verdict}\n${phase.campaign.objectiveName}: ${formatScalar(point.rawValue)}\nDirection-adjusted improvement: ${point.improvement.toFixed(2)}%\n${point.run.research.hypothesis}\n${point.analysis.evidence}\n${point.analysis.conclusion}`}
-                        </title>
-                      </circle>
-                      {point.analysis.verdict === "kept" ? (
-                        <text
-                          x={x(point.ordinal) + 5}
-                          y={y(point.improvement) - 8}
-                          transform={`rotate(-24 ${x(point.ordinal) + 5} ${y(point.improvement) - 8})`}
-                          className="pointer-events-none fill-green-700 text-[8px] dark:fill-green-400"
-                        >
-                          {shortLabel(point.run.research.hypothesis)}
-                        </text>
-                      ) : null}
-                    </g>
-                  );
-                })}
-              </g>
+              <circle
+                key={`scatter-${point.run.run_id}`}
+                cx={x(point.ordinal)}
+                cy={y(candidateScore)}
+                r={selected ? 5 : 3}
+                fill="#64748b"
+                fillOpacity={selected ? 0.72 : 0.2}
+                stroke={selected ? "#0f172a" : "transparent"}
+                strokeWidth={selected ? 1.5 : 0}
+                className="cursor-pointer focus:outline-none"
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelect(point.run, phase.campaign)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect(point.run, phase.campaign);
+                  }
+                }}
+              >
+                <title>
+                  {`P${point.phaseIndex + 1} · trial ${point.run.research.trial_index}\n${phase.campaign.objectiveName}: ${formatScalar(point.rawValue)}\nPhase-relative change: ${point.improvement.toFixed(2)}%\nCumulative progress index: ${candidateScore.toFixed(2)}\nDecision: ${point.analysis.verdict}${recorded ? " (controller)" : " (legacy-derived)"}\n${point.run.research.hypothesis}`}
+                </title>
+              </circle>
             );
           })}
 
+          <path
+            d={incumbentPath}
+            fill="none"
+            stroke="#16a34a"
+            strokeWidth={2}
+            strokeLinejoin="round"
+          />
+          {acceptedImprovements.map(({ point, incumbentScore }) => (
+              <circle
+                key={`kept-${point.run.run_id}`}
+                cx={x(point.ordinal)}
+                cy={y(incumbentScore)}
+                r={3.5}
+                fill="#bbf7d0"
+                stroke="#16a34a"
+                strokeWidth={1.5}
+                className="pointer-events-none"
+              />
+            ))}
+
+          {labeledImprovements.map(({ point, incumbentScore }) => (
+            <text
+              key={`label-${point.run.run_id}`}
+              x={x(point.ordinal) + 5}
+              y={y(incumbentScore) - 7}
+              transform={`rotate(-24 ${x(point.ordinal) + 5} ${y(incumbentScore) - 7})`}
+              className="hidden fill-green-700 text-[7px] dark:fill-green-400 sm:block"
+            >
+              {shortLabel(point.run.research.hypothesis)}
+            </text>
+          ))}
+
           <text
             x={MARGIN.left + plotWidth / 2}
-            y={HEIGHT - 10}
+            y={HEIGHT - 9}
             textAnchor="middle"
-            className="fill-muted-foreground text-[10px]"
+            className="fill-muted-foreground text-[9px]"
           >
-            evaluated attempts in campaign order
+            attempt #
+          </text>
+          <text
+            x={13}
+            y={MARGIN.top + plotHeight / 2}
+            textAnchor="middle"
+            transform={`rotate(-90 13 ${MARGIN.top + plotHeight / 2})`}
+            className="fill-muted-foreground text-[9px]"
+          >
+            cumulative gain index
           </text>
         </svg>
       </div>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
-        <div className="flex items-center gap-4">
-          <span className="inline-flex shrink-0 items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-slate-500 opacity-40" /> discarded attempt
-          </span>
-          <span className="inline-flex shrink-0 items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-blue-600" /> phase baseline
-          </span>
-          <span className="inline-flex shrink-0 items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-[#16a34a]" /> accepted improvement
-          </span>
-          <span className="inline-flex shrink-0 items-center gap-1.5">
-            <span className="h-0.5 w-3 bg-[#16a34a]" /> running best
-          </span>
-          <span>higher is better; each phase resets to 0%</span>
-        </div>
-        {zeroBaseline ? <span>* zero baselines use percentage-point delta</span> : null}
+      <div className="mt-1 flex flex-wrap items-center gap-4 text-[10px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-slate-500 opacity-25" /> all attempts
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-0.5 w-4 bg-green-600" /> accepted running best
+        </span>
+          <span>Cumulative phase-relative gain index; higher is better. Raw scores remain in trial detail.</span>
       </div>
     </div>
   );

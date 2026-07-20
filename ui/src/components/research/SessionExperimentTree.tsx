@@ -30,7 +30,7 @@ export function SessionExperimentTree({
     <Card className="min-w-0">
       <CardHeader className="py-3">
         <CardTitle className="flex items-center justify-between text-sm">
-          <span>Full experiment tree</span>
+          <span>Attempts</span>
           <span className="font-mono text-[10px] font-normal text-muted-foreground">
             {session.campaigns.length} phases · {session.runs.length} trials
           </span>
@@ -97,15 +97,15 @@ export function SessionExperimentTree({
                             {run.run_id === phaseBest?.run_id ? (
                               <Badge className="px-1 py-0 text-[9px]">best</Badge>
                             ) : null}
-                            {analysis?.verdict === "kept" ? (
+                            {analysis?.verdict === "keep" ? (
                               <Badge
                                 variant="outline"
                                 className="border-green-600/40 bg-green-500/10 px-1 py-0 text-[9px] text-green-700 dark:text-green-400"
                               >
-                                working
+                                {analysis.source === "controller" ? "kept" : "derived best"}
                               </Badge>
                             ) : null}
-                            {analysis?.verdict === "failed" ? (
+                            {analysis?.verdict === "fail" ? (
                               <Badge variant="destructive" className="px-1 py-0 text-[9px]">
                                 failed
                               </Badge>

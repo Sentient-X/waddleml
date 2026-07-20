@@ -3,7 +3,14 @@
 from ._api import init, log, finish, log_artifact, log_line, log_param, log_tag
 from ._run import Run
 from ._db import WaddleDB
-from ._types import ResearchGoal, ResearchTrial, ResearchTrialError, WorkerInfo
+from ._types import (
+    ResearchDecision,
+    ResearchGoal,
+    ResearchOutcome,
+    ResearchTrial,
+    ResearchTrialError,
+    WorkerInfo,
+)
 
 __all__ = [
     "init",
@@ -17,6 +24,8 @@ __all__ = [
     "WaddleDB",
     "WorkerInfo",
     "ResearchGoal",
+    "ResearchDecision",
+    "ResearchOutcome",
     "ResearchTrial",
     "ResearchTrialError",
 ]

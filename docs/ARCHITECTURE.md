@@ -14,17 +14,34 @@ Autoresearch uses the same run grain rather than a parallel session, campaign, o
 typed `session_name` groups the phases of one long optimization run; one campaign phase is the
 combination of `group_name`, objective, and direction (historical controllers reused a group name
 while changing gates); every evaluated candidate is a run with `job_type=autoresearch` and one typed
-`ResearchTrial` record (session, trial index, objective/direction, hypothesis, optional parent
-run, and optional evaluated-subject run). `parent_run_id` is the search edge across the whole
+`ResearchTrial` record (session, trial index, objective/direction, hypothesis, proposal rationale,
+expected outcome, falsification criteria, optional parent run, and optional evaluated-subject
+run). `parent_run_id` is the search edge across the whole
 session; `subject_run_id` is a separate typed edge from an evaluation to the run it measures. Legacy
 records without an explicit session are projected under their project name. This
 means failures, workers, metrics, git identity, logs, artifacts, sync, and org isolation keep their
-existing semantics. The session index, direction-adjusted cross-phase attempt scatter, accepted-
-incumbent staircases, phase sequence, graphical hypothesis/evaluation tree, and evidence-derived
-idea synthesis are read-time projections. Explicit recorded retention/rejection facts take
-precedence; legacy trials derive an outcome from objective deltas and the gates they recorded.
-Waddle never proposes code or decides whether a candidate wins; those remain controller
-responsibilities.
+existing semantics. A terminal `ResearchOutcome` stores the controller's decision, evidence,
+conclusion, failed gates, and next step separately from the immutable proposal. The session index,
+direction-adjusted cross-phase attempt scatter, one monotonic accepted-incumbent staircase, phase
+sequence, and graphical hypothesis/evaluation tree are read-time projections. When phases have
+different objectives, the trajectory adds each phase's accepted direction-adjusted gain into an
+explicitly labeled progress index rather than presenting unlike raw objectives as one physical
+unit; raw objective values remain in trial detail. Waddle does not synthesize
+explanatory prose. It renders controller-authored outcomes verbatim; legacy trials without one are
+labeled as such, and only their selection state is mechanically derived from terminal state and
+objective order. Waddle never proposes code or decides whether a candidate wins; those remain
+controller responsibilities.
+
+The Research console reads two compact, org-scoped Postgres projections instead of repeatedly
+loading the general run collection: session summaries, then the selected session's trial identity,
+objective, and research facts. Full config and metric summaries load only for the selected trial.
+The index polls every 15 seconds only while at least one visible session is running. A session
+polls every 5 seconds only while one of its trials is running. Completed views stop polling and
+refresh on window focus. Background tabs do not poll. These are stateless reads over shared
+Postgres with a research-session index, so API replicas require no affinity and may use ordinary
+load balancing. Per-process SSE is deliberately absent: introducing a live stream before a shared
+event transport would multiply ingest fan-out and break cross-replica delivery. A later stream must
+ride shared pub/sub; polling intervals are not encoded into the storage or ingest contract.
 
 The local DuckDB file is the supported initial deployment. Quack remote transport is planned
 behind the same writer API after its beta protocol stabilizes. It is not required for local

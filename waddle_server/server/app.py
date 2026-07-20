@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import math
 import tempfile
 from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from contextlib import asynccontextmanager
@@ -86,6 +87,9 @@ from waddle_server.server.schemas import (
     RunLineageOut,
     RunOut,
     RunRef,
+    ResearchOutcome,
+    ResearchSessionSummaryOut,
+    ResearchSessionTrialOut,
     ResearchTrial,
     SeriesPointOut,
     SqlQueryIn,
@@ -181,6 +185,16 @@ def build_app(
 
     def _run_out(row: repo.RunRow) -> RunOut:
         config, research = _run_config(row)
+        try:
+            research_outcome = (
+                ResearchOutcome.model_validate(row.research_outcome)
+                if row.research_outcome is not None
+                else None
+            )
+        except pydantic.ValidationError as exc:
+            raise ResearchContractError(
+                f"research run {row.id!r} has an invalid outcome"
+            ) from exc
         return RunOut(
             run_id=row.id,
             project=row.project_name,
@@ -190,6 +204,7 @@ def build_app(
             group_name=row.group_name,
             job_type=row.job_type,
             research=research,
+            research_outcome=research_outcome,
             config=config,
             summary=row.summary,
             commit_sha=row.commit_sha,
@@ -409,6 +424,81 @@ def build_app(
             ],
         )
 
+    @app.get(
+        "/api/v1/research/sessions", response_model=list[ResearchSessionSummaryOut]
+    )
+    async def list_research_sessions(
+        limit: int = Query(default=200, ge=1, le=500),
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> list[ResearchSessionSummaryOut]:
+        require_role(pr, WaddleRole.READER)
+        rows = await repo.list_research_sessions(c, pr.org_id, limit=limit)
+        return [
+            ResearchSessionSummaryOut(
+                project=row.project_name,
+                session_name=row.session_name,
+                phase_count=row.phase_count,
+                trial_count=row.trial_count,
+                running_count=row.running_count,
+                started_at=row.started_at,
+                updated_at=row.updated_at,
+            )
+            for row in rows
+        ]
+
+    @app.get(
+        "/api/v1/research/sessions/{project}/{session_name}",
+        response_model=list[ResearchSessionTrialOut],
+    )
+    async def get_research_session(
+        project: str = Path(min_length=1, max_length=256),
+        session_name: str = Path(min_length=1, max_length=256),
+        limit: int = Query(default=5000, ge=1, le=5000),
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> list[ResearchSessionTrialOut]:
+        require_role(pr, WaddleRole.READER)
+        rows = await repo.list_research_session_runs(
+            c,
+            pr.org_id,
+            project=project,
+            session_name=session_name,
+            limit=limit,
+        )
+        trials: list[ResearchSessionTrialOut] = []
+        for row in rows:
+            run = _run_out(row)
+            if run.research is None or run.group_name is None:
+                raise ResearchContractError(
+                    f"research session contains invalid run {run.run_id!r}"
+                )
+            raw_value = run.summary.get(run.research.objective_name)
+            objective_value = (
+                float(raw_value)
+                if isinstance(raw_value, (int, float))
+                and not isinstance(raw_value, bool)
+                and math.isfinite(float(raw_value))
+                else None
+            )
+            trials.append(
+                ResearchSessionTrialOut(
+                    run_id=run.run_id,
+                    project=run.project,
+                    name=run.name,
+                    state=run.state,
+                    campaign=run.group_name,
+                    research=run.research,
+                    research_outcome=run.research_outcome,
+                    objective_value=objective_value,
+                    commit_sha=run.commit_sha,
+                    started_at=run.started_at,
+                    finished_at=run.finished_at,
+                    heartbeat_at=run.heartbeat_at,
+                )
+            )
+        return trials
+
     @app.post("/api/v1/runs/{run_id}/finish", response_model=RunOut)
     async def finish_run(
         run_id: str,
@@ -417,9 +507,31 @@ def build_app(
         pr: WaddlePrincipal = Depends(principal),
     ) -> RunOut:
         require_role(pr, WaddleRole.WRITER)
-        await _run_or_404(c, pr, run_id)
+        existing = await _run_or_404(c, pr, run_id)
+        _, research = _run_config(existing)
+        if body.research_outcome is not None and research is None:
+            err = ResearchContractError(
+                "research_outcome can only finish an autoresearch run"
+            )
+            raise _error(422, err, err.code)
+        if existing.research_outcome is not None:
+            stored = ResearchOutcome.model_validate(existing.research_outcome)
+            if body.research_outcome is not None and body.research_outcome != stored:
+                err = ResearchContractError(
+                    "a research outcome is immutable after it is recorded"
+                )
+                raise _error(422, err, err.code)
         row = await repo.finish_run(
-            c, pr.org_id, run_id, state=body.state, summary=body.summary
+            c,
+            pr.org_id,
+            run_id,
+            state=body.state,
+            summary=body.summary,
+            research_outcome=(
+                body.research_outcome.model_dump(mode="json")
+                if body.research_outcome is not None
+                else None
+            ),
         )
         assert row is not None
         return _run_out(row)
