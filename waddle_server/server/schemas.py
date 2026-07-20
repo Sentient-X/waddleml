@@ -27,8 +27,18 @@ class ResearchTrial(BaseModel):
     objective_name: str = Field(min_length=1, max_length=512)
     goal: ResearchGoal
     hypothesis: str = Field(min_length=1, max_length=16 * 1024)
+    session_name: str | None = (
+        Field(  # none-ok: legacy trials predate research sessions
+            default=None, min_length=1, max_length=256
+        )
+    )
     parent_run_id: str | None = Field(  # none-ok: the campaign root has no parent
         default=None, pattern=RUN_ID_PATTERN
+    )
+    subject_run_id: str | None = (
+        Field(  # none-ok: only evaluation trials target another run
+            default=None, pattern=RUN_ID_PATTERN
+        )
     )
 
 

@@ -281,6 +281,8 @@ def test_research_contract_is_registered_with_hosted_run(tmp_path, server, monke
             objective_name="latency/p99_ms",
             goal=ResearchGoal.MINIMIZE,
             hypothesis="native baseline",
+            session_name="overnight-sm120",
+            subject_run_id="b" * 32,
         ),
         system_metrics=False,
     )
@@ -295,6 +297,8 @@ def test_research_contract_is_registered_with_hosted_run(tmp_path, server, monke
         "objective_name": "latency/p99_ms",
         "goal": "minimize",
         "hypothesis": "native baseline",
+        "session_name": "overnight-sm120",
+        "subject_run_id": "b" * 32,
         "parent_run_id": None,
     }
 
@@ -352,3 +356,53 @@ def test_cli_backfill_preserves_research_contract(tmp_path, server, monkeypatch)
     finish_path, finish_body = server.requests[-1]
     assert finish_path.endswith("/finish")
     assert json.loads(finish_body) == {"state": "completed"}
+
+
+def test_cli_backfill_registers_research_parents_before_children(
+    tmp_path, server, monkeypatch
+):
+    db_path = tmp_path / "ordered.duckdb"
+    parent_id = "a" * 32
+    child_id = "b" * 32
+    child = waddle.init(
+        project="edge-inference",
+        run_id=child_id,
+        db_path=str(db_path),
+        research=ResearchTrial(
+            campaign="quality",
+            trial_index=1,
+            objective_name="quality/success_rate",
+            goal=ResearchGoal.MAXIMIZE,
+            hypothesis="child was written to the spool first",
+            parent_run_id=parent_id,
+        ),
+        system_metrics=False,
+        sync=False,
+    )
+    child.finish()
+    parent = waddle.init(
+        project="edge-inference",
+        run_id=parent_id,
+        db_path=str(db_path),
+        research=ResearchTrial(
+            campaign="latency",
+            trial_index=0,
+            objective_name="latency/p50_ms",
+            goal=ResearchGoal.MINIMIZE,
+            hypothesis="parent",
+        ),
+        system_metrics=False,
+        sync=False,
+    )
+    parent.finish()
+
+    monkeypatch.setenv("WADDLE_API_URL", server.url)
+    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    assert cmd_sync(Namespace(db=str(db_path), run=None)) == 0
+
+    registered = [
+        json.loads(body)["run_id"]
+        for path, body in server.requests
+        if path == "/api/v1/runs"
+    ]
+    assert registered == [parent_id, child_id]

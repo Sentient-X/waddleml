@@ -861,6 +861,10 @@ export interface components {
             objective_name: string;
             /** Parent Run Id */
             parent_run_id?: string | null;
+            /** Session Name */
+            session_name?: string | null;
+            /** Subject Run Id */
+            subject_run_id?: string | null;
             /** Trial Index */
             trial_index: number;
         };

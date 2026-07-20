@@ -33,8 +33,10 @@ waddle ls        # terminal
   node backfills later with `waddle sync`. No env vars → purely local, exactly as before.
 - **Three-command CLI** — `waddle init`, `waddle ls`, `waddle sync`.
 - **Autoresearch observation** — attach a typed `ResearchTrial` to ordinary runs; the hosted
-  Research view derives a live candidate tree and minimize/maximize incumbent curve without
-  taking ownership of the optimizer.
+  Research view groups a long optimization session into campaign phases, then derives each
+  phase's live candidate tree and minimize/maximize incumbent curve. A direction-aware unified
+  trajectory and full-session tree make the whole search legible without Waddle taking ownership
+  of the optimizer.
 
 ## The hosted platform (this repo's second half)
 
@@ -60,9 +62,11 @@ Two capabilities ride the same org-Parquet substrate the SQL sandbox jails:
   out); every dataset is instantly a view in `waddle.sql` and in reports. The
   factory's operational exports are the first cross-pillar producer — capture
   supply joins training outcomes in one report.
-- **Research campaigns** (`/research`): candidate runs sharing one campaign are shown as a
-  branchable experiment tree beside candidate scores and a stepped best-so-far curve. Agents read
-  the same typed records through `waddle.runs.list(job_type="autoresearch", group_name=...)`.
+- **Research runs** (`/research`): one long optimization session contains campaign phases, and
+  each phase contains a branchable candidate tree beside candidate scores and a stepped
+  best-so-far curve. Evaluation trials may carry a typed `subject_run_id` edge to the candidate
+  they evaluate, including across campaign phases in the same session. Agents read the same typed records through
+  `waddle.runs.list(job_type="autoresearch", group_name=...)`.
 
 ## Quick Start
 
@@ -131,6 +135,7 @@ with waddle.init(
     project="edge-inference",
     name="static-buffers",
     research=ResearchTrial(
+        session_name="edge-inference-overnight",
         campaign="pi05-rtx5090-b1",
         trial_index=7,
         objective_name="latency/p99_ms",
@@ -143,9 +148,18 @@ with waddle.init(
     waddle.log(result.metrics, step=7)
 ```
 
-The root uses `parent_run_id=None`. Objective name and direction are immutable within a campaign;
-the hosted API rejects missing or cross-campaign parents. Remote outages do not interrupt the
-loop because the local DuckDB remains the durable spool.
+The session name joins related campaign phases into one top-level Research run. A phase is derived
+from campaign name, objective, and direction; changing objective or direction starts a distinct
+phase even when a historical controller reuses the campaign name. Session membership is immutable
+within that campaign family. A phase root may have no parent or may point back to the candidate
+that motivated the phase. Legacy research records without `session_name` are grouped by project,
+so an existing overnight history becomes one run without rewriting evidence. Remote outages do
+not interrupt the loop because the local DuckDB remains the durable spool.
+
+An evaluator uses `subject_run_id` to identify the run whose artifact or policy it measures. This
+edge may cross campaign phases inside the same research session. `parent_run_id` is the search-tree
+edge and may also cross a phase boundary when one experiment leads to a new objective. The hosted
+API rejects missing targets, self-links, and cross-project or cross-session links.
 
 ### `waddle.log(metrics, step=None)`
 

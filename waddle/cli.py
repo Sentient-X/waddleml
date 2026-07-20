@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -28,6 +29,48 @@ SYNC_ENVIRONMENT_KEYS = frozenset(
 
 class SyncSpoolError(Exception):
     """A local run cannot be reconstructed for hosted backfill."""
+
+
+def _research_backfill_order(rows: list[tuple]) -> list[tuple]:
+    """Return a deterministic dependency order for locally linked runs."""
+
+    known_ids = {str(row[0]) for row in rows}
+    dependencies: dict[str, set[str]] = {}
+    for row in rows:
+        run_id = str(row[0])
+        config = json.loads(row[6] or "{}")
+        if not isinstance(config, dict):
+            raise SyncSpoolError(f"run {run_id} config is not an object")
+        research = config.get("_waddle_research")
+        if research is None:
+            dependencies[run_id] = set()
+            continue
+        if not isinstance(research, dict):
+            raise SyncSpoolError(f"run {run_id} research record is not an object")
+        dependencies[run_id] = {
+            linked_id
+            for key in ("parent_run_id", "subject_run_id")
+            if isinstance(linked_id := research.get(key), str)
+            and linked_id in known_ids
+        }
+
+    pending = {str(row[0]): row for row in rows}
+    ordered: list[tuple] = []
+    registered: set[str] = set()
+    while pending:
+        ready = [
+            row for run_id, row in pending.items() if dependencies[run_id] <= registered
+        ]
+        if not ready:
+            cycle_ids = ", ".join(sorted(pending))
+            raise SyncSpoolError(f"research run links contain a cycle: {cycle_ids}")
+        ready.sort(key=lambda row: (row[4], str(row[0])))
+        for row in ready:
+            run_id = str(row[0])
+            ordered.append(row)
+            registered.add(run_id)
+            del pending[run_id]
+    return ordered
 
 
 # ---------- init ----------
@@ -119,11 +162,19 @@ def cmd_sync(a: argparse.Namespace) -> int:
         return 1
     db = WaddleDB(db_path)
     try:
-        rows = db.fetchall(
+        # DuckDB's physical scan order is not an API. The timestamp order is the stable
+        # fallback; dependency ordering below guarantees parent/subject targets exist first.
+        query = (
             "SELECT id, project, name, status, started_at, commit_sha, config,"
             " env, group_name, job_type FROM runs"
-            + (" WHERE id = $1" if a.run else ""),
-            [a.run] if a.run else None,
+            + (" WHERE id = $1" if a.run else "")
+            + " ORDER BY started_at, id"
+        )
+        rows = _research_backfill_order(
+            db.fetchall(
+                query,
+                [a.run] if a.run else None,
+            )
         )
         if not rows:
             print("no matching runs in the spool", file=sys.stderr)
@@ -140,10 +191,8 @@ def cmd_sync(a: argparse.Namespace) -> int:
             group_name,
             job_type,
         ) in rows:
-            import json as _json
-
-            config_dict = _json.loads(config_json or "{}")
-            environment_dict = _json.loads(environment_json or "{}")
+            config_dict = json.loads(config_json or "{}")
+            environment_dict = json.loads(environment_json or "{}")
             if not isinstance(config_dict, dict):
                 raise SyncSpoolError(f"run {run_id} config is not an object")
             if not isinstance(environment_dict, dict):

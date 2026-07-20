@@ -46,6 +46,9 @@ def _create_research_run(
     trial_index: int,
     parent_run_id: str | None = None,
     objective_name: str = "latency/p99_ms",
+    session_name: str | None = "overnight-sm120",
+    campaign: str = "m10-5090",
+    subject_run_id: str | None = None,
 ):
     return client.post(
         "/api/v1/runs",
@@ -54,7 +57,7 @@ def _create_research_run(
             "run_id": run_id,
             "project": "edge-inference",
             "name": f"trial-{trial_index}",
-            "group_name": "m10-5090",
+            "group_name": campaign,
             "job_type": "autoresearch",
             "research": {
                 "trial_index": trial_index,
@@ -63,7 +66,9 @@ def _create_research_run(
                 "hypothesis": "baseline"
                 if trial_index == 0
                 else "remove launch overhead",
+                "session_name": session_name,
                 "parent_run_id": parent_run_id,
+                "subject_run_id": subject_run_id,
             },
             "config": {"batch_size": 1},
             "started_at": "2026-07-19T00:00:00Z",
@@ -245,11 +250,13 @@ def test_research_trials_roundtrip_and_filter(
             "objective_name": "latency/p99_ms",
             "goal": "minimize",
             "hypothesis": "remove launch overhead",
+            "session_name": "overnight-sm120",
             "parent_run_id": root_id,
+            "subject_run_id": None,
         }
 
 
-def test_research_contract_rejects_mixed_objective_and_foreign_parent(
+def test_research_contract_supports_cross_phase_lineage_and_rejects_foreign_links(
     rig: tuple[TestClient, FakeMetricStore],
 ) -> None:
     client, _ = rig
@@ -268,14 +275,71 @@ def test_research_contract_rejects_mixed_objective_and_foreign_parent(
             parent_run_id=root_id,
             objective_name="throughput",
         )
-        assert mixed.status_code == 422
-        assert mixed.json()["detail"]["code"] == "invalid_research_trial"
+        assert mixed.status_code == 200
+
+        legacy_root = _create_research_run(
+            client,
+            uuid4().hex,
+            trial_index=0,
+            session_name=None,
+            campaign="legacy-campaign",
+        )
+        assert legacy_root.status_code == 200
+        explicit_project_session = _create_research_run(
+            client,
+            uuid4().hex,
+            trial_index=1,
+            session_name="edge-inference",
+            campaign="legacy-campaign",
+        )
+        assert explicit_project_session.status_code == 200
+
+        cross_phase_child = _create_research_run(
+            client,
+            uuid4().hex,
+            trial_index=0,
+            parent_run_id=root_id,
+            campaign="m10-quality",
+            objective_name="quality/success_rate",
+        )
+        assert cross_phase_child.status_code == 200
+
+        mixed_session = _create_research_run(
+            client,
+            uuid4().hex,
+            trial_index=1,
+            parent_run_id=root_id,
+            session_name="another-overnight-run",
+        )
+        assert mixed_session.status_code == 422
+        assert mixed_session.json()["detail"]["code"] == "invalid_research_trial"
+
+        evaluation = _create_research_run(
+            client,
+            uuid4().hex,
+            trial_index=0,
+            campaign="m10-quality",
+            objective_name="quality/success_rate",
+            subject_run_id=root_id,
+        )
+        assert evaluation.status_code == 200
 
         foreign_parent = _create_research_run(
             client, uuid4().hex, trial_index=2, parent_run_id=uuid4().hex
         )
         assert foreign_parent.status_code == 422
         assert foreign_parent.json()["detail"]["code"] == "invalid_research_trial"
+
+        foreign_subject = _create_research_run(
+            client,
+            uuid4().hex,
+            trial_index=1,
+            campaign="m10-quality",
+            objective_name="quality/success_rate",
+            subject_run_id=uuid4().hex,
+        )
+        assert foreign_subject.status_code == 422
+        assert foreign_subject.json()["detail"]["code"] == "invalid_research_trial"
 
 
 def test_gzip_body_and_sequence_gap_warning(

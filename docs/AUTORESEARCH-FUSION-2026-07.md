@@ -1,6 +1,7 @@
 # Source fusion brief: autoresearch observation
 
-Status: implemented and verified on 2026-07-19. This brief was written before production edits.
+Status: implemented and verified on 2026-07-19; the research-session hierarchy follow-up was
+implemented and verified on 2026-07-20 after observing the first overnight M10 campaign.
 
 ## Objective
 
@@ -42,27 +43,33 @@ Status: implemented and verified on 2026-07-19. This brief was written before pr
 
 | Object | Identity | Invariants | Construction and destruction |
 |---|---|---|---|
-| Optimization campaign | Weco external run id | One objective name and direction; append-only steps. | Created before the baseline; closed without deleting its tree. |
+| Optimization session | One controller invocation | Append-only campaign phases belong to one human-legible run. | Created before the first phase; retained with all phase evidence. |
+| Campaign phase | Campaign name plus objective and direction | One objective name and direction; append-only steps. | Derived from its candidates; retained without deleting its tree. |
 | Candidate node | Run id plus step/node id | Has one parent except the root; status, hypothesis/plan, source, and metrics describe the same evaluation. | Appended by the controller; never rewritten into a different candidate. |
 | Objective | Metric name plus minimize/maximize | Comparable finite values; direction is stable within a campaign. | Declared at campaign start. |
 | Incumbent | Derived candidate | Best valid objective among the prefix of evaluated nodes. | Recomputed; never stored as independent truth. |
 | Source snapshot | Candidate code or diff | The evaluated bytes match the node. | Captured before evaluation and retained for inspection. |
+| Evaluation edge | Evaluation run → subject run | Names the exact candidate measured; stays inside one project/session. | Appended with the evaluation and never retargeted. |
 
 ### Operations
 
 | Operation | Typed input -> output | Effect/failure | Cost |
 |---|---|---|---|
-| Start campaign | objective, direction, source -> campaign id | Establishes immutable comparison context; rejects malformed input. | One metadata write. |
+| Start session | session identity -> research run | Establishes the top-level history that related phases join. | One typed field on each candidate; no parallel store. |
+| Start campaign | session, objective, direction, source -> campaign id | Establishes immutable phase comparison context; rejects malformed input. | One metadata write. |
 | Record candidate | campaign, parent, hypothesis, source identity, metrics, state -> node | Appends one node; failed candidates remain visible. | One evaluation plus metadata/metric writes. |
 | Select incumbent | ordered valid nodes -> candidate | Applies min or max consistently. | Linear in visible nodes; derivable at query/UI time. |
 | Inspect branch | selected candidate -> parent/children and facts | Read-only projection. | Metadata query plus optional artifact fetch. |
+| Evaluate candidate | subject run, evaluator command -> evaluation run | Creates the run before execution, retains failure, and ingests scorecard/artifacts on success. | Evaluator cost plus ordinary Waddle writes. |
 
 ### Laws
 
 | Law or statistical property | Domain | Counterexample boundary | Test oracle |
 |---|---|---|---|
 | Incumbent monotonicity | Finite objective values under a fixed direction. | Objective/direction changes, invalid or missing results. | Prefix minima never rise; prefix maxima never fall. |
-| Rooted acyclic lineage | Candidates in one campaign. | Missing parent, cross-campaign parent, self-parent. | Boundary validation and fixture tree traversal. |
+| Rooted acyclic lineage | Candidates in one research session. | Missing parent, cross-session parent, self-parent. | Boundary validation and fixture tree traversal. |
+| Stable session membership | Candidates in one campaign. | A campaign changes session midway. | Create-run boundary rejects a mixed session. |
+| Evaluation identity | Evaluation and measured candidate. | Missing subject, self-subject, cross-project/session subject. | Typed `subject_run_id` boundary validation. |
 | Failure visibility | Every attempted candidate. | Process dies before its local run is created. | Failed/aborted runs remain in campaign results and cannot become incumbent. |
 | Evaluated-source identity | Candidate source and result. | Source changes during or after evaluation without a captured digest. | Git commit plus dirty-tree digest/artifact identity. |
 | Observation does not own selection | External controllers. | A UI or tracker mutates candidate code or keep/revert state. | No optimizer mutation routes in Waddle. |
@@ -82,12 +89,14 @@ Status: implemented and verified on 2026-07-19. This brief was written before pr
 
 | Source concept | Existing target concept | Relation | Pillar/owner | Decision and reason |
 |---|---|---|---|---|
-| External optimization run | `runs.group_name` | One campaign groups candidate runs. | Waddle / Autonomy support | adapt; no campaign table is needed |
+| External optimization session | `ResearchTrial.session_name` | Related campaign phases form one top-level Research run. | Waddle / Autonomy support | adapt; no session table is needed |
+| External optimization phase | `runs.group_name` + objective/direction | One phase groups comparable candidate runs while preserving historical group-name reuse. | Waddle / Autonomy support | adapt; no campaign table is needed |
 | Candidate step/node | Waddle run | A candidate gets full status, metrics, worker, git, log, and artifact semantics. | Waddle | adapt; finer provenance than hiding trials inside one run |
-| `parent_step` | Typed research parent run id | Parent connects candidates within a group. | Waddle | rederive; do not overload artifact lineage |
+| `parent_step` | Typed research parent run id | Parent connects candidates within a session, including across phase boundaries. | Waddle | rederive; do not overload artifact lineage |
 | Metric + maximize flag | Typed objective name + `ResearchGoal` | Stable campaign comparison contract. | Waddle | adapt |
 | Best-so-far series | Derived prefix min/max | Chart projection over completed candidate summaries. | Waddle console | rederive; storing it would duplicate truth |
 | Code snapshot | Existing commit, dirty-tree digest, and artifacts | Candidate source identity/detail. | Waddle | adapt; no code blob in Postgres |
+| Evaluated candidate | Typed research subject run id | Evaluation nodes link to the exact candidate across phases. | Waddle / Autonomy support | adapt; do not overload artifact lineage or parentage |
 | Weco optimizer/tree scheduler | M10 controller or auto-perfect agent | Proposes, evaluates, and keeps/reverts. | Autonomy | omit from Waddle; observation is the reusable seam |
 | Derive/instruct/review mutations | Goal steering and controller policy | Human/agent search control. | Autonomy | omit from this slice |
 | Hosted chat analysis pane | Existing run facts plus future agent report | Analysis is not authoritative experiment state. | Autonomy/Waddle reports | omit now |
@@ -97,16 +106,18 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
 
 ## Proposed normal form
 
-- Minimal independent objects: ordinary Waddle run; `ResearchTrial` record (campaign, trial
-  index, objective, direction, hypothesis, optional parent); existing scalar metrics and source
-  identity.
-- Derived objects/operations: campaign list, rooted tree, baseline, current incumbent, delta,
-  best run, progress curve, valid/failed counts.
+- Minimal independent objects: ordinary Waddle run; `ResearchTrial` record (session, campaign,
+  trial index, objective, direction, hypothesis, optional parent, optional evaluated subject);
+  existing scalar metrics and source identity.
+- Derived objects/operations: research-session list, ordered campaign phases, direction-adjusted
+  unified trajectory, full-session tree, per-phase rooted tree, baseline, current incumbent,
+  delta, best run, progress curve, valid/failed counts.
 - Boundary seams: one optional typed research record on `waddle.init`; the existing run-create
   API persists it; filtered run reads and MCP expose it; the console is read-only.
-- Laws made explicit: one objective/direction per group, parent in the same campaign, nonnegative
-  unique trial index by controller convention, finite objectives only, failed/aborted runs never
-  become incumbent.
+- Laws made explicit: one effective session per campaign-name family; objective/direction define
+  a phase; parent and evaluated-subject links stay in the same session; nonnegative unique trial
+  index by controller convention; finite objectives only; failed/aborted runs never become
+  incumbent.
 - Concepts and paths to delete: none. Existing run, metric, git, artifact, and sync paths are
   reused.
 - Intentional compatibility breaks: none. The new record is absent for ordinary runs and old
@@ -138,7 +149,8 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
 1. Characterization/golden tests: SDK round-trip of typed research facts, old-spool migration,
    create-run validation, and min/max incumbent fixtures.
 2. Smallest vertical slice: record research metadata on normal runs, sync it through the existing
-   create-run path, filter/read it through API and MCP, and render one compact Research page.
+   create-run path, filter/read it through API and MCP, and render a compact Research run index
+   plus session detail page.
 3. Replacement and deletion: none; reject any parallel campaign/node store introduced during
    implementation.
 4. Target integration checks: local SDK tests, server contract tests, OpenAPI regeneration,
@@ -148,8 +160,8 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
 
 | Metric | Upstream reported | Upstream reproduced | Fused | Tolerance | Verdict |
 |---|---:|---:|---:|---:|---|
-| Functional tree/incumbent behavior | Present in supplied Weco UI | Characterized visually | Exact typed parent tree, completed-only candidate points, and prefix incumbent rendered from an 8-trial minimize fixture | Exact fixture | pass |
-| Existing Waddle compatibility | n/a | Current tests are target baseline | 83 passed, 1 environment-dependent ClickHouse test skipped; console production build passed | No regression | pass |
+| Functional tree/incumbent behavior | Present in supplied Weco UI | Characterized visually | Typed session/phase/parent/subject tree, completed-only candidate points, per-phase prefix incumbents, and direction-adjusted unified trajectory | Exact fixture | pass |
+| Existing Waddle compatibility | n/a | Current tests are target baseline | 92 passed; OpenAPI regenerated; console typecheck and production build passed | No regression | pass |
 | Kernel performance | Weco shows kernel use cases, not this model/device result | Not attempted | Owned by Train M10 | M10 contract | out of scope |
 
 ## Reduction ledger
@@ -165,8 +177,9 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
 
 - Unverified claims: Weco's hosted service scalability, optimizer quality, and exact dashboard
   implementation are not reproduced and will not become Waddle claims.
-- Failed parity dimensions: live polling was type/build/visual checked but not timing-measured;
-  embedded code diff and chat analysis are explicitly informative rather than required.
+- Failed parity dimensions: live polling was type/build/desktop/mobile visually checked but not
+  timing-measured; embedded code diff and chat analysis are explicitly informative rather than
+  required.
 - External blockers: no kernel campaign should start until Train M10 freezes a real model artifact,
   golden corpus, and deterministic evaluator. DGX Spark access needs a user-provided SSH alias.
 - Follow-up decisions requiring user authority: remote Spark access and any later deployment of a

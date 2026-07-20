@@ -1148,6 +1148,31 @@
             ],
             "title": "Parent Run Id"
           },
+          "session_name": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Name"
+          },
+          "subject_run_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{32}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Run Id"
+          },
           "trial_index": {
             "minimum": 0.0,
             "title": "Trial Index",

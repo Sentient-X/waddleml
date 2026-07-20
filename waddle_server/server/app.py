@@ -266,18 +266,45 @@ def build_app(
             if body.research.parent_run_id == body.run_id:
                 err = ResearchContractError("a research trial cannot be its own parent")
                 raise _error(422, err, err.code)
+            if body.research.subject_run_id == body.run_id:
+                err = ResearchContractError("a research trial cannot evaluate itself")
+                raise _error(422, err, err.code)
             if body.research.parent_run_id is not None:
                 parent = await repo.get_run(c, pr.org_id, body.research.parent_run_id)
                 if (
                     parent is None
                     or parent.project_id != project.id
-                    or parent.group_name != body.group_name
                     or parent.job_type != RESEARCH_JOB_TYPE
                 ):
                     err = ResearchContractError(
-                        "parent_run_id must name an existing trial in the same project and campaign"
+                        "parent_run_id must name an existing research trial in the same project"
                     )
                     raise _error(422, err, err.code)
+                _, parent_research = _run_config(parent)
+                assert parent_research is not None
+                session_name = body.research.session_name or body.project
+                parent_session_name = parent_research.session_name or body.project
+                if parent_session_name != session_name:
+                    err = ResearchContractError(
+                        "parent_run_id must remain inside the research session"
+                    )
+                    raise _error(422, err, err.code)
+            if body.research.subject_run_id is not None:
+                subject = await repo.get_run(c, pr.org_id, body.research.subject_run_id)
+                if subject is None or subject.project_id != project.id:
+                    err = ResearchContractError(
+                        "subject_run_id must name an existing run in the same project"
+                    )
+                    raise _error(422, err, err.code)
+                _, subject_research = _run_config(subject)
+                if subject_research is not None:
+                    session_name = body.research.session_name or body.project
+                    subject_session_name = subject_research.session_name or body.project
+                    if subject_session_name != session_name:
+                        err = ResearchContractError(
+                            "subject_run_id must remain inside the research session"
+                        )
+                        raise _error(422, err, err.code)
             anchors = await repo.list_runs(
                 c,
                 pr.org_id,
@@ -290,12 +317,11 @@ def build_app(
             if anchors:
                 _, anchor = _run_config(anchors[0])
                 assert anchor is not None
-                if (
-                    anchor.objective_name != body.research.objective_name
-                    or anchor.goal is not body.research.goal
-                ):
+                session_name = body.research.session_name or body.project
+                anchor_session_name = anchor.session_name or body.project
+                if anchor_session_name != session_name:
                     err = ResearchContractError(
-                        "objective_name and goal must remain fixed within a research campaign"
+                        "session_name must remain fixed within a research campaign family"
                     )
                     raise _error(422, err, err.code)
             run_config[RESEARCH_CONFIG_KEY] = body.research.model_dump(mode="json")

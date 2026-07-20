@@ -21,6 +21,7 @@ from ._types import ResearchTrial, ResearchTrialError, WorkerInfo
 RESEARCH_CONFIG_KEY = "_waddle_research"
 RESEARCH_JOB_TYPE = "autoresearch"
 
+
 #: python logging levelno → the platform's four wire levels
 def _wire_level(levelno: int) -> str:
     if levelno >= logging.ERROR:
@@ -49,7 +50,9 @@ class _LogCaptureHandler(logging.Handler):
         self._guard.busy = True
         try:
             self._run.log_line(
-                record.getMessage(), level=_wire_level(record.levelno), source=record.name
+                record.getMessage(),
+                level=_wire_level(record.levelno),
+                source=record.name,
             )
         except Exception:
             pass
@@ -126,6 +129,10 @@ class Run:
                 "hypothesis": research.hypothesis,
                 "parent_run_id": research.parent_run_id,
             }
+            if research.session_name is not None:
+                research_dict["session_name"] = research.session_name
+            if research.subject_run_id is not None:
+                research_dict["subject_run_id"] = research.subject_run_id
             config_dict[RESEARCH_CONFIG_KEY] = research_dict
             group_name = research.campaign
             job_type = RESEARCH_JOB_TYPE

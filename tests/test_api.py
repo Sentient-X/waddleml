@@ -230,6 +230,7 @@ def test_research_trial_uses_normal_run_and_group(
             objective_name="latency/p99_ms",
             goal=ResearchGoal.MINIMIZE,
             hypothesis="native baseline",
+            session_name="overnight-sm120",
         ),
         system_metrics=False,
     )
@@ -246,7 +247,9 @@ def test_research_trial_uses_normal_run_and_group(
             objective_name="latency/p99_ms",
             goal=ResearchGoal.MINIMIZE,
             hypothesis="static buffers remove allocation overhead",
+            session_name="overnight-sm120",
             parent_run_id=root.id,
+            subject_run_id=root.id,
         ),
         system_metrics=False,
     )
@@ -267,6 +270,8 @@ def test_research_trial_uses_normal_run_and_group(
         "hypothesis": "static buffers remove allocation overhead",
         "objective_name": "latency/p99_ms",
         "parent_run_id": root.id,
+        "session_name": "overnight-sm120",
+        "subject_run_id": root.id,
         "trial_index": 1,
     }
 
@@ -284,12 +289,48 @@ def test_research_record_rejects_reserved_config_and_invalid_index(
             hypothesis="invalid",
         )
 
+    with pytest.raises(ResearchTrialError, match="session_name"):
+        ResearchTrial(
+            campaign="m10",
+            trial_index=0,
+            objective_name="latency_ms",
+            goal=ResearchGoal.MINIMIZE,
+            hypothesis="invalid",
+            session_name=" ",
+        )
+
+    with pytest.raises(ResearchTrialError, match="subject_run_id"):
+        ResearchTrial(
+            campaign="m10",
+            trial_index=0,
+            objective_name="latency_ms",
+            goal=ResearchGoal.MINIMIZE,
+            hypothesis="invalid",
+            subject_run_id=" ",
+        )
+
     with pytest.raises(ResearchTrialError, match="reserved"):
         waddle.init(
             db_path=str(tmp_path / "research.duckdb"),
             config={"_waddle_research": {}},
             system_metrics=False,
         )
+
+
+def test_research_session_preserves_legacy_positional_parent() -> None:
+    parent_run_id = "a" * 32
+    trial = ResearchTrial(
+        "m10",
+        1,
+        "latency_ms",
+        ResearchGoal.MINIMIZE,
+        "legacy positional call",
+        parent_run_id,
+    )
+
+    assert trial.parent_run_id == parent_run_id
+    assert trial.session_name is None
+    assert trial.subject_run_id is None
 
 
 def test_research_identity_is_immutable_on_resume(

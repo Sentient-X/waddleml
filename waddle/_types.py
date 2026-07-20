@@ -28,6 +28,12 @@ class ResearchTrial:
     goal: ResearchGoal
     hypothesis: str
     parent_run_id: Optional[str] = None  # none-ok: the campaign root has no parent
+    session_name: Optional[str] = (
+        None  # none-ok: legacy trials predate research sessions
+    )
+    subject_run_id: Optional[str] = (
+        None  # none-ok: only evaluation trials target another run
+    )
 
     def __post_init__(self) -> None:
         if not self.campaign.strip():
@@ -38,8 +44,12 @@ class ResearchTrial:
             raise ResearchTrialError("objective_name must not be empty")
         if not self.hypothesis.strip():
             raise ResearchTrialError("hypothesis must not be empty")
+        if self.session_name is not None and not self.session_name.strip():
+            raise ResearchTrialError("session_name must not be empty when present")
         if self.parent_run_id is not None and not self.parent_run_id.strip():
             raise ResearchTrialError("parent_run_id must not be empty when present")
+        if self.subject_run_id is not None and not self.subject_run_id.strip():
+            raise ResearchTrialError("subject_run_id must not be empty when present")
 
 
 @dataclass(frozen=True)

@@ -14,7 +14,7 @@ Core package resides in `waddle/` with a modular architecture:
 | `_schema.py` | DuckDB DDL (7 tables + the `evidence_*` dashboard views) |
 | `_git.py` | Git detection + auto-snapshot (optional, never required) |
 | `_sysmetrics.py` | `SystemMonitor` background thread (CPU/mem/GPU) |
-| `_types.py` | `RepoInfo`/`WorkerInfo` dataclasses |
+| `_types.py` | `RepoInfo`/`WorkerInfo` and typed autoresearch records |
 | `_sync.py` | `SyncEngine` — background upload of the DuckDB spool to the hosted platform (idempotent batches, persisted outbox, artifact uploads); active only when `WADDLE_API_URL`/`WADDLE_API_KEY` are set |
 | `cli.py` | CLI entry point: `init`, `ls`, `sync` |
 

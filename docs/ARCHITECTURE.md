@@ -10,12 +10,18 @@ Each process has an explicit `(run_id, rank, attempt)` identity. Aggregate metri
 written by rank zero while per-rank system/performance telemetry retains its origin. A retry
 increments `attempt`; it must never overwrite an earlier attempt.
 
-Autoresearch uses the same run grain rather than a parallel node store. One campaign is a
-`group_name`; every evaluated candidate is a run with `job_type=autoresearch` and one typed
-`ResearchTrial` record (trial index, objective/direction, hypothesis, optional parent run). This
+Autoresearch uses the same run grain rather than a parallel session, campaign, or node store. A
+typed `session_name` groups the phases of one long optimization run; one campaign phase is the
+combination of `group_name`, objective, and direction (historical controllers reused a group name
+while changing gates); every evaluated candidate is a run with `job_type=autoresearch` and one typed
+`ResearchTrial` record (session, trial index, objective/direction, hypothesis, optional parent
+run, and optional evaluated-subject run). `parent_run_id` is the search edge across the whole
+session; `subject_run_id` is a separate typed edge from an evaluation to the run it measures. Legacy
+records without an explicit session are projected under their project name. This
 means failures, workers, metrics, git identity, logs, artifacts, sync, and org isolation keep their
-existing semantics. The incumbent curve and experiment tree are read-time projections. Waddle
-never proposes code or decides whether a candidate wins; those remain controller responsibilities.
+existing semantics. The session index, direction-adjusted cross-phase trajectory, phase sequence,
+incumbent curves, and full experiment tree are read-time projections. Waddle never proposes code
+or decides whether a candidate wins; those remain controller responsibilities.
 
 The local DuckDB file is the supported initial deployment. Quack remote transport is planned
 behind the same writer API after its beta protocol stabilizes. It is not required for local
