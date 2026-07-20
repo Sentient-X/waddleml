@@ -314,6 +314,15 @@ def test_research_contract_supports_cross_phase_lineage_and_rejects_foreign_link
         assert mixed_session.status_code == 422
         assert mixed_session.json()["detail"]["code"] == "invalid_research_trial"
 
+        blank_session = _create_research_run(
+            client,
+            uuid4().hex,
+            trial_index=1,
+            session_name="   ",
+            campaign="blank-session",
+        )
+        assert blank_session.status_code == 422
+
         evaluation = _create_research_run(
             client,
             uuid4().hex,

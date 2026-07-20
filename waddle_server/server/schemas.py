@@ -29,7 +29,7 @@ class ResearchTrial(BaseModel):
     hypothesis: str = Field(min_length=1, max_length=16 * 1024)
     session_name: str | None = (
         Field(  # none-ok: legacy trials predate research sessions
-            default=None, min_length=1, max_length=256
+            default=None, min_length=1, max_length=256, pattern=r"\S"
         )
     )
     parent_run_id: str | None = Field(  # none-ok: the campaign root has no parent
