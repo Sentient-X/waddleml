@@ -117,7 +117,7 @@ async def runs_list(
 ) -> list[dict[str, Any]]:
     """Recent runs (newest first) with config, latest-metric summary, and typed
     research facts when present. state: running | completed | failed | aborted.
-    Use job_type='autoresearch' and optional group_name for candidate trees."""
+    Run type describes the work; use waddle.research.session for candidate trees."""
     params: dict[str, Any] = {"limit": limit, "offset": offset}
     if project:
         params["project"] = project

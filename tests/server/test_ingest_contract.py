@@ -56,6 +56,7 @@ def _create_research_run(
     parent_run_id: str | None = None,
     objective_name: str = "latency/p99_ms",
     goal: str = "minimize",
+    job_type: str = "autoresearch",
     session_name: str | None = "overnight-sm120",
     campaign: str = "m10-5090",
     subject_run_id: str | None = None,
@@ -68,7 +69,7 @@ def _create_research_run(
             "project": "edge-inference",
             "name": f"trial-{trial_index}",
             "group_name": campaign,
-            "job_type": "autoresearch",
+            "job_type": job_type,
             "research": {
                 "trial_index": trial_index,
                 "objective_name": objective_name,
@@ -243,17 +244,22 @@ def test_research_trials_roundtrip_and_filter(
         assert _create_research_run(client, root_id, trial_index=0).status_code == 200
         assert (
             _create_research_run(
-                client, child_id, trial_index=1, parent_run_id=root_id
+                client,
+                child_id,
+                trial_index=1,
+                parent_run_id=root_id,
+                job_type="evaluation",
             ).status_code
             == 200
         )
 
         runs = client.get(
-            "/api/v1/runs?job_type=autoresearch&group_name=m10-5090",
+            "/api/v1/runs?group_name=m10-5090",
             headers={"x-api-key": "key-a-reader"},
         ).json()
         assert {run["run_id"] for run in runs} == {root_id, child_id}
         child = next(run for run in runs if run["run_id"] == child_id)
+        assert child["job_type"] == "evaluation"
         assert child["config"] == {"batch_size": 1}
         assert child["research"] == {
             "trial_index": 1,
@@ -302,7 +308,13 @@ def test_run_facets_search_and_offset_are_server_backed(
         facets = client.get(
             "/api/v1/runs/facets", headers={"x-api-key": "key-a-reader"}
         ).json()
-        assert {"training", "evaluation", "benchmark"} <= set(facets["run_types"])
+        assert facets["run_types"] == [
+            "training",
+            "evaluation",
+            "benchmark",
+            "data",
+            "autoresearch",
+        ]
         assert {"policy-a", "kernel-lab"} <= set(facets["groups"])
 
         evaluations = client.get(

@@ -346,19 +346,23 @@ def test_typed_run_metadata_is_durable_and_research_identity_is_unambiguous(
             system_metrics=False,
         )
 
-    with pytest.raises(RunTypeError, match="requires run_type"):
-        waddle.init(
-            db_path=str(tmp_path / "invalid-research.duckdb"),
-            run_type=RunType.EVALUATION,
-            research=ResearchTrial(
-                campaign="m10",
-                trial_index=0,
-                objective_name="quality/success_rate",
-                goal=ResearchGoal.MAXIMIZE,
-                hypothesis="invalid mixed identity",
-            ),
-            system_metrics=False,
-        )
+    evaluation = waddle.init(
+        db_path=str(tmp_path / "evaluation-research.duckdb"),
+        run_type=RunType.EVALUATION,
+        research=ResearchTrial(
+            campaign="m10-quality",
+            trial_index=0,
+            objective_name="quality/success_rate",
+            goal=ResearchGoal.MAXIMIZE,
+            hypothesis="evaluate the optimized policy",
+        ),
+        system_metrics=False,
+    )
+    assert evaluation._db.fetchone(
+        "SELECT job_type, group_name FROM runs WHERE id = $1", [evaluation.id]
+    ) == ("evaluation", "m10-quality")
+    evaluation.finish()
+
 
 def test_research_proposal_and_outcome_are_durable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

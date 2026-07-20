@@ -134,8 +134,6 @@ class Run:
         effective_group_name = group_name
         job_type = run_type.value if run_type is not None else None
         if research is not None:
-            if run_type is not None and run_type is not RunType.AUTORESEARCH:
-                raise RunTypeError("a research trial requires run_type=AUTORESEARCH")
             if group_name is not None and group_name != research.campaign:
                 raise RunTypeError("a research trial's group_name must equal its campaign")
             research_dict = {
@@ -159,7 +157,10 @@ class Run:
                 )
             config_dict[RESEARCH_CONFIG_KEY] = research_dict
             effective_group_name = research.campaign
-            job_type = RESEARCH_JOB_TYPE
+            # Old clients used AUTORESEARCH as the job type. Keep that default
+            # readable, while explicit callers classify the actual work as
+            # training, evaluation, benchmark, or data.
+            job_type = job_type or RESEARCH_JOB_TYPE
         elif run_type is RunType.AUTORESEARCH:
             raise RunTypeError("run_type=AUTORESEARCH requires a research trial")
         config_json = json.dumps(config_dict, ensure_ascii=False, sort_keys=True)

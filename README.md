@@ -21,8 +21,10 @@ waddle ls        # terminal
 ## Features
 
 - **Wandb-style API** — `waddle.init()`, `waddle.log()`, `waddle.finish()` with auto-incrementing steps, context manager, and atexit handler.
-- **Typed run intent** — `RunType.TRAINING`, `EVALUATION`, `BENCHMARK`, `DATA`, and
-  `AUTORESEARCH` feed server-derived Runs filters; the UI does not keep a parallel category list.
+- **Typed run intent** — `RunType.TRAINING`, `EVALUATION`, `BENCHMARK`, and `DATA` describe
+  the work independently of whether it belongs to a research campaign. `AUTORESEARCH` remains a
+  readable legacy value. Runs filters always expose the closed vocabulary, even before a type has
+  rows.
 - **Works anywhere** — no git required. Use in Jupyter, Colab, Docker, or plain scripts. If you happen to be in a git repo, waddle auto-captures the commit as a bonus.
 - **DuckDB storage** — fast, single-file database in `.waddle/waddle.duckdb`. No server process needed.
 - **System metrics** — optional background thread captures CPU, memory, and GPU utilization.
@@ -42,6 +44,7 @@ waddle ls        # terminal
   staircase, so unlike objectives are never collapsed into an invented aggregate. A focused idea
   lineage and simple controller-authored worked/didn't-work lists make the whole
   search legible without Waddle fabricating analysis or taking ownership of the optimizer.
+  Research is orthogonal to run intent: an evaluation trial remains `RunType.EVALUATION`.
 
 ## The hosted platform (this repo's second half)
 
@@ -70,8 +73,8 @@ Two capabilities ride the same org-Parquet substrate the SQL sandbox jails:
 - **Research runs** (`/research`): one long optimization session contains campaign phases, and
   each phase contains a branchable candidate tree beside candidate scores and a stepped
   best-so-far curve. Evaluation trials may carry a typed `subject_run_id` edge to the candidate
-  they evaluate, including across campaign phases in the same session. Agents read the same typed records through
-  `waddle.runs.list(job_type="autoresearch", group_name=...)`.
+  they evaluate, including across campaign phases in the same session. Agents read the same typed
+  records through `waddle.research.session`; run-type filters answer a separate question.
 
 ## Quick Start
 
@@ -127,7 +130,7 @@ Start a new run. If inside a git repo, auto-captures the commit. If not, works f
 | `db_path` | `str` | `None` | Override DuckDB path |
 | `run_type` | `RunType` | `None` | Typed workload intent used by the hosted Runs filters |
 | `group_name` | `str` | `None` | Optional related-run group used by the hosted Runs filters |
-| `research` | `ResearchTrial` | `None` | Make this run one typed candidate in an external optimization campaign; this fixes the run type to `AUTORESEARCH` |
+| `research` | `ResearchTrial` | `None` | Make this run one typed candidate in an external optimization campaign, independently of its run type |
 
 Returns a `Run` that works as a context manager.
 
@@ -138,11 +141,12 @@ each evaluated candidate as a normal run:
 
 ```python
 import waddle
-from waddle import ResearchDecision, ResearchGoal, ResearchOutcome, ResearchTrial
+from waddle import ResearchDecision, ResearchGoal, ResearchOutcome, ResearchTrial, RunType
 
 run = waddle.init(
     project="edge-inference",
     name="static-buffers",
+    run_type=RunType.BENCHMARK,
     research=ResearchTrial(
         session_name="edge-inference-overnight",
         campaign="pi05-rtx5090-b1",
@@ -169,10 +173,10 @@ run.finish(
 ```
 
 The session name joins related campaign phases into one top-level Research run. A phase is derived
-from campaign name, objective, and direction; changing objective or direction starts a distinct
-phase even when a historical controller reuses the campaign name. Session membership is immutable
-within that campaign family. A phase root may have no parent or may point back to the candidate
-that motivated the phase. Legacy research records without `session_name` are grouped by project,
+from campaign name, objective, and direction. Objective path and direction are immutable within a
+campaign; a genuinely new measurement starts a new campaign in the same session. Session
+membership is immutable within that campaign family. A phase root may have no parent or may point
+back to the candidate that motivated the phase. Legacy research records without `session_name` are grouped by project,
 so an existing overnight history becomes one run without rewriting evidence. Remote outages do
 not interrupt the loop because the local DuckDB remains the durable spool.
 

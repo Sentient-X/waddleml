@@ -23,7 +23,7 @@ class RunType(StrEnum):
     EVALUATION = "evaluation"
     BENCHMARK = "benchmark"
     DATA = "data"
-    AUTORESEARCH = "autoresearch"
+    AUTORESEARCH = "autoresearch"  # legacy: research is now an orthogonal record
 
 
 class ResearchGoal(StrEnum):

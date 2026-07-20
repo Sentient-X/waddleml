@@ -167,21 +167,17 @@ def build_app(
     def _run_config(row: repo.RunRow) -> tuple[dict[str, object], ResearchTrial | None]:
         config = dict(row.config)
         raw = config.pop(RESEARCH_CONFIG_KEY, None)
-        if row.job_type != RESEARCH_JOB_TYPE.value:
-            if raw is not None:
+        if raw is None:
+            if row.job_type == RESEARCH_JOB_TYPE.value:
                 raise ResearchContractError(
-                    f"run {row.id!r} has reserved research config without autoresearch job type"
+                    f"legacy autoresearch run {row.id!r} has no research record"
                 )
             return config, None
-        if raw is None:
-            raise ResearchContractError(
-                f"autoresearch run {row.id!r} has no research record"
-            )
         try:
             return config, ResearchTrial.model_validate(raw)
         except pydantic.ValidationError as exc:
             raise ResearchContractError(
-                f"autoresearch run {row.id!r} has an invalid research record"
+                f"run {row.id!r} has an invalid research record"
             ) from exc
 
     def _run_out(row: repo.RunRow) -> RunOut:
@@ -271,9 +267,9 @@ def build_app(
                 )
                 raise _error(422, err, err.code)
         else:
-            if body.job_type != RESEARCH_JOB_TYPE:
+            if body.job_type is None:
                 err = ResearchContractError(
-                    "research records require job_type='autoresearch'"
+                    "research records require a concrete job_type"
                 )
                 raise _error(422, err, err.code)
             if body.group_name is None or not body.group_name.strip():
@@ -292,14 +288,17 @@ def build_app(
                 if (
                     parent is None
                     or parent.project_id != project.id
-                    or parent.job_type != RESEARCH_JOB_TYPE.value
                 ):
                     err = ResearchContractError(
                         "parent_run_id must name an existing research trial in the same project"
                     )
                     raise _error(422, err, err.code)
                 _, parent_research = _run_config(parent)
-                assert parent_research is not None
+                if parent_research is None:
+                    err = ResearchContractError(
+                        "parent_run_id must name an existing research trial in the same project"
+                    )
+                    raise _error(422, err, err.code)
                 session_name = body.research.session_name or body.project
                 parent_session_name = parent_research.session_name or body.project
                 if parent_session_name != session_name:
@@ -323,19 +322,14 @@ def build_app(
                             "subject_run_id must remain inside the research session"
                         )
                         raise _error(422, err, err.code)
-            anchors = await repo.list_runs(
+            anchor_row = await repo.get_research_campaign_anchor(
                 c,
                 pr.org_id,
                 project=body.project,
-                state=None,
-                group_name=body.group_name,
-                job_type=RESEARCH_JOB_TYPE,
-                query=None,
-                limit=1,
-                offset=0,
+                campaign=body.group_name,
             )
-            if anchors:
-                _, anchor = _run_config(anchors[0])
+            if anchor_row is not None:
+                _, anchor = _run_config(anchor_row)
                 assert anchor is not None
                 session_name = body.research.session_name or body.project
                 anchor_session_name = anchor.session_name or body.project
@@ -539,7 +533,7 @@ def build_app(
         _, research = _run_config(existing)
         if body.research_outcome is not None and research is None:
             err = ResearchContractError(
-                "research_outcome can only finish an autoresearch run"
+                "research_outcome can only finish a research run"
             )
             raise _error(422, err, err.code)
         if existing.research_outcome is not None:

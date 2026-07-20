@@ -274,19 +274,13 @@ async def list_runs(
 async def list_run_facets(conn: AsyncConnection[Any], org_id: UUID) -> RunFacets:
     async with conn.cursor(row_factory=class_row(FacetValueRow)) as cur:
         await cur.execute(
-            "SELECT DISTINCT job_type AS value FROM runs"
-            " WHERE org_id = %s AND job_type IS NOT NULL ORDER BY value",
-            (org_id,),
-        )
-        run_type_rows = await cur.fetchall()
-        await cur.execute(
             "SELECT DISTINCT group_name AS value FROM runs"
             " WHERE org_id = %s AND group_name IS NOT NULL ORDER BY value",
             (org_id,),
         )
         group_rows = await cur.fetchall()
     return RunFacets(
-        run_types=tuple(RunType(row.value) for row in run_type_rows),
+        run_types=tuple(RunType),
         groups=tuple(row.value for row in group_rows),
     )
 
@@ -302,6 +296,29 @@ async def list_workers(
             (org_id, run_id),
         )
         return await cur.fetchall()
+
+
+async def get_research_campaign_anchor(
+    conn: AsyncConnection[Any],
+    org_id: UUID,
+    *,
+    project: str,
+    campaign: str,
+) -> RunRow | None:
+    async with conn.cursor(row_factory=class_row(RunRow)) as cur:
+        await cur.execute(
+            f"""
+            SELECT {_RUN_COLUMNS} FROM runs r JOIN projects p ON p.id = r.project_id
+            WHERE r.org_id = %(org)s
+              AND p.name = %(project)s
+              AND r.group_name = %(campaign)s
+              AND r.config ? '_waddle_research'
+            ORDER BY r.created_at DESC
+            LIMIT 1
+            """,
+            {"org": org_id, "project": project, "campaign": campaign},
+        )
+        return await cur.fetchone()
 
 
 async def list_research_sessions(
@@ -323,7 +340,7 @@ async def list_research_sessions(
                    min(r.started_at) AS started_at,
                    max(COALESCE(r.heartbeat_at, r.finished_at, r.started_at)) AS updated_at
             FROM runs r JOIN projects p ON p.id = r.project_id
-            WHERE r.org_id = %s AND r.job_type = 'autoresearch'
+            WHERE r.org_id = %s AND r.config ? '_waddle_research'
             GROUP BY p.name,
                      COALESCE(r.config -> '_waddle_research' ->> 'session_name', p.name)
             ORDER BY updated_at DESC
@@ -347,7 +364,7 @@ async def list_research_session_runs(
             f"""
             SELECT {_RUN_COLUMNS} FROM runs r JOIN projects p ON p.id = r.project_id
             WHERE r.org_id = %(org)s
-              AND r.job_type = 'autoresearch'
+              AND r.config ? '_waddle_research'
               AND p.name = %(project)s
               AND COALESCE(
                     r.config -> '_waddle_research' ->> 'session_name', p.name
