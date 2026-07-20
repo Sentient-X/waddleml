@@ -69,6 +69,20 @@ class FakeServer:
                     self.end_headers()
                     self.wfile.write(reply)
                     return
+                if self.path == "/api/v1/runs":
+                    run_id = json.loads(body)["run_id"]
+                    reply = json.dumps(
+                        {
+                            "run_id": run_id,
+                            "project": "proj",
+                            "org_slug": "dev",
+                            "url": f"/runs/{run_id}",
+                        }
+                    ).encode()
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(reply)
+                    return
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b"{}")
@@ -156,6 +170,21 @@ def test_happy_path_delivers_all_points(tmp_path, server):
     before = len(server.requests)
     engine.drain_once()
     assert len(server.requests) == before
+    db.close()
+
+
+def test_registration_announces_the_run_url(tmp_path, server, capsys):
+    """The server's RunRef.url (console path relative to its origin) is
+    resolved against the API URL and printed once."""
+    db = WaddleDB(str(tmp_path / "w.duckdb"))
+    run_id = "d" * 32
+    _spool_metrics(db, run_id, 1)
+    engine = _engine(db, server, run_id)
+    engine.drain_once()
+    engine.drain_once()  # already registered — no second line
+
+    err = capsys.readouterr().err
+    assert err.count(f"waddle: run 'run' → {server.url}/runs/{run_id}") == 1
     db.close()
 
 

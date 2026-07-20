@@ -27,6 +27,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import sys
 import threading
 import time
 import urllib.error
@@ -242,31 +243,47 @@ class SyncEngine:
         if self._run_registered:
             return
         rank, local_rank, world_size, node_id, attempt = self._worker
-        self._post_json(
-            "/api/v1/runs",
-            {
-                "run_id": self._run_id,
-                "project": self._project,
-                "name": self._name,
-                "group_name": self._group_name,
-                "job_type": self._job_type,
-                "research": self._research_dict,
-                "config": self._config_dict,
-                "commit_sha": self._commit_sha,
-                "environment": self._environment,
-                "started_at": _iso(self._started_at),
-                "resume": self._resume,
-                "worker": {
-                    "rank": rank,
-                    "local_rank": local_rank,
-                    "world_size": world_size,
-                    "node_id": node_id,
-                    "attempt": attempt,
-                    "writer_id": self._writer_id,
-                },
+        registration = {
+            "run_id": self._run_id,
+            "project": self._project,
+            "name": self._name,
+            "group_name": self._group_name,
+            "job_type": self._job_type,
+            "research": self._research_dict,
+            "config": self._config_dict,
+            "commit_sha": self._commit_sha,
+            "environment": self._environment,
+            "started_at": _iso(self._started_at),
+            "resume": self._resume,
+            "worker": {
+                "rank": rank,
+                "local_rank": local_rank,
+                "world_size": world_size,
+                "node_id": node_id,
+                "attempt": attempt,
+                "writer_id": self._writer_id,
             },
+        }
+        registered = self._request_json(
+            "POST",
+            "/api/v1/runs",
+            body=json.dumps(registration, ensure_ascii=False).encode(),
+            headers={"content-type": "application/json"},
         )
         self._run_registered = True
+        self._announce_run_url(registered.get("url"))
+
+    def _announce_run_url(self, url: object) -> None:
+        """One stderr line pointing at the hosted run page — the server
+        advertises the console path relative to its own origin (`RunRef.url`).
+        Cosmetic by contract: never raises into the sync path."""
+        if not isinstance(url, str) or not url:
+            return
+        try:
+            absolute = url if "://" in url else self._config.api_url + url
+            print(f"waddle: run '{self._name}' → {absolute}", file=sys.stderr)
+        except Exception:
+            pass
 
     def _drain(self, deadline: Optional[float]) -> None:
         """Resend unacked outbox batches, then turn new spool rows into batches."""
