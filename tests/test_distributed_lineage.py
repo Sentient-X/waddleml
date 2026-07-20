@@ -90,3 +90,36 @@ def test_existing_database_is_migrated_in_place(tmp_path):
     assert "lineage" in run_columns
     assert {"group_name", "job_type"} <= run_columns
     assert {"rank", "node_id", "attempt"} <= metric_columns
+
+
+def test_metric_latest_view_dedups_attempts_and_spans_extremes(tmp_path, monkeypatch):
+    """evidence_run_metric_latest: per step the latest attempt wins; `value` is
+    the last step's value; min/max span the deduplicated stream."""
+    monkeypatch.chdir(tmp_path)
+    db_path = tmp_path / "runs.duckdb"
+
+    run = waddle.init(
+        project="latest", db_path=str(db_path), run_id="run-1", system_metrics=False
+    )
+    for step, value in enumerate([1.0, 0.8, 0.6, 0.4]):
+        run.log({"loss": value}, step=step)
+    run.finish()
+
+    # Resume from step 2's checkpoint: attempt 1 rewrites steps 2-3.
+    resumed = waddle.init(
+        project="latest",
+        db_path=str(db_path),
+        run_id="run-1",
+        resume=True,
+        system_metrics=False,
+    )
+    resumed.log({"loss": 9.0}, step=2)
+    resumed.log({"loss": 0.2}, step=3)
+    resumed.finish()
+
+    conn = duckdb.connect(str(db_path))
+    row = conn.execute(
+        "SELECT value, step, value_min, value_max FROM evidence_run_metric_latest"
+        " WHERE run_id = 'run-1' AND key = 'loss'"
+    ).fetchone()
+    assert row == (0.2, 3, 0.2, 9.0)

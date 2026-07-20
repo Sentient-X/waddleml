@@ -150,6 +150,9 @@ Pure semantics fusion; no performance dimension. Required evidence is the test s
   irrelevant to the adopted laws.
 - Known pre-existing gap, out of scope: `waddle sync` (CLI backfill) does not backfill
   artifacts at all — live sync only. Applies equally to both relations.
-- Deferred candidates (each a separate diff with its own consumer case): run-URL terminal
-  header on sync-enabled init; min/max columns on `evidence_run_metric_latest` +
-  `/query/latest`; SDK alias verb once something reads aliases.
+- Follow-ups landed as their own diffs (2026-07-20): the sync engine prints the hosted run
+  page on registration (`RunRef.url` finally consumed); min/max over the attempt-deduplicated
+  stream on `evidence_run_metric_latest` and `/query/latest` (wandb's summary min/max as
+  read-time projections, no client-side aggregation config — the `latest` query also stopped
+  letting a resumed attempt's earlier step pose as the latest value). Still deferred: SDK
+  alias verb once something reads aliases.

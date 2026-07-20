@@ -95,6 +95,11 @@ async def _exercise() -> None:
 
         latest = await store.latest(ORG, run_ids=[run_id])
         assert latest[0].step == 1999
+        # Latest is the value AT the last step (not the last attempt's value at
+        # an earlier rewritten step); the rewrite's 42.0 shows up in the max.
+        assert latest[0].value == pytest.approx(1.0 / 2000)
+        assert latest[0].value_max == 42.0
+        assert latest[0].value_min == pytest.approx(1.0 / 2000)
 
         # Foreign org: nothing.
         assert await store.series(

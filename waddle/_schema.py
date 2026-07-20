@@ -265,10 +265,17 @@ FROM runs r
 LEFT JOIN latest l ON l.run_id = r.id
 LEFT JOIN worker w ON w.run_id = r.id;
 
--- Latest value per (run, key) — powers KPI tiles and the run comparison table.
+-- Latest value per (run, key) plus min/max over the attempt-deduplicated
+-- stream (per step the latest attempt wins, mirroring the hosted query law) —
+-- powers KPI tiles, the run comparison table, and direction-free "best" reads.
 CREATE OR REPLACE VIEW evidence_run_metric_latest AS
-SELECT run_id, key, arg_max(value, step) AS value, max(step) AS step
-FROM metrics GROUP BY run_id, key;
+WITH dedup AS (
+    SELECT run_id, key, step, arg_max(value, attempt) AS value
+    FROM metrics GROUP BY run_id, key, step
+)
+SELECT run_id, key, arg_max(value, step) AS value, max(step) AS step,
+       min(value) AS value_min, max(value) AS value_max
+FROM dedup GROUP BY run_id, key;
 
 -- Metric keys grouped into the three panels the dashboard renders separately.
 CREATE OR REPLACE VIEW evidence_metric_keys AS

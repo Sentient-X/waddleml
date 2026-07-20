@@ -164,18 +164,31 @@ class FakeMetricStore(MetricStore):
         )
 
     async def latest(self, org_id: UUID, *, run_ids: list[str]) -> list[LatestMetric]:
-        best: dict[tuple[str, str], tuple[int, int, float, datetime]] = {}
+        # Same law as the real store: per step the latest attempt wins, the
+        # last step's value is "latest", min/max span the deduplicated stream.
+        per_step: dict[tuple[str, str, int], tuple[int, float, datetime]] = {}
         for row in self.metrics:
             (org, _proj, run, name, step, ts, value, _rank, _node, attempt, *_rest) = row
             if org != org_id or run not in run_ids:
                 continue
-            key = (str(run), str(name))
-            candidate = (int(str(attempt)), int(str(step)), float(str(value)), ts)
-            if key not in best or candidate[:2] >= best[key][:2]:
-                best[key] = candidate  # type: ignore[assignment]
+            key = (str(run), str(name), int(str(step)))
+            current = per_step.get(key)
+            if current is None or int(str(attempt)) >= current[0]:
+                per_step[key] = (int(str(attempt)), float(str(value)), ts)  # type: ignore[arg-type]
+        series: dict[tuple[str, str], list[tuple[int, float, datetime]]] = {}
+        for (run, name, step), (_a, value, ts) in per_step.items():
+            series.setdefault((run, name), []).append((step, value, ts))
         return [
-            LatestMetric(run_id=run, metric_name=name, value=value, step=step, ts=ts)
-            for (run, name), (_a, step, value, ts) in sorted(best.items())
+            LatestMetric(
+                run_id=run,
+                metric_name=name,
+                value=max(points)[1],
+                step=max(points)[0],
+                ts=max(ts for _s, _v, ts in points),
+                value_min=min(v for _s, v, _t in points),
+                value_max=max(v for _s, v, _t in points),
+            )
+            for (run, name), points in sorted(series.items())
         ]
 
     async def logs_tail(

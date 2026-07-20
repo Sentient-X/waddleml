@@ -121,6 +121,8 @@ class LatestMetric:
     value: float
     step: int
     ts: datetime
+    value_min: float
+    value_max: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,13 +250,23 @@ class MetricStore:
         ]
 
     async def latest(self, org_id: UUID, *, run_ids: list[str]) -> list[LatestMetric]:
+        """Per (run, metric): the value at the last step plus the min/max over
+        the whole attempt-deduplicated stream (per step the latest attempt
+        wins, same law as ``series`` — so a resume's rewritten early steps can
+        neither pose as the latest value nor pollute the extremes)."""
         result = await self.client.query(
             """
             SELECT run_id, metric_name,
-                   argMax(value, (attempt, step, ts)) AS last_value,
-                   max(step) AS last_step, max(ts) AS last_ts
-            FROM metric_points
-            WHERE org_id = {org:UUID} AND run_id IN {runs:Array(String)}
+                   argMax(v, step) AS last_value,
+                   max(step) AS last_step, max(latest_ts) AS last_ts,
+                   min(v) AS value_min, max(v) AS value_max
+            FROM (
+                SELECT run_id, metric_name, step,
+                       argMax(value, (attempt, ts)) AS v, max(ts) AS latest_ts
+                FROM metric_points
+                WHERE org_id = {org:UUID} AND run_id IN {runs:Array(String)}
+                GROUP BY run_id, metric_name, step
+            )
             GROUP BY run_id, metric_name
             ORDER BY run_id, metric_name
             """,
@@ -268,6 +280,8 @@ class MetricStore:
                 value=float(row[2]),
                 step=int(row[3]),
                 ts=row[4],
+                value_min=float(row[5]),
+                value_max=float(row[6]),
             )
             for row in result.result_rows
         ]

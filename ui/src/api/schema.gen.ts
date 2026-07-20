@@ -675,6 +675,10 @@ export interface components {
             ts: string;
             /** Value */
             value: number;
+            /** Value Max */
+            value_max: number;
+            /** Value Min */
+            value_min: number;
         };
         /** LogLineOut */
         LogLineOut: {

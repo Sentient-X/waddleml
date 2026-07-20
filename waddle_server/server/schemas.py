@@ -295,6 +295,9 @@ class LatestMetricOut(BaseModel):
     value: float
     step: int
     ts: datetime
+    # Extremes over the attempt-deduplicated stream — direction-free "best".
+    value_min: float
+    value_max: float
 
 
 class LogLineOut(BaseModel):

@@ -760,6 +760,8 @@ def build_app(
                 value=r.value,
                 step=r.step,
                 ts=r.ts,
+                value_min=r.value_min,
+                value_max=r.value_max,
             )
             for r in rows
         ]

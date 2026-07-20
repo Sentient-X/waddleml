@@ -506,6 +506,14 @@
           "value": {
             "title": "Value",
             "type": "number"
+          },
+          "value_max": {
+            "title": "Value Max",
+            "type": "number"
+          },
+          "value_min": {
+            "title": "Value Min",
+            "type": "number"
           }
         },
         "required": [
@@ -513,7 +521,9 @@
           "metric_name",
           "value",
           "step",
-          "ts"
+          "ts",
+          "value_min",
+          "value_max"
         ],
         "title": "LatestMetricOut",
         "type": "object"

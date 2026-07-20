@@ -7,6 +7,7 @@ import json
 import time
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from .conftest import FakeMetricStore, requires_dev_postgres
@@ -604,3 +605,6 @@ def test_query_series_and_logs(rig: tuple[TestClient, FakeMetricStore]) -> None:
             json={"run_ids": [run_id]},
         ).json()
         assert latest[0]["step"] == 49
+        assert latest[0]["value"] == pytest.approx(1.0 / 50)
+        assert latest[0]["value_min"] == pytest.approx(1.0 / 50)
+        assert latest[0]["value_max"] == pytest.approx(1.0)
