@@ -13,17 +13,6 @@ from psycopg import AsyncConnection
 from psycopg.rows import class_row
 
 
-class ArtifactConflictError(Exception):
-    """A version commit collided (same digest already versioned)."""
-
-    def __init__(self, collection: str, digest: str, existing_version: int) -> None:
-        super().__init__(
-            f"collection {collection!r} already holds digest {digest[:12]}… "
-            f"as v{existing_version}"
-        )
-        self.existing_version = existing_version
-
-
 @dataclass(frozen=True, slots=True)
 class CollectionRow:
     id: UUID
@@ -56,6 +45,15 @@ class FileRow:
     r2_key: str
     size_bytes: int
     media_type: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CommitOutcome:
+    """One committed version plus whether this commit minted it (content
+    identity: an identical digest reuses the existing version)."""
+
+    version: VersionRow
+    created: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,19 +103,25 @@ async def commit_version(
     manifest: dict[str, object],
     created_by_run_id: str | None,
     files: list[tuple[str, str, str, int, str | None]],
-) -> VersionRow:
+) -> CommitOutcome:
     """Atomically mint the next version number and record its file manifest.
-    An identical digest in the collection is a conflict carrying the existing
-    version (the client treats it as already-uploaded)."""
-    existing = await (
-        await conn.execute(
-            "SELECT version_number FROM artifact_versions"
-            " WHERE collection_id = %s AND digest = %s",
-            (collection.id, digest),
+    Content identity: a collection holds exactly one version per manifest
+    digest — committing identical content returns the existing version so the
+    caller can still attach its lineage edge."""
+    async with conn.cursor(row_factory=class_row(VersionRow)) as cur:
+        await cur.execute(
+            """
+            SELECT v.id, v.org_id, v.collection_id, %(name)s AS collection_name,
+                   v.version_number, v.digest, v.metadata, v.manifest,
+                   v.created_by_run_id, v.created_at
+            FROM artifact_versions v
+            WHERE v.collection_id = %(coll)s AND v.digest = %(digest)s
+            """,
+            {"name": collection.name, "coll": collection.id, "digest": digest},
         )
-    ).fetchone()
+        existing = await cur.fetchone()
     if existing is not None:
-        raise ArtifactConflictError(collection.name, digest, int(existing[0]))
+        return CommitOutcome(version=existing, created=False)
     version_id = uuid4()
     async with conn.cursor(row_factory=class_row(VersionRow)) as cur:
         await cur.execute(
@@ -158,7 +162,7 @@ async def commit_version(
             " r2_key, size_bytes, media_type) VALUES (%s, %s, %s, %s, %s, %s)",
             (version_id, logical_path, blob_sha256, r2_key, size_bytes, media_type),
         )
-    return version
+    return CommitOutcome(version=version, created=True)
 
 
 async def get_version(

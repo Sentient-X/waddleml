@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 from ._db import WaddleDB
 from ._sync import SyncConfig, SyncEngine
 from ._types import (
+    ArtifactRelation,
     ResearchOutcome,
     ResearchTrial,
     ResearchTrialError,
@@ -395,6 +396,29 @@ class Run:
         kind: str = "file",
         inline: bool = False,
     ) -> str:
+        """Record one artifact this run produced (an output lineage edge)."""
+        return self._record_artifact(name, path, kind, inline, ArtifactRelation.OUTPUT)
+
+    def use_artifact(self, name: str, path: str, kind: str = "file") -> str:
+        """Record one artifact this run consumed (an input lineage edge).
+
+        Same content addressing as ``log_artifact``: the file is hashed, and on
+        the platform the edge attaches to the artifact version that already
+        holds this content — consuming never mints a new version or claims
+        provenance.
+        """
+        return self._record_artifact(
+            name, path, kind, inline=False, relation=ArtifactRelation.INPUT
+        )
+
+    def _record_artifact(
+        self,
+        name: str,
+        path: Optional[str],
+        kind: str,
+        inline: bool,
+        relation: ArtifactRelation,
+    ) -> str:
         aid = uuid.uuid4().hex
         created = time.time()
         uri = None
@@ -412,12 +436,14 @@ class Run:
         else:
             sha_hex = hashlib.sha256(b"").hexdigest()
         self._db.execute(
-            """INSERT INTO artifacts (id, run_id, name, kind, created_at, uri, sha256, size_bytes, inline_bytes)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-            [aid, self.id, name, kind, created, uri, sha_hex, size, blob],
+            """INSERT INTO artifacts (id, run_id, name, kind, relation, created_at, uri, sha256, size_bytes, inline_bytes)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+            [aid, self.id, name, kind, relation.value, created, uri, sha_hex, size, blob],
         )
         if self._sync is not None and path and size is not None:
-            self._sync.upload_artifact(name, os.path.abspath(path), kind, sha_hex, size)
+            self._sync.upload_artifact(
+                name, os.path.abspath(path), kind, sha_hex, size, relation
+            )
         return aid
 
     # ---- lifecycle ----

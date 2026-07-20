@@ -207,11 +207,29 @@ def test_log_artifact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     db = run._db
     row = db.fetchone(
-        "SELECT name, kind, sha256, size_bytes FROM artifacts WHERE id = $1", [aid]
+        "SELECT name, kind, size_bytes, relation FROM artifacts WHERE id = $1",
+        [aid],
     )
-    assert row[0] == "model.pt"
-    assert row[1] == "model"
-    assert row[3] == len(b"model weights")
+    assert row == ("model.pt", "model", len(b"model weights"), "output")
+
+
+def test_use_artifact_records_input_edge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    no_git = tmp_path / "nogit"
+    no_git.mkdir()
+    monkeypatch.chdir(no_git)
+    checkpoint = no_git / "base.safetensors"
+    checkpoint.write_bytes(b"base weights")
+
+    run = waddle.init(project="art", system_metrics=False)
+    aid = waddle.use_artifact("base.safetensors", str(checkpoint), kind="model")
+    waddle.finish()
+
+    row = run._db.fetchone(
+        "SELECT name, kind, relation, size_bytes FROM artifacts WHERE id = $1", [aid]
+    )
+    assert row == ("base.safetensors", "model", "input", len(b"base weights"))
 
 
 def test_log_without_init_raises():

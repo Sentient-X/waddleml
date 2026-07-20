@@ -24,6 +24,14 @@ class ResearchDecision(str, Enum):
     INCONCLUSIVE = "inconclusive"
 
 
+class ArtifactRelation(str, Enum):
+    """Direction of one run↔artifact lineage edge — the wire vocabulary shared
+    with the platform (`log_artifact` produces, `use_artifact` consumes)."""
+
+    OUTPUT = "output"
+    INPUT = "input"
+
+
 class RunType(str, Enum):
     """Stable intent of one run, used for browsing and retention policy."""
 

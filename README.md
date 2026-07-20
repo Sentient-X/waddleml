@@ -21,6 +21,9 @@ waddle ls        # terminal
 ## Features
 
 - **Wandb-style API** — `waddle.init()`, `waddle.log()`, `waddle.finish()` with auto-incrementing steps, context manager, and atexit handler.
+- **Artifact lineage** — `log_artifact` records what a run produced, `use_artifact` what it
+  consumed; hosted, both edges land in one content-addressed run↔artifact graph
+  (`docs/WANDB-FUSION-2026-07.md`).
 - **Typed run intent** — `RunType.TRAINING`, `EVALUATION`, `BENCHMARK`, and `DATA` describe
   the work independently of whether it belongs to a research campaign. `AUTORESEARCH` remains a
   readable legacy value. Runs filters always expose the closed vocabulary, even before a type has
@@ -214,7 +217,22 @@ Log individual parameters or tags after init.
 
 ### `waddle.log_artifact(name, path=None, kind="file", inline=False)`
 
-Log an output file. If `path` is given, records its location (and optionally stores its contents in DuckDB when `inline=True`).
+Log an output file (an **output** lineage edge). If `path` is given, records its location (and optionally stores its contents in DuckDB when `inline=True`).
+
+### `waddle.use_artifact(name, path, kind="file")`
+
+Record a file this run **consumed** (an **input** lineage edge) — a base checkpoint, a dataset
+snapshot. Content addressing is the same as `log_artifact`: on the hosted platform the edge
+attaches to the artifact version that already holds those bytes (committing identical content
+never mints a new version and never claims provenance), so producer and consumer runs join into
+one lineage graph, readable via `GET /api/v1/runs/{id}/lineage` and the `waddle.runs.lineage`
+MCP tool.
+
+```python
+waddle.use_artifact("pi05-base", "checkpoints/pi05_base.safetensors", kind="model")
+...train...
+waddle.log_artifact("pi05-lap", "checkpoints/pi05_lap.safetensors", kind="model")
+```
 
 ### `waddle.finish()`
 

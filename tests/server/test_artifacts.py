@@ -73,14 +73,51 @@ def test_upload_commit_lineage_roundtrip(
         again = _open_session(client, "key-a-writer").json()
         assert again["targets"][0]["url"] is None
 
-        # A second commit of identical content is a typed conflict.
-        conflict = client.post(
+        # Content identity: committing identical content from another run
+        # reuses the version (200, still v0), keeps the producer's provenance,
+        # and still records the second run's output edge.
+        run_b = uuid4().hex
+        _create_run(client, "key-a-writer", run_b)
+        reused = client.post(
             f"/api/v1/artifacts/upload-sessions/{again['session_id']}/commit",
             headers={"x-api-key": "key-a-writer"},
-            json={"collection": "policy", "project": "demo", "kind": "model"},
+            json={"collection": "policy", "project": "demo", "kind": "model", "run_id": run_b},
         )
-        assert conflict.status_code == 409
-        assert conflict.json()["detail"]["code"] == "artifact_digest_exists"
+        assert reused.status_code == 200
+        assert reused.json()["id"] == version["id"] and reused.json()["version"] == 0
+        assert reused.json()["created_by_run_id"] == run_id
+        b_lineage = client.get(
+            f"/api/v1/runs/{run_b}/lineage", headers={"x-api-key": "key-a-reader"}
+        ).json()
+        assert [(e["relation"], e["artifact_id"]) for e in b_lineage] == [
+            ("output", version["id"])
+        ]
+
+        # An input edge (use_artifact): the consuming run's commit records
+        # relation=input against the same version and never claims created_by.
+        run_c = uuid4().hex
+        _create_run(client, "key-a-writer", run_c)
+        use_session = _open_session(client, "key-a-writer").json()
+        used = client.post(
+            f"/api/v1/artifacts/upload-sessions/{use_session['session_id']}/commit",
+            headers={"x-api-key": "key-a-writer"},
+            json={
+                "collection": "policy",
+                "project": "demo",
+                "kind": "model",
+                "run_id": run_c,
+                "relation": "input",
+            },
+        )
+        assert used.status_code == 200
+        assert used.json()["id"] == version["id"]
+        assert used.json()["created_by_run_id"] == run_id
+        c_lineage = client.get(
+            f"/api/v1/runs/{run_c}/lineage", headers={"x-api-key": "key-a-reader"}
+        ).json()
+        assert [(e["relation"], e["artifact_id"]) for e in c_lineage] == [
+            ("input", version["id"])
+        ]
 
         # Aliases move; the artifact resolves for readers.
         assert (

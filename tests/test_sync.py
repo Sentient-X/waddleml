@@ -26,6 +26,7 @@ class FakeServer:
         self.requests = []  # (path, decompressed_body_bytes)
         self.auth_headers = []
         self.batch_digests = {}  # batch_id -> sha256 of body
+        self.blobs = {}  # sha256 -> uploaded bytes
         self.fail_batches = False
         fake = self
 
@@ -45,9 +46,38 @@ class FakeServer:
                     fake.batch_digests.setdefault(
                         payload["batch_id"], hashlib.sha256(body).hexdigest()
                     )
+                if self.path == "/api/v1/artifacts/upload-sessions":
+                    declared = json.loads(body)["files"][0]
+                    sha = declared["sha256"]
+                    reply = json.dumps(
+                        {
+                            "session_id": sha[:8],
+                            "expires_at": "2100-01-01T00:00:00Z",
+                            "targets": [
+                                {
+                                    "logical_path": declared["logical_path"],
+                                    "sha256": sha,
+                                    # First sight uploads; a known blob dedups.
+                                    "url": None
+                                    if sha in fake.blobs
+                                    else f"{fake.url}/put/{sha}",
+                                }
+                            ],
+                        }
+                    ).encode()
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(reply)
+                    return
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b"{}")
+
+            def do_PUT(self):
+                body = self.rfile.read(int(self.headers.get("content-length", 0)))
+                fake.blobs[self.path.rsplit("/", 1)[1]] = body
+                self.send_response(200)
+                self.end_headers()
 
             def log_message(self, *args):
                 pass
@@ -126,6 +156,38 @@ def test_happy_path_delivers_all_points(tmp_path, server):
     before = len(server.requests)
     engine.drain_once()
     assert len(server.requests) == before
+    db.close()
+
+
+def test_artifact_upload_carries_relation(tmp_path, server):
+    """Both lineage verbs reach the commit wire with their relation; the blob
+    uploads once and the input edge dedups against it."""
+    from waddle._types import ArtifactRelation
+
+    db = WaddleDB(str(tmp_path / "w.duckdb"))
+    run_id = "c" * 32
+    blob = tmp_path / "model.safetensors"
+    blob.write_bytes(b"weights")
+    sha = hashlib.sha256(b"weights").hexdigest()
+    engine = _engine(db, server, run_id)
+    engine.upload_artifact(
+        "policy", str(blob), "model", sha, len(b"weights"), ArtifactRelation.OUTPUT
+    )
+    engine.upload_artifact(
+        "policy", str(blob), "model", sha, len(b"weights"), ArtifactRelation.INPUT
+    )
+    engine.drain_once()
+
+    assert server.blobs[sha] == b"weights"
+    commits = [
+        json.loads(body)
+        for path, body in server.requests
+        if path.endswith("/commit")
+    ]
+    assert [(c["relation"], c["run_id"], c["collection"]) for c in commits] == [
+        ("output", run_id, "policy"),
+        ("input", run_id, "policy"),
+    ]
     db.close()
 
 

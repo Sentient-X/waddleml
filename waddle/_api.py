@@ -1,4 +1,5 @@
-"""Module-level wandb-style API: init, log, finish, log_artifact, log_param, log_tag."""
+"""Module-level wandb-style API: init, log, finish, log_artifact, use_artifact,
+log_param, log_tag."""
 
 from __future__ import annotations
 
@@ -206,6 +207,14 @@ def log_artifact(
     if run is None:
         raise RuntimeError("No active run. Call waddle.init() first.")
     return run.log_artifact(name, path, kind, inline)
+
+
+def use_artifact(name: str, path: str, kind: str = "file") -> str:
+    """Record an artifact the active run consumed (an input lineage edge)."""
+    run = _state.get_active_run()
+    if run is None:
+        raise RuntimeError("No active run. Call waddle.init() first.")
+    return run.use_artifact(name, path, kind)
 
 
 def finish(research_outcome: Optional[ResearchOutcome] = None) -> None:

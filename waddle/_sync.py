@@ -35,6 +35,8 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from ._types import ArtifactRelation
+
 if TYPE_CHECKING:
     from ._db import WaddleDB
 
@@ -135,7 +137,7 @@ class SyncEngine:
                 db.execute(stmt)
         self._conn = db.cursor()  # own transaction scope; guarded by _mutex
         self._mutex = threading.Lock()
-        self._artifacts: List[Tuple[str, str, str, str, int]] = []
+        self._artifacts: List[Tuple[str, str, str, str, int, ArtifactRelation]] = []
         self._artifacts_lock = threading.Lock()
         self._writer_id = self._load_writer_id()
         self._run_registered = False
@@ -166,11 +168,17 @@ class SyncEngine:
         self._post_json(f"/api/v1/runs/{self._run_id}/finish", body)
 
     def upload_artifact(
-        self, name: str, path: str, kind: str, sha256: str, size_bytes: int
+        self,
+        name: str,
+        path: str,
+        kind: str,
+        sha256: str,
+        size_bytes: int,
+        relation: ArtifactRelation,
     ) -> None:
         """Queue one file artifact for background upload (never raises)."""
         with self._artifacts_lock:
-            self._artifacts.append((name, path, kind, sha256, size_bytes))
+            self._artifacts.append((name, path, kind, sha256, size_bytes, relation))
         self._wake.set()
 
     # ---- Run-facing API (never raises) ----
@@ -277,13 +285,19 @@ class SyncEngine:
             with self._artifacts_lock:
                 if not self._artifacts:
                     return
-                name, path, kind, sha256, size_bytes = self._artifacts[0]
-            self._upload_one_artifact(name, path, kind, sha256, size_bytes)
+                name, path, kind, sha256, size_bytes, relation = self._artifacts[0]
+            self._upload_one_artifact(name, path, kind, sha256, size_bytes, relation)
             with self._artifacts_lock:
                 self._artifacts.pop(0)
 
     def _upload_one_artifact(
-        self, name: str, path: str, kind: str, sha256: str, size_bytes: int
+        self,
+        name: str,
+        path: str,
+        kind: str,
+        sha256: str,
+        size_bytes: int,
+        relation: ArtifactRelation,
     ) -> None:
         session = self._request_json(
             "POST",
@@ -314,7 +328,7 @@ class SyncEngine:
             "project": self._project,
             "kind": kind if kind in ("model", "dataset", "media") else "file",
             "run_id": self._run_id,
-            "relation": "output",
+            "relation": relation.value,
         }
         try:
             self._request_json(
@@ -324,7 +338,10 @@ class SyncEngine:
                 headers={"content-type": "application/json"},
             )
         except urllib.error.HTTPError as error:
-            if error.code != 409:  # identical digest already versioned — done
+            # 409 = unretryable session/blob conflict (identical content is NOT
+            # a conflict — the server reuses the version and still records the
+            # edge); retrying forever would wedge the queue, so drop and move on.
+            if error.code != 409:
                 raise
 
     def _pending_outbox(self) -> List[Tuple[str, bytes]]:

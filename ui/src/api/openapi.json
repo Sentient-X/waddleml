@@ -67,6 +67,15 @@
         "title": "ArtifactKind",
         "type": "string"
       },
+      "ArtifactRelation": {
+        "description": "Direction of one run\u2194artifact lineage edge (values byte-equal to the\nSDK's `waddle.ArtifactRelation` and the `artifact_lineage` CHECK).",
+        "enum": [
+          "output",
+          "input"
+        ],
+        "title": "ArtifactRelation",
+        "type": "string"
+      },
       "ArtifactVersionOut": {
         "properties": {
           "collection": {
@@ -191,10 +200,8 @@
             "type": "string"
           },
           "relation": {
-            "default": "output",
-            "pattern": "^(input|output)$",
-            "title": "Relation",
-            "type": "string"
+            "$ref": "#/components/schemas/ArtifactRelation",
+            "default": "output"
           },
           "run_id": {
             "anyOf": [
@@ -1796,8 +1803,7 @@
             "type": "string"
           },
           "relation": {
-            "title": "Relation",
-            "type": "string"
+            "$ref": "#/components/schemas/ArtifactRelation"
           },
           "run_id": {
             "title": "Run Id",

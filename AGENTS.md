@@ -6,7 +6,7 @@ Core package resides in `waddle/` with a modular architecture:
 
 | Module | Purpose |
 |--------|---------|
-| `__init__.py` | Public API: `init`, `log`, `finish`, `log_artifact`, `log_param`, `log_tag` |
+| `__init__.py` | Public API: `init`, `log`, `finish`, `log_artifact`, `use_artifact`, `log_param`, `log_tag` |
 | `_api.py` | Module-level API — manages global active run |
 | `_run.py` | `Run` class — metric batching, context manager, atexit |
 | `_state.py` | Thread-safe global run state |

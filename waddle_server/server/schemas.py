@@ -318,6 +318,14 @@ class ArtifactKind(StrEnum):
     FILE = "file"
 
 
+class ArtifactRelation(StrEnum):
+    """Direction of one run↔artifact lineage edge (values byte-equal to the
+    SDK's `waddle.ArtifactRelation` and the `artifact_lineage` CHECK)."""
+
+    OUTPUT = "output"
+    INPUT = "input"
+
+
 class UploadFileIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -353,7 +361,7 @@ class CommitArtifactIn(BaseModel):
     kind: ArtifactKind = ArtifactKind.FILE
     metadata: dict[str, object] = Field(default_factory=dict)
     run_id: str | None = Field(default=None, pattern=RUN_ID_PATTERN)
-    relation: str = Field(default="output", pattern="^(input|output)$")
+    relation: ArtifactRelation = ArtifactRelation.OUTPUT
 
 
 class ArtifactFileOut(BaseModel):
@@ -383,7 +391,7 @@ class AliasIn(BaseModel):
 
 class RunLineageOut(BaseModel):
     run_id: str
-    relation: str
+    relation: ArtifactRelation
     collection: str
     version: int
     artifact_id: UUID

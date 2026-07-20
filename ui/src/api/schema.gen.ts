@@ -501,6 +501,13 @@ export interface components {
          * @enum {string}
          */
         ArtifactKind: "model" | "dataset" | "media" | "file";
+        /**
+         * ArtifactRelation
+         * @description Direction of one run↔artifact lineage edge (values byte-equal to the
+         *     SDK's `waddle.ArtifactRelation` and the `artifact_lineage` CHECK).
+         * @enum {string}
+         */
+        ArtifactRelation: "output" | "input";
         /** ArtifactVersionOut */
         ArtifactVersionOut: {
             /** Collection */
@@ -559,11 +566,8 @@ export interface components {
             };
             /** Project */
             project: string;
-            /**
-             * Relation
-             * @default output
-             */
-            relation: string;
+            /** @default output */
+            relation: components["schemas"]["ArtifactRelation"];
             /** Run Id */
             run_id?: string | null;
         };
@@ -1087,8 +1091,7 @@ export interface components {
             artifact_id: string;
             /** Collection */
             collection: string;
-            /** Relation */
-            relation: string;
+            relation: components["schemas"]["ArtifactRelation"];
             /** Run Id */
             run_id: string;
             /** Version */

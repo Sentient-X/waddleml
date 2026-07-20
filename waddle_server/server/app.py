@@ -24,7 +24,7 @@ from uuid import UUID
 
 import duckdb
 import pydantic
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg import AsyncConnection
@@ -56,6 +56,7 @@ from waddle_server.server.schemas import (
     REPORT_NAME_PATTERN,
     AliasIn,
     ArtifactFileOut,
+    ArtifactRelation,
     ArtifactVersionOut,
     BatchAck,
     BatchIn,
@@ -1195,6 +1196,7 @@ def build_app(
     async def commit_artifact(
         session_id: str,
         body: CommitArtifactIn,
+        response: Response,
         c: AsyncConnection[Any] = Depends(conn),
         pr: WaddlePrincipal = Depends(principal),
     ) -> ArtifactVersionOut:
@@ -1247,29 +1249,29 @@ def build_app(
         collection = await artifacts.ensure_collection(
             c, pr.org_id, project.id, body.collection, body.kind.value
         )
-        try:
-            version = await artifacts.commit_version(
-                c,
-                pr.org_id,
-                collection,
-                digest=digest,
-                metadata=body.metadata,
-                manifest=manifest,
-                created_by_run_id=body.run_id,
-                files=file_rows,
-            )
-        except artifacts.ArtifactConflictError as err:
-            raise HTTPException(
-                409,
-                ErrorOut(code="artifact_digest_exists", message=str(err)).model_dump(),
-            ) from err
+        outcome = await artifacts.commit_version(
+            c,
+            pr.org_id,
+            collection,
+            digest=digest,
+            metadata=body.metadata,
+            manifest=manifest,
+            # Provenance belongs to producers: a consuming run's commit never
+            # claims created_by, it only attaches its input edge below.
+            created_by_run_id=(
+                body.run_id if body.relation is ArtifactRelation.OUTPUT else None
+            ),
+            files=file_rows,
+        )
         if body.run_id is not None:
             await artifacts.record_lineage(
-                c, pr.org_id, body.run_id, version.id, body.relation
+                c, pr.org_id, body.run_id, outcome.version.id, body.relation.value
             )
         await artifacts.mark_session(c, session.id, "committed")
-        got = await artifacts.get_version(c, pr.org_id, version.id)
+        got = await artifacts.get_version(c, pr.org_id, outcome.version.id)
         assert got is not None
+        if not outcome.created:  # identical content: reused, not created
+            response.status_code = 200
         return _version_out(pr, got[0], got[1])
 
     @app.get("/api/v1/artifacts/{artifact_id}", response_model=ArtifactVersionOut)
@@ -1309,7 +1311,7 @@ def build_app(
         return [
             RunLineageOut(
                 run_id=row.run_id,
-                relation=row.relation,
+                relation=ArtifactRelation(row.relation),
                 collection=row.collection_name,
                 version=row.version_number,
                 artifact_id=row.artifact_version_id,
