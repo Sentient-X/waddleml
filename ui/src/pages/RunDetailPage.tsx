@@ -246,13 +246,22 @@ function OverviewTab({ run }: { run: RunDetail }) {
 
 /* ── charts, auto-grouped into collapsible sections by metric prefix ────── */
 
-function metricGroups(series: readonly MetricSeries[]): { name: string; charts: MetricSeries[] }[] {
-  const groups = new Map<string, MetricSeries[]>();
+/** One panel per metric; a distributed run's ranks become lines in it. */
+type MetricChart = { metric: string; ranks: MetricSeries[] };
+
+function metricGroups(series: readonly MetricSeries[]): { name: string; charts: MetricChart[] }[] {
+  const byMetric = new Map<string, MetricSeries[]>();
   for (const s of series) {
-    const slash = s.metric_name.indexOf("/");
-    const key = slash > 0 ? s.metric_name.slice(0, slash) : "metrics";
-    const arr = groups.get(key) ?? [];
+    const arr = byMetric.get(s.metric_name) ?? [];
     arr.push(s);
+    byMetric.set(s.metric_name, arr);
+  }
+  const groups = new Map<string, MetricChart[]>();
+  for (const [metric, ranks] of byMetric) {
+    const slash = metric.indexOf("/");
+    const key = slash > 0 ? metric.slice(0, slash) : "metrics";
+    const arr = groups.get(key) ?? [];
+    arr.push({ metric, ranks });
     groups.set(key, arr);
   }
   return [...groups.entries()]
@@ -266,7 +275,7 @@ function ChartSection({
   project,
 }: {
   name: string;
-  charts: MetricSeries[];
+  charts: MetricChart[];
   project: string;
 }) {
   const [open, setOpen] = useState(true);
@@ -289,17 +298,15 @@ function ChartSection({
       </button>
       {open ? (
         <div className="grid gap-4 border-t p-3 md:grid-cols-2 xl:grid-cols-3">
-          {charts.map((series) => (
+          {charts.map(({ metric, ranks }) => (
             <MetricPanel
-              key={series.metric_name}
-              metric={series.metric_name}
+              key={metric}
+              metric={metric}
               project={project}
-              series={[
-                {
-                  label: series.metric_name,
-                  points: series.points.map((p) => ({ step: p.step, value: p.value })),
-                },
-              ]}
+              series={ranks.map((s) => ({
+                label: ranks.length > 1 ? `${metric} · rank ${s.rank}` : metric,
+                points: s.points.map((p) => ({ step: p.step, value: p.value })),
+              }))}
               height={170}
             />
           ))}

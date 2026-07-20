@@ -8,7 +8,11 @@ SHA-256 rather than stored as database blobs.
 
 Each process has an explicit `(run_id, rank, attempt)` identity. Aggregate metrics may be
 written by rank zero while per-rank system/performance telemetry retains its origin. A retry
-increments `attempt`; it must never overwrite an earlier attempt.
+increments `attempt`; it must never overwrite an earlier attempt. The read projections honor
+both identities: per (rank, step) the latest attempt wins, and distinct ranks are distinct
+series in the hosted series/latest queries and the local `evidence_*` views — one rank never
+poses as another. Each process spools to its own DuckDB file (single-writer); the platform
+merges per-rank streams server-side.
 
 Autoresearch uses the same run grain rather than a parallel session, campaign, or node store. A
 typed `session_name` groups the phases of one long optimization run; one campaign phase is the

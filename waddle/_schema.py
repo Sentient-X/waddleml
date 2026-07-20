@@ -131,20 +131,23 @@ SELECT r.project, r.id AS run_id, r.name AS run_name, r.status,
 FROM runs r JOIN metrics m ON r.id = m.run_id;
 
 -- Chart-ready training metrics: superseded pre-resume rows dropped, decimated to
--- <=600 min/max-preserving buckets per (run, key), with a trailing moving-average
--- smooth. Dashboards chart THIS, never the raw stream — a 100k-step run stays a
--- few hundred points per chart. system/* is excluded (its step is a sample
--- counter, not the training step — see evidence_system_metrics).
+-- <=600 min/max-preserving buckets per (run, key, rank), with a trailing
+-- moving-average smooth. Distinct ranks are distinct series (bucket width is
+-- shared across ranks so their series align). Dashboards chart THIS, never the
+-- raw stream — a 100k-step run stays a few hundred points per chart. system/*
+-- is excluded (its step is a sample counter, not the training step — see
+-- evidence_system_metrics).
 CREATE OR REPLACE VIEW evidence_run_metrics_ds AS
 WITH successor AS (
-    SELECT run_id, key, attempt, min(step) AS resume_step
-    FROM metrics GROUP BY run_id, key, attempt
+    SELECT run_id, key, rank, attempt, min(step) AS resume_step
+    FROM metrics GROUP BY run_id, key, rank, attempt
 ),
 dedup AS (
-    SELECT m.run_id, m.key, m.attempt, m.step, m.ts, m.value
+    SELECT m.run_id, m.key, m.rank, m.attempt, m.step, m.ts, m.value
     FROM metrics m
     LEFT JOIN successor n
-      ON n.run_id = m.run_id AND n.key = m.key AND n.attempt = m.attempt + 1
+      ON n.run_id = m.run_id AND n.key = m.key AND n.rank = m.rank
+     AND n.attempt = m.attempt + 1
     WHERE m.key NOT LIKE 'system/%'
       AND (n.resume_step IS NULL OR m.step < n.resume_step)
 ),
@@ -154,25 +157,26 @@ width AS (
     FROM dedup GROUP BY run_id, key
 ),
 bucketed AS (
-    SELECT d.run_id, d.key,
+    SELECT d.run_id, d.key, d.rank,
            (d.step // s.w) * s.w AS step,
            avg(d.value) AS value,
            min(d.value) AS value_min,
            max(d.value) AS value_max,
            max(d.ts) AS ts
     FROM dedup d JOIN width s USING (run_id, key)
-    GROUP BY d.run_id, d.key, (d.step // s.w) * s.w
+    GROUP BY d.run_id, d.key, d.rank, (d.step // s.w) * s.w
 )
 SELECT r.project, r.name AS run_name, b.*,
-       avg(b.value) OVER (PARTITION BY b.run_id, b.key ORDER BY b.step
+       avg(b.value) OVER (PARTITION BY b.run_id, b.key, b.rank ORDER BY b.step
                           ROWS BETWEEN 20 PRECEDING AND CURRENT ROW) AS value_smooth
 FROM bucketed b JOIN runs r ON r.id = b.run_id;
 
 -- system/* metrics on the wall-clock axis (their step column is the sampler's own
--- counter). Time-bucketed to <=400 points per (run, key).
+-- counter). Time-bucketed to <=400 points per (run, key, rank) — each worker's
+-- telemetry stays its own series.
 CREATE OR REPLACE VIEW evidence_system_metrics AS
 WITH sysm AS (
-    SELECT m.run_id, r.name AS run_name, r.project, m.key, m.ts, m.value
+    SELECT m.run_id, r.name AS run_name, r.project, m.key, m.rank, m.ts, m.value
     FROM metrics m JOIN runs r ON r.id = m.run_id
     WHERE m.key LIKE 'system/%'
 ),
@@ -180,7 +184,7 @@ width AS (
     SELECT run_id, key, greatest(15.0, (max(ts) - min(ts)) / 400) AS w
     FROM sysm GROUP BY run_id, key
 )
-SELECT s.project, s.run_name, s.run_id, s.key,
+SELECT s.project, s.run_name, s.run_id, s.key, s.rank,
        to_timestamp(floor(s.ts / p.w) * p.w) AS t,
        avg(s.value) AS value,
        min(s.value) AS value_min,
@@ -265,17 +269,18 @@ FROM runs r
 LEFT JOIN latest l ON l.run_id = r.id
 LEFT JOIN worker w ON w.run_id = r.id;
 
--- Latest value per (run, key) plus min/max over the attempt-deduplicated
--- stream (per step the latest attempt wins, mirroring the hosted query law) —
--- powers KPI tiles, the run comparison table, and direction-free "best" reads.
+-- Latest value per (run, key, rank) plus min/max over the attempt-deduplicated
+-- stream (per step the latest attempt wins, mirroring the hosted query law;
+-- distinct ranks are distinct rows) — powers KPI tiles, the run comparison
+-- table, and direction-free "best" reads.
 CREATE OR REPLACE VIEW evidence_run_metric_latest AS
 WITH dedup AS (
-    SELECT run_id, key, step, arg_max(value, attempt) AS value
-    FROM metrics GROUP BY run_id, key, step
+    SELECT run_id, key, rank, step, arg_max(value, attempt) AS value
+    FROM metrics GROUP BY run_id, key, rank, step
 )
-SELECT run_id, key, arg_max(value, step) AS value, max(step) AS step,
+SELECT run_id, key, rank, arg_max(value, step) AS value, max(step) AS step,
        min(value) AS value_min, max(value) AS value_max
-FROM dedup GROUP BY run_id, key;
+FROM dedup GROUP BY run_id, key, rank;
 
 -- Metric keys grouped into the three panels the dashboard renders separately.
 CREATE OR REPLACE VIEW evidence_metric_keys AS

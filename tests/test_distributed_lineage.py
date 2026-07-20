@@ -123,3 +123,41 @@ def test_metric_latest_view_dedups_attempts_and_spans_extremes(tmp_path, monkeyp
         " WHERE run_id = 'run-1' AND key = 'loss'"
     ).fetchone()
     assert row == (0.2, 3, 0.2, 9.0)
+
+
+def test_views_keep_ranks_as_distinct_series(tmp_path, monkeypatch):
+    """A second rank logging the same key never smears into rank 0's series:
+    the decimated, system, and latest views all partition by rank."""
+    monkeypatch.chdir(tmp_path)
+    db_path = tmp_path / "runs.duckdb"
+    run = waddle.init(
+        project="ranks", db_path=str(db_path), run_id="run-1", system_metrics=False
+    )
+    for step in range(4):
+        run.log({"loss": 1.0 / (step + 1)}, step=step)
+        run.log_metric("system/gpu0_util_percent", step, 50.0)
+    run.finish()
+    # Rank 1's rows arrive in the same spool (e.g. an analysis DB merging
+    # per-rank spool files).
+    for step in range(4):
+        run._db.execute(
+            "INSERT INTO metrics (run_id, key, step, ts, value, rank, node_id, attempt)"
+            " VALUES ('run-1', 'loss', $1, $2, 7.0, 1, 'node1', 0)",
+            [step, 1_753_000_000.0 + step],
+        )
+
+    conn = duckdb.connect(str(db_path))
+    latest = conn.execute(
+        "SELECT rank, value, value_max FROM evidence_run_metric_latest"
+        " WHERE run_id = 'run-1' AND key = 'loss' ORDER BY rank"
+    ).fetchall()
+    assert latest == [(0, 0.25, 1.0), (1, 7.0, 7.0)]
+    ds_ranks = conn.execute(
+        "SELECT DISTINCT rank FROM evidence_run_metrics_ds"
+        " WHERE run_id = 'run-1' AND key = 'loss' ORDER BY rank"
+    ).fetchall()
+    assert ds_ranks == [(0,), (1,)]
+    sys_ranks = conn.execute(
+        "SELECT DISTINCT rank FROM evidence_system_metrics WHERE run_id = 'run-1'"
+    ).fetchall()
+    assert sys_ranks == [(0,)]

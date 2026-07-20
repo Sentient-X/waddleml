@@ -286,12 +286,16 @@ class SeriesPointOut(BaseModel):
 class MetricSeriesOut(BaseModel):
     run_id: str
     metric_name: str
+    # Distinct ranks are distinct series (per-rank telemetry keeps its origin);
+    # single-process runs always see rank 0.
+    rank: int
     points: list[SeriesPointOut]
 
 
 class LatestMetricOut(BaseModel):
     run_id: str
     metric_name: str
+    rank: int
     value: float
     step: int
     ts: datetime

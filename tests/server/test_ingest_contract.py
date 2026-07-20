@@ -97,13 +97,21 @@ def _create_research_run(
 
 
 def _batch_body(
-    *, batch_id: str, writer_id: str, seq: int, points: int, step0: int = 0
+    *,
+    batch_id: str,
+    writer_id: str,
+    seq: int,
+    points: int,
+    step0: int = 0,
+    rank: int = 0,
+    value0: float = 1.0,
 ) -> bytes:
     now = time.time()
     return json.dumps(
         {
             "batch_id": batch_id,
             "writer_id": writer_id,
+            "rank": rank,
             "sequence_start": seq,
             "sequence_end": seq + points - 1,
             "metrics": [
@@ -111,7 +119,7 @@ def _batch_body(
                     "name": "loss",
                     "step": step0 + i,
                     "ts": now + i,
-                    "value": 1.0 / (i + 1),
+                    "value": value0 / (i + 1),
                 }
                 for i in range(points)
             ],
@@ -591,20 +599,34 @@ def test_query_series_and_logs(rig: tuple[TestClient, FakeMetricStore]) -> None:
             content=body,
         )
 
+        # A second worker (rank 1) logs the same key at the same steps: the
+        # projections keep it a separate series — one rank never poses as
+        # another.
+        client.post(
+            f"/api/v1/runs/{run_id}/batches",
+            headers={"x-api-key": "key-a-writer"},
+            content=_batch_body(
+                batch_id=str(uuid4()), writer_id=str(uuid4()), seq=0, points=50,
+                rank=1, value0=2.0,
+            ),
+        )
+
         series = client.post(
             "/api/v1/query/metrics",
             headers={"x-api-key": "key-a-reader"},
             json={"run_ids": [run_id], "metric_names": ["loss"], "max_points": 10},
         ).json()
-        assert len(series) == 1 and series[0]["metric_name"] == "loss"
-        assert 0 < len(series[0]["points"]) <= 10
+        assert [(s["metric_name"], s["rank"]) for s in series] == [("loss", 0), ("loss", 1)]
+        assert all(0 < len(s["points"]) <= 10 for s in series)
 
         latest = client.post(
             "/api/v1/query/latest",
             headers={"x-api-key": "key-a-reader"},
             json={"run_ids": [run_id]},
         ).json()
-        assert latest[0]["step"] == 49
+        assert [(m["rank"], m["step"]) for m in latest] == [(0, 49), (1, 49)]
         assert latest[0]["value"] == pytest.approx(1.0 / 50)
         assert latest[0]["value_min"] == pytest.approx(1.0 / 50)
         assert latest[0]["value_max"] == pytest.approx(1.0)
+        assert latest[1]["value"] == pytest.approx(2.0 / 50)
+        assert latest[1]["value_max"] == pytest.approx(2.0)

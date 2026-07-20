@@ -50,10 +50,14 @@ export function ComparePage() {
 
   const chartSeries: ChartSeries[] = useMemo(
     () =>
-      (metricsQuery.data ?? []).map((s) => ({
-        label: byId.get(s.run_id)?.display_name ?? byId.get(s.run_id)?.name ?? s.run_id.slice(0, 8),
-        points: s.points.map((p) => ({ step: p.step, value: p.value })),
-      })),
+      (metricsQuery.data ?? []).map((s) => {
+        const name =
+          byId.get(s.run_id)?.display_name ?? byId.get(s.run_id)?.name ?? s.run_id.slice(0, 8);
+        return {
+          label: s.rank > 0 ? `${name} · rank ${s.rank}` : name,
+          points: s.points.map((p) => ({ step: p.step, value: p.value })),
+        };
+      }),
     [metricsQuery.data, byId],
   );
 

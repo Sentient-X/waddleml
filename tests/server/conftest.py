@@ -125,9 +125,9 @@ class FakeMetricStore(MetricStore):
         step_max: int | None,
         max_points: int,
     ) -> list[SeriesPoint]:
-        latest_attempt: dict[tuple[str, str, int], tuple[int, float, datetime]] = {}
+        latest_attempt: dict[tuple[str, str, int, int], tuple[int, float, datetime]] = {}
         for row in self.metrics:
-            (org, _proj, run, name, step, ts, value, _rank, _node, attempt, *_rest) = row
+            (org, _proj, run, name, step, ts, value, rank, _node, attempt, *_rest) = row
             if org != org_id or run not in run_ids:
                 continue
             if metric_names and name not in metric_names:
@@ -136,59 +136,64 @@ class FakeMetricStore(MetricStore):
                 continue
             if step_max is not None and int(str(step)) > step_max:
                 continue
-            key = (str(run), str(name), int(str(step)))
+            key = (str(run), str(name), int(str(rank)), int(str(step)))
             current = latest_attempt.get(key)
             if current is None or int(str(attempt)) >= current[0]:
                 latest_attempt[key] = (int(str(attempt)), float(str(value)), ts)  # type: ignore[arg-type]
         if not latest_attempt:
             return []
-        steps = [step for (_r, _m, step) in latest_attempt]
+        steps = [step for (_r, _m, _k, step) in latest_attempt]
         width = max(1, (max(steps) - min(steps) + 1) // max_points)
-        buckets: dict[tuple[str, str, int], list[tuple[float, datetime]]] = {}
-        for (run, name, step), (_a, value, ts) in latest_attempt.items():
-            buckets.setdefault((run, name, step // width * width), []).append((value, ts))
+        buckets: dict[tuple[str, str, int, int], list[tuple[float, datetime]]] = {}
+        for (run, name, rank, step), (_a, value, ts) in latest_attempt.items():
+            buckets.setdefault((run, name, rank, step // width * width), []).append(
+                (value, ts)
+            )
         return sorted(
             (
                 SeriesPoint(
                     run_id=run,
                     metric_name=name,
+                    rank=rank,
                     step=step,
                     value=sum(v for v, _ in vals) / len(vals),
                     value_min=min(v for v, _ in vals),
                     value_max=max(v for v, _ in vals),
                     ts=max(ts for _, ts in vals),
                 )
-                for (run, name, step), vals in buckets.items()
+                for (run, name, rank, step), vals in buckets.items()
             ),
-            key=lambda p: (p.run_id, p.metric_name, p.step),
+            key=lambda p: (p.run_id, p.metric_name, p.rank, p.step),
         )
 
     async def latest(self, org_id: UUID, *, run_ids: list[str]) -> list[LatestMetric]:
-        # Same law as the real store: per step the latest attempt wins, the
-        # last step's value is "latest", min/max span the deduplicated stream.
-        per_step: dict[tuple[str, str, int], tuple[int, float, datetime]] = {}
+        # Same law as the real store: per (rank, step) the latest attempt
+        # wins, the last step's value is "latest", min/max span the
+        # deduplicated stream, distinct ranks are distinct rows.
+        per_step: dict[tuple[str, str, int, int], tuple[int, float, datetime]] = {}
         for row in self.metrics:
-            (org, _proj, run, name, step, ts, value, _rank, _node, attempt, *_rest) = row
+            (org, _proj, run, name, step, ts, value, rank, _node, attempt, *_rest) = row
             if org != org_id or run not in run_ids:
                 continue
-            key = (str(run), str(name), int(str(step)))
+            key = (str(run), str(name), int(str(rank)), int(str(step)))
             current = per_step.get(key)
             if current is None or int(str(attempt)) >= current[0]:
                 per_step[key] = (int(str(attempt)), float(str(value)), ts)  # type: ignore[arg-type]
-        series: dict[tuple[str, str], list[tuple[int, float, datetime]]] = {}
-        for (run, name, step), (_a, value, ts) in per_step.items():
-            series.setdefault((run, name), []).append((step, value, ts))
+        series: dict[tuple[str, str, int], list[tuple[int, float, datetime]]] = {}
+        for (run, name, rank, step), (_a, value, ts) in per_step.items():
+            series.setdefault((run, name, rank), []).append((step, value, ts))
         return [
             LatestMetric(
                 run_id=run,
                 metric_name=name,
+                rank=rank,
                 value=max(points)[1],
                 step=max(points)[0],
                 ts=max(ts for _s, _v, ts in points),
                 value_min=min(v for _s, v, _t in points),
                 value_max=max(v for _s, v, _t in points),
             )
-            for (run, name), points in sorted(series.items())
+            for (run, name, rank), points in sorted(series.items())
         ]
 
     async def logs_tail(

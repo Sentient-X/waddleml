@@ -107,6 +107,7 @@ _LOG_COLUMNS = [
 class SeriesPoint:
     run_id: str
     metric_name: str
+    rank: int
     step: int
     value: float
     value_min: float
@@ -118,6 +119,7 @@ class SeriesPoint:
 class LatestMetric:
     run_id: str
     metric_name: str
+    rank: int
     value: float
     step: int
     ts: datetime
@@ -190,9 +192,11 @@ class MetricStore:
         step_max: int | None,
         max_points: int,
     ) -> list[SeriesPoint]:
-        """Attempt-deduplicated, decimated series: per (run, metric, step) the
-        latest attempt wins; steps are bucketed so no series exceeds
-        ``max_points`` points."""
+        """Attempt-deduplicated, decimated series: per (run, metric, rank,
+        step) the latest attempt wins; distinct ranks are distinct series
+        (per-rank telemetry keeps its origin — one rank never poses as
+        another); steps are bucketed so no series exceeds ``max_points``
+        points, with bucket width shared across ranks so their series align."""
         conditions = ["org_id = {org:UUID}", "run_id IN {runs:Array(String)}"]
         params: dict[str, object] = {"org": str(org_id), "runs": run_ids}
         if metric_names:
@@ -219,19 +223,19 @@ class MetricStore:
 
         result = await self.client.query(
             f"""
-            SELECT run_id, metric_name,
+            SELECT run_id, metric_name, rank,
                    intDiv(step, {{w:Int64}}) * {{w:Int64}} AS bucket_step,
                    avg(v) AS value, min(v) AS value_min, max(v) AS value_max,
                    max(latest_ts) AS ts
             FROM (
-                SELECT run_id, metric_name, step,
+                SELECT run_id, metric_name, rank, step,
                        argMax(value, (attempt, ts)) AS v, max(ts) AS latest_ts
                 FROM metric_points
                 WHERE {where}
-                GROUP BY run_id, metric_name, step
+                GROUP BY run_id, metric_name, rank, step
             )
-            GROUP BY run_id, metric_name, bucket_step
-            ORDER BY run_id, metric_name, bucket_step
+            GROUP BY run_id, metric_name, rank, bucket_step
+            ORDER BY run_id, metric_name, rank, bucket_step
             """,
             parameters=params,
             settings=self._query_settings,
@@ -240,35 +244,37 @@ class MetricStore:
             SeriesPoint(
                 run_id=row[0],
                 metric_name=row[1],
-                step=int(row[2]),
-                value=float(row[3]),
-                value_min=float(row[4]),
-                value_max=float(row[5]),
-                ts=row[6],
+                rank=int(row[2]),
+                step=int(row[3]),
+                value=float(row[4]),
+                value_min=float(row[5]),
+                value_max=float(row[6]),
+                ts=row[7],
             )
             for row in result.result_rows
         ]
 
     async def latest(self, org_id: UUID, *, run_ids: list[str]) -> list[LatestMetric]:
-        """Per (run, metric): the value at the last step plus the min/max over
-        the whole attempt-deduplicated stream (per step the latest attempt
-        wins, same law as ``series`` — so a resume's rewritten early steps can
-        neither pose as the latest value nor pollute the extremes)."""
+        """Per (run, metric, rank): the value at the last step plus the
+        min/max over the whole attempt-deduplicated stream (per step the
+        latest attempt wins, same law as ``series`` — so a resume's rewritten
+        early steps can neither pose as the latest value nor pollute the
+        extremes, and one rank's telemetry never poses as another's)."""
         result = await self.client.query(
             """
-            SELECT run_id, metric_name,
+            SELECT run_id, metric_name, rank,
                    argMax(v, step) AS last_value,
                    max(step) AS last_step, max(latest_ts) AS last_ts,
                    min(v) AS value_min, max(v) AS value_max
             FROM (
-                SELECT run_id, metric_name, step,
+                SELECT run_id, metric_name, rank, step,
                        argMax(value, (attempt, ts)) AS v, max(ts) AS latest_ts
                 FROM metric_points
                 WHERE org_id = {org:UUID} AND run_id IN {runs:Array(String)}
-                GROUP BY run_id, metric_name, step
+                GROUP BY run_id, metric_name, rank, step
             )
-            GROUP BY run_id, metric_name
-            ORDER BY run_id, metric_name
+            GROUP BY run_id, metric_name, rank
+            ORDER BY run_id, metric_name, rank
             """,
             parameters={"org": str(org_id), "runs": run_ids},
             settings=self._query_settings,
@@ -277,11 +283,12 @@ class MetricStore:
             LatestMetric(
                 run_id=row[0],
                 metric_name=row[1],
-                value=float(row[2]),
-                step=int(row[3]),
-                ts=row[4],
-                value_min=float(row[5]),
-                value_max=float(row[6]),
+                rank=int(row[2]),
+                value=float(row[3]),
+                step=int(row[4]),
+                ts=row[5],
+                value_min=float(row[6]),
+                value_max=float(row[7]),
             )
             for row in result.result_rows
         ]

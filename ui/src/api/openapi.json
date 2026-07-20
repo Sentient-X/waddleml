@@ -490,6 +490,10 @@
             "title": "Metric Name",
             "type": "string"
           },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
           "run_id": {
             "title": "Run Id",
             "type": "string"
@@ -519,6 +523,7 @@
         "required": [
           "run_id",
           "metric_name",
+          "rank",
           "value",
           "step",
           "ts",
@@ -570,6 +575,10 @@
             "title": "Points",
             "type": "array"
           },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
           "run_id": {
             "title": "Run Id",
             "type": "string"
@@ -578,6 +587,7 @@
         "required": [
           "run_id",
           "metric_name",
+          "rank",
           "points"
         ],
         "title": "MetricSeriesOut",

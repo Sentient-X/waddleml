@@ -43,6 +43,7 @@ def _row(
     value: float,
     *,
     attempt: int = 0,
+    rank: int = 0,
     seq: int,
     batch_id: UUID,
     writer_id: UUID,
@@ -55,7 +56,7 @@ def _row(
         step,
         datetime.now(UTC),
         value,
-        0,
+        rank,
         "node0",
         attempt,
         writer_id,
@@ -100,6 +101,24 @@ async def _exercise() -> None:
         assert latest[0].value == pytest.approx(1.0 / 2000)
         assert latest[0].value_max == 42.0
         assert latest[0].value_min == pytest.approx(1.0 / 2000)
+
+        # A second rank writing the same key stays its own series everywhere.
+        batch3 = uuid4()
+        await store.insert_metrics(
+            [
+                _row(run_id, "loss", step, 7.0, rank=1, seq=3000 + step,
+                     batch_id=batch3, writer_id=writer)
+                for step in range(10)
+            ]
+        )
+        two_rank_series = await store.series(
+            ORG, run_ids=[run_id], metric_names=["loss"], step_min=None,
+            step_max=None, max_points=100,
+        )
+        assert {(p.rank) for p in two_rank_series} == {0, 1}
+        two_rank_latest = await store.latest(ORG, run_ids=[run_id])
+        assert [(m.rank, m.step) for m in two_rank_latest] == [(0, 1999), (1, 9)]
+        assert two_rank_latest[1].value == 7.0
 
         # Foreign org: nothing.
         assert await store.series(

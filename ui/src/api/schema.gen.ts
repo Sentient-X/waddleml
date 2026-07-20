@@ -664,6 +664,8 @@ export interface components {
         LatestMetricOut: {
             /** Metric Name */
             metric_name: string;
+            /** Rank */
+            rank: number;
             /** Run Id */
             run_id: string;
             /** Step */
@@ -700,6 +702,8 @@ export interface components {
             metric_name: string;
             /** Points */
             points: components["schemas"]["SeriesPointOut"][];
+            /** Rank */
+            rank: number;
             /** Run Id */
             run_id: string;
         };

@@ -724,9 +724,9 @@ def build_app(
             step_max=body.step_max,
             max_points=max_points,
         )
-        series: dict[tuple[str, str], list[SeriesPointOut]] = {}
+        series: dict[tuple[str, str, int], list[SeriesPointOut]] = {}
         for p in points:
-            series.setdefault((p.run_id, p.metric_name), []).append(
+            series.setdefault((p.run_id, p.metric_name, p.rank), []).append(
                 SeriesPointOut(
                     step=p.step,
                     value=p.value,
@@ -736,8 +736,8 @@ def build_app(
                 )
             )
         return [
-            MetricSeriesOut(run_id=run_id, metric_name=metric, points=pts)
-            for (run_id, metric), pts in sorted(series.items())
+            MetricSeriesOut(run_id=run_id, metric_name=metric, rank=rank, points=pts)
+            for (run_id, metric, rank), pts in sorted(series.items())
         ]
 
     @app.post("/api/v1/query/latest", response_model=list[LatestMetricOut])
@@ -757,6 +757,7 @@ def build_app(
             LatestMetricOut(
                 run_id=r.run_id,
                 metric_name=r.metric_name,
+                rank=r.rank,
                 value=r.value,
                 step=r.step,
                 ts=r.ts,
