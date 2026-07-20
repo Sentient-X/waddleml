@@ -372,6 +372,40 @@ def test_cli_backfill_preserves_research_contract(tmp_path, server, monkeypatch)
     assert json.loads(finish_body) == {"state": "completed"}
 
 
+def test_cli_backfill_parses_legacy_campaign_from_research_config(
+    tmp_path, server, monkeypatch
+):
+    db_path = tmp_path / "legacy.duckdb"
+    run = waddle.init(
+        project="edge-inference",
+        db_path=str(db_path),
+        research=ResearchTrial(
+            campaign="m10-legacy",
+            trial_index=48,
+            objective_name="correctness/pass",
+            goal=ResearchGoal.MAXIMIZE,
+            hypothesis="legacy trial",
+        ),
+        system_metrics=False,
+        sync=False,
+    )
+    run.finish()
+    row = run._db.fetchone("SELECT config FROM runs WHERE id = $1", [run.id])
+    config = json.loads(row[0])
+    config["_waddle_research"]["campaign"] = "m10-legacy"
+    run._db.execute(
+        "UPDATE runs SET config = $1 WHERE id = $2", [json.dumps(config), run.id]
+    )
+
+    monkeypatch.setenv("WADDLE_API_URL", server.url)
+    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    assert cmd_sync(Namespace(db=str(db_path), run=run.id)) == 0
+
+    created = json.loads(server.requests[0][1])
+    assert created["group_name"] == "m10-legacy"
+    assert "campaign" not in created["research"]
+
+
 def test_cli_backfill_registers_research_parents_before_children(
     tmp_path, server, monkeypatch
 ):

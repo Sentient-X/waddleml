@@ -206,6 +206,21 @@ def cmd_sync(a: argparse.Namespace) -> int:
             research_dict = config_dict.pop(RESEARCH_CONFIG_KEY, None)
             if research_dict is not None and not isinstance(research_dict, dict):
                 raise SyncSpoolError(f"run {run_id} research record is not an object")
+            if research_dict is not None:
+                legacy_campaign = research_dict.pop("campaign", None)
+                if legacy_campaign is not None:
+                    if (
+                        not isinstance(legacy_campaign, str)
+                        or not legacy_campaign.strip()
+                    ):
+                        raise SyncSpoolError(
+                            f"run {run_id} legacy research campaign is not a non-empty string"
+                        )
+                    if group_name is not None and group_name != legacy_campaign:
+                        raise SyncSpoolError(
+                            f"run {run_id} legacy research campaign disagrees with group_name"
+                        )
+                    group_name = legacy_campaign
             research_outcome = json.loads(research_outcome_json or "null")
             if research_outcome is not None and not isinstance(research_outcome, dict):
                 raise SyncSpoolError(f"run {run_id} research outcome is not an object")
