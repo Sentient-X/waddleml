@@ -158,7 +158,7 @@ function MetricScoreboard({
     <aside className="min-w-0 border-b lg:border-b-0 lg:border-r">
       <div className="flex items-center justify-between border-b px-3 py-2.5">
         <div>
-          <h2 className="text-sm font-semibold">Goal metrics</h2>
+          <h2 className="text-base font-semibold">Goal metrics</h2>
           <p className="text-[9px] text-muted-foreground">Select one to inspect its raw trajectory.</p>
         </div>
         <Badge variant="outline" className="font-mono text-[9px]">{metrics.length}</Badge>
@@ -333,7 +333,7 @@ export function ResearchRunPage() {
           <section className="min-w-0">
             <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
               <div className="min-w-0">
-                <h2 className="truncate font-mono text-sm font-semibold">{selectedMetric.objectiveName}</h2>
+                <h2 className="truncate font-mono text-base font-semibold">{selectedMetric.objectiveName}</h2>
                 <p className="text-[9px] text-muted-foreground">
                   Raw values · {selectedMetric.goal === "minimize" ? "lower" : "higher"} is better
                 </p>
@@ -379,7 +379,7 @@ export function ResearchRunPage() {
             <Card className="min-w-0">
               <CardHeader className="flex-row items-center justify-between space-y-0 px-4 py-2.5">
                 <div className="min-w-0">
-                  <CardTitle className="text-sm">
+                  <CardTitle className="text-base">
                     {selectedRun ? `Attempt ${selectedAttemptNumber}` : "Attempt"}
                   </CardTitle>
                   {selectedRun ? (
@@ -499,7 +499,7 @@ export function ResearchRunPage() {
           <div className="grid gap-3 lg:grid-cols-2">
             <Card className="overflow-hidden">
               <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-2.5">
-                <CardTitle className="text-sm">Worked</CardTitle>
+                <CardTitle className="text-base">Worked</CardTitle>
                 <Badge variant="outline" className="font-mono text-[9px]">{workedLearnings.length}</Badge>
               </CardHeader>
               <CardContent className="p-0">
@@ -531,7 +531,7 @@ export function ResearchRunPage() {
 
             <Card className="overflow-hidden">
               <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-2.5">
-                <CardTitle className="text-sm">Didn't work or prove out</CardTitle>
+                <CardTitle className="text-base">Didn't work or prove out</CardTitle>
                 <Badge variant="outline" className="font-mono text-[9px]">{failedLearnings.length}</Badge>
               </CardHeader>
               <CardContent className="p-0">

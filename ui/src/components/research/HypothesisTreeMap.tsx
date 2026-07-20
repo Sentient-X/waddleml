@@ -101,7 +101,7 @@ export function HypothesisTreeMap({
     <Card className="min-w-0">
       <CardHeader className="flex-row items-start justify-between gap-4 space-y-0 px-4 py-3">
         <div>
-          <CardTitle className="text-sm">Idea lineage</CardTitle>
+          <CardTitle className="text-base">Idea lineage</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
             The path into the selected idea, its result, and the ideas or evaluations it produced.
           </p>

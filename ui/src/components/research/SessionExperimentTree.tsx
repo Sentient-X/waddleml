@@ -23,7 +23,7 @@ export function SessionExperimentTree({
   return (
     <Card className="min-w-0">
       <CardHeader className="px-3 py-2.5">
-        <CardTitle className="flex items-center justify-between gap-3 text-sm">
+        <CardTitle className="flex items-center justify-between gap-3 text-base">
           <span>Attempt ledger</span>
           <span className="font-mono text-[9px] font-normal text-muted-foreground">
             {metric.runs.length} on this goal
