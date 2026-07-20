@@ -22,12 +22,10 @@ records without an explicit session are projected under their project name. This
 means failures, workers, metrics, git identity, logs, artifacts, sync, and org isolation keep their
 existing semantics. A terminal `ResearchOutcome` stores the controller's decision, evidence,
 conclusion, failed gates, and next step separately from the immutable proposal. The session index,
-direction-adjusted cross-phase attempt scatter, one monotonic accepted-incumbent staircase, phase
-sequence, and graphical hypothesis/evaluation tree are read-time projections. When phases have
-different objectives, the trajectory adds each phase's accepted direction-adjusted gain into an
-explicitly labeled progress index rather than presenting unlike raw objectives as one physical
-unit; raw objective values remain in trial detail. Waddle does not synthesize
-explanatory prose. It renders controller-authored outcomes verbatim; legacy trials without one are
+per-goal raw attempt scatter, direction-correct accepted-incumbent staircases, and focused
+parent/child/evaluation lineage are read-time projections. The UI lists all goal metrics and plots
+one raw objective at a time; it never presents unlike objectives as one physical unit. Waddle does
+not synthesize explanatory prose. It renders controller-authored outcomes verbatim; legacy trials without one are
 labeled as such, and only their selection state is mechanically derived from terminal state and
 objective order. Waddle never proposes code or decides whether a candidate wins; those remain
 controller responsibilities.

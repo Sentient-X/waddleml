@@ -34,11 +34,10 @@ waddle ls        # terminal
 - **Three-command CLI** — `waddle init`, `waddle ls`, `waddle sync`.
 - **Autoresearch observation** — attach a typed `ResearchTrial` to ordinary runs; the hosted
   Research view groups a long optimization session into campaign phases, then derives each
-  phase's live candidate tree and minimize/maximize incumbent curve. A direction-aware unified
-  trajectory keeps every attempt as scatter while accepted improvements form one monotonic
-  incumbent staircase. When phases use different objectives, it sums each phase's accepted,
-  direction-adjusted gain into an explicitly labeled progress index; raw objective values remain
-  in trial detail. A graphical hypothesis tree and controller-authored learning list make the whole
+  phase's live candidates and minimize/maximize incumbent curve. The workbench lists every goal
+  metric explicitly; selecting one plots its raw attempts and one direction-correct running-best
+  staircase, so unlike objectives are never collapsed into an invented aggregate. A focused idea
+  lineage and simple controller-authored worked/didn't-work lists make the whole
   search legible without Waddle fabricating analysis or taking ownership of the optimizer.
 
 ## The hosted platform (this repo's second half)

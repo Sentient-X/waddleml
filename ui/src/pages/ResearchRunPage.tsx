@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, FlaskConical, GitBranch } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ExternalLink, FlaskConical, GitBranch } from "lucide-react";
 import {
   Badge,
   Button,
@@ -24,12 +24,13 @@ import { ResearchTrajectoryChart } from "@/components/research/ResearchTrajector
 import { SessionExperimentTree } from "@/components/research/SessionExperimentTree";
 import { formatScalar, runDuration, shortHash } from "@/lib/format";
 import {
-  bestRun,
   objectiveValue,
   researchAnalyses,
+  researchMetricKey,
+  researchMetrics,
   researchSessionFrom,
-  researchTrajectory,
-  type ResearchCampaign,
+  researchVerdictLabel,
+  type ResearchMetric,
   type ResearchRun,
 } from "@/lib/research";
 
@@ -60,51 +61,62 @@ function verdictTone(verdict: string): string {
   return "";
 }
 
-function PhaseRail({
-  campaigns,
-  selectedKey,
+function MetricScoreboard({
+  metrics,
+  selectedMetricKey,
   onSelect,
 }: {
-  campaigns: readonly ResearchCampaign[];
-  selectedKey: string;
-  onSelect: (campaign: ResearchCampaign) => void;
+  metrics: readonly ResearchMetric[];
+  selectedMetricKey: string;
+  onSelect: (metric: ResearchMetric) => void;
 }) {
   return (
-    <nav aria-label="Research phases" className="overflow-x-auto border-y bg-muted/10">
-      <div className="flex min-w-max px-1">
-        {campaigns.map((campaign, index) => {
-          const selected = campaign.key === selectedKey;
-          const running = campaign.runs.some((run) => run.state === "running");
-          const best = bestRun(campaign);
+    <aside className="min-w-0 border-b lg:border-b-0 lg:border-r">
+      <div className="flex items-center justify-between border-b px-3 py-2.5">
+        <div>
+          <h2 className="text-sm font-semibold">Goal metrics</h2>
+          <p className="text-[9px] text-muted-foreground">Select one to inspect its raw trajectory.</p>
+        </div>
+        <Badge variant="outline" className="font-mono text-[9px]">{metrics.length}</Badge>
+      </div>
+      <nav aria-label="Goal metrics" className="max-h-[25rem] overflow-auto p-1.5">
+        {metrics.map((metric) => {
+          const selected = metric.key === selectedMetricKey;
+          const best = metric.bestPoint;
           return (
             <button
-              key={campaign.key}
+              key={metric.key}
               type="button"
-              onClick={() => onSelect(campaign)}
-              aria-current={selected ? "step" : undefined}
+              onClick={() => onSelect(metric)}
+              aria-pressed={selected}
               className={cn(
-                "flex h-11 max-w-56 items-center gap-2 border-b-2 border-transparent px-3 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                selected && "border-primary bg-accent/50",
+                "grid w-full grid-cols-[1rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded-md border-l-2 border-transparent px-2 py-2 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                selected && "border-l-blue-500 bg-accent/70",
               )}
-              title={`${campaign.name} · ${campaign.objectiveName}`}
             >
-              <span className="font-mono text-[10px] text-muted-foreground">P{index + 1}</span>
-              <span className="max-w-32 truncate text-xs">{campaign.name}</span>
-              <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-                {best ? formatScalar(objectiveValue(best)) : "—"}
+              <span className="text-muted-foreground">
+                {metric.goal === "minimize" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
               </span>
-              {running ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" /> : null}
+              <span className="min-w-0">
+                <span className="block break-all font-mono text-[10px] font-medium leading-tight">{metric.objectiveName}</span>
+                <span className="block text-[9px] text-muted-foreground">{metric.runs.length} attempts</span>
+              </span>
+              <span className="text-right font-mono text-[10px] tabular-nums">
+                <span className="block">{best ? formatScalar(best.rawValue) : "—"}</span>
+                <span className="block text-[8px] text-muted-foreground">best</span>
+              </span>
             </button>
           );
         })}
-      </div>
-    </nav>
+      </nav>
+    </aside>
   );
 }
 
 export function ResearchRunPage() {
   const { project: projectParam = "", sessionName: sessionParam = "" } = useParams();
   const [selectedRunId, setSelectedRunId] = useState("");
+  const [selectedMetricKey, setSelectedMetricKey] = useState("");
   const sessionQuery = useQuery({
     queryKey: ["research-session", projectParam, sessionParam],
     queryFn: () => waddleApi.getResearchSession(projectParam, sessionParam),
@@ -118,22 +130,27 @@ export function ResearchRunPage() {
     () => researchSessionFrom(projectParam, sessionParam, sessionQuery.data ?? []),
     [projectParam, sessionParam, sessionQuery.data],
   );
-  const trajectory = useMemo(() => (session ? researchTrajectory(session) : []), [session]);
+  const metrics = useMemo(() => (session ? researchMetrics(session) : []), [session]);
+  const selectedMetric =
+    metrics.find((metric) => metric.key === selectedMetricKey) ?? metrics[0] ?? null;
 
   useEffect(() => {
-    if (!session || session.runs.length === 0) return;
-    if (!session.runs.some((run) => run.run_id === selectedRunId)) {
-      const lastCampaign = session.campaigns.at(-1);
-      setSelectedRunId(
-        (lastCampaign ? bestRun(lastCampaign)?.run_id : undefined) ?? session.runs.at(-1)!.run_id,
-      );
+    if (!session || !selectedMetric) return;
+    if (selectedMetricKey !== selectedMetric.key) {
+      setSelectedMetricKey(selectedMetric.key);
     }
-  }, [selectedRunId, session]);
+    if (!selectedMetric.runs.some((location) => location.run.run_id === selectedRunId)) {
+      const target =
+        selectedMetric.points.at(-1)?.run ??
+        selectedMetric.bestPoint?.run ??
+        selectedMetric.runs.at(-1)?.run;
+      if (target) setSelectedRunId(target.run_id);
+    }
+  }, [selectedMetric, selectedMetricKey, selectedRunId, session]);
 
   const location = session?.campaigns
-    .map((campaign, phaseIndex) => ({
+    .map((campaign) => ({
       campaign,
-      phaseIndex,
       run: campaign.runs.find((run) => run.run_id === selectedRunId),
     }))
     .find((item) => item.run !== undefined);
@@ -175,15 +192,29 @@ export function ResearchRunPage() {
       />
     );
   }
-  if (!session || !selectedCampaign) {
+  if (!session || !selectedCampaign || !selectedMetric) {
     return <div className="h-48 animate-pulse rounded-lg border bg-muted/20" />;
   }
 
-  const selectRun = (run: ResearchRun) => setSelectedRunId(run.run_id);
-  const selectCampaign = (campaign: ResearchCampaign) =>
-    setSelectedRunId(bestRun(campaign)?.run_id ?? campaign.runs.at(-1)?.run_id ?? "");
+  const selectRun = (run: ResearchRun) => {
+    setSelectedRunId(run.run_id);
+    setSelectedMetricKey(researchMetricKey(run.research.objective_name, run.research.goal));
+  };
+  const selectMetric = (metric: ResearchMetric) => {
+    setSelectedMetricKey(metric.key);
+    const target = metric.points.at(-1)?.run ?? metric.bestPoint?.run ?? metric.runs.at(-1)?.run;
+    if (target) setSelectedRunId(target.run_id);
+  };
   const explicitLearnings = session.runs.filter((run) => run.research_outcome !== null);
+  const workedLearnings = explicitLearnings.filter(
+    (run) => run.research_outcome?.decision === "keep",
+  );
+  const failedLearnings = explicitLearnings.filter((run) =>
+    ["discard", "fail", "inconclusive"].includes(run.research_outcome?.decision ?? ""),
+  );
   const running = session.runs.filter((run) => run.state === "running").length;
+  const selectedAttemptNumber =
+    session.runs.findIndex((run) => run.run_id === selectedRunId) + 1;
   const parent = selectedRun?.research.parent_run_id
     ? session.runs.find((run) => run.run_id === selectedRun.research.parent_run_id)
     : undefined;
@@ -203,7 +234,7 @@ export function ResearchRunPage() {
           </Link>
           <h1 className="truncate text-xl font-semibold tracking-tight">{session.name}</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {session.project} · {session.runs.length} trials · {session.campaigns.length} phases ·{" "}
+            {session.project} · {session.runs.length} attempts · {metrics.length} goal metrics ·{" "}
             {runDuration(session.startedAt, session.updatedAt)}
           </p>
         </div>
@@ -213,52 +244,55 @@ export function ResearchRunPage() {
         </div>
       </header>
 
-      <PhaseRail
-        campaigns={session.campaigns}
-        selectedKey={selectedCampaign.key}
-        onSelect={selectCampaign}
-      />
-
-      <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0 px-4 py-2.5">
-          <div>
-            <CardTitle className="text-sm">Score trajectory</CardTitle>
-            <p className="text-[10px] text-muted-foreground">
-              Faint dots are all attempts; the green staircase is the accepted best.
-            </p>
-          </div>
-          <Badge variant="outline" className="font-mono text-[9px]">
-            {trajectory.reduce((total, phase) => total + phase.points.length, 0)} evaluated
-          </Badge>
-        </CardHeader>
-        <CardContent className="px-3 pb-3 pt-0">
-          {trajectory.length > 0 ? (
-            <ResearchTrajectoryChart
-              phases={trajectory}
-              selectedRunId={selectedRunId}
-              onSelect={(run) => selectRun(run)}
-            />
-          ) : (
-            <div className="grid h-48 place-items-center text-xs text-muted-foreground">
-              Waiting for the first objective value…
+      <Card className="overflow-hidden">
+        <div className="grid lg:grid-cols-[21rem_minmax(0,1fr)]">
+          <MetricScoreboard
+            metrics={metrics}
+            selectedMetricKey={selectedMetric.key}
+            onSelect={selectMetric}
+          />
+          <section className="min-w-0">
+            <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
+              <div className="min-w-0">
+                <h2 className="truncate font-mono text-sm font-semibold">{selectedMetric.objectiveName}</h2>
+                <p className="text-[9px] text-muted-foreground">
+                  Raw values · {selectedMetric.goal === "minimize" ? "lower" : "higher"} is better
+                </p>
+              </div>
+              <Badge variant="outline" className="shrink-0 font-mono text-[9px]">
+                {selectedMetric.points.length} evaluated
+              </Badge>
             </div>
-          )}
-        </CardContent>
+            <div className="px-3 pb-3 pt-1">
+              {selectedMetric.points.length > 0 ? (
+                <ResearchTrajectoryChart
+                  metric={selectedMetric}
+                  selectedRunId={selectedRunId}
+                  onSelect={(run) => selectRun(run)}
+                />
+              ) : (
+                <div className="grid h-48 place-items-center text-xs text-muted-foreground">
+                  Waiting for the first objective value…
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
       </Card>
 
       <Tabs defaultValue="attempts" className="min-w-0">
         <TabsList className="h-8">
           <TabsTrigger value="attempts" className="text-xs">Attempts</TabsTrigger>
-          <TabsTrigger value="hypotheses" className="text-xs">Hypothesis tree</TabsTrigger>
+          <TabsTrigger value="hypotheses" className="text-xs">Idea lineage</TabsTrigger>
           <TabsTrigger value="learnings" className="text-xs">
-            Learnings <span className="ml-1 text-[9px] opacity-60">{explicitLearnings.length}</span>
+            Learnings <span className="ml-1 text-[9px] opacity-60">{workedLearnings.length + failedLearnings.length}</span>
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="attempts" className="mt-3">
           <div className="grid min-h-[28rem] gap-3 lg:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.28fr)]">
             <SessionExperimentTree
-              session={session}
+              metric={selectedMetric}
               selectedRunId={selectedRunId}
               onSelect={(run) => selectRun(run)}
             />
@@ -267,7 +301,7 @@ export function ResearchRunPage() {
               <CardHeader className="flex-row items-center justify-between space-y-0 px-4 py-2.5">
                 <div className="min-w-0">
                   <CardTitle className="text-sm">
-                    {selectedRun ? `P${(location?.phaseIndex ?? 0) + 1} · trial ${selectedRun.research.trial_index}` : "Trial"}
+                    {selectedRun ? `Attempt ${selectedAttemptNumber}` : "Attempt"}
                   </CardTitle>
                   {selectedRun ? (
                     <p className="truncate font-mono text-[9px] text-muted-foreground">
@@ -318,7 +352,7 @@ export function ResearchRunPage() {
                         <h2 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Outcome</h2>
                         <div className="flex items-center gap-1.5">
                           <Badge variant="outline" className={cn("font-mono text-[9px] uppercase", verdictTone(selectedAnalysis.verdict))}>
-                            {selectedAnalysis.verdict}
+                            {researchVerdictLabel(selectedAnalysis)}
                           </Badge>
                           <span className="text-[9px] text-muted-foreground">
                             {selectedAnalysis.source === "controller" ? "recorded by controller" : "legacy-derived selection"}
@@ -388,30 +422,75 @@ export function ResearchRunPage() {
         </TabsContent>
 
         <TabsContent value="learnings" className="mt-3">
-          <Card>
-            <CardContent className="p-2">
-              {explicitLearnings.length === 0 ? (
-                <div className="p-6 text-center text-xs text-muted-foreground">
-                  No controller-authored outcomes yet. Legacy trials remain visible under Attempts.
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {explicitLearnings.map((run) => (
-                    <button
-                      key={run.run_id}
-                      type="button"
-                      onClick={() => selectRun(run)}
-                      className="grid w-full gap-1 px-2 py-2 text-left hover:bg-accent/50 sm:grid-cols-[7rem_minmax(12rem,0.8fr)_minmax(16rem,1.2fr)]"
-                    >
-                      <span className="font-mono text-[10px] uppercase text-muted-foreground">{run.research_outcome!.decision} · trial {run.research.trial_index}</span>
-                      <span className="truncate text-xs font-medium">{run.research.hypothesis}</span>
-                      <span className="line-clamp-2 text-xs text-muted-foreground">{run.research_outcome!.conclusion}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Card className="overflow-hidden border-green-600/30">
+              <CardHeader className="flex-row items-center justify-between space-y-0 border-b bg-green-500/[0.04] px-4 py-2.5">
+                <CardTitle className="text-sm text-green-700 dark:text-green-400">Worked</CardTitle>
+                <Badge variant="outline" className="font-mono text-[9px]">{workedLearnings.length}</Badge>
+              </CardHeader>
+              <CardContent className="p-0">
+                {workedLearnings.length > 0 ? (
+                  <div className="divide-y">
+                    {workedLearnings.map((run) => {
+                      const outcome = run.research_outcome;
+                      if (!outcome) return null;
+                      return (
+                        <button
+                          key={run.run_id}
+                          type="button"
+                          onClick={() => selectRun(run)}
+                          className="w-full px-4 py-3 text-left hover:bg-accent/50"
+                        >
+                          <span className="block text-xs font-medium leading-snug">{run.research.hypothesis}</span>
+                          <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">{outcome.conclusion}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="p-5 text-center text-xs text-muted-foreground">
+                    No idea has been explicitly kept yet.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden border-red-600/25">
+              <CardHeader className="flex-row items-center justify-between space-y-0 border-b bg-red-500/[0.035] px-4 py-2.5">
+                <CardTitle className="text-sm text-red-700 dark:text-red-400">Didn't work or prove out</CardTitle>
+                <Badge variant="outline" className="font-mono text-[9px]">{failedLearnings.length}</Badge>
+              </CardHeader>
+              <CardContent className="p-0">
+                {failedLearnings.length > 0 ? (
+                  <div className="divide-y">
+                    {failedLearnings.map((run) => {
+                      const outcome = run.research_outcome;
+                      if (!outcome) return null;
+                      return (
+                        <button
+                          key={run.run_id}
+                          type="button"
+                          onClick={() => selectRun(run)}
+                          className="w-full px-4 py-3 text-left hover:bg-accent/50"
+                        >
+                          <span className="mb-1 block font-mono text-[8px] uppercase text-muted-foreground">{outcome.decision}</span>
+                          <span className="block text-xs font-medium leading-snug">{run.research.hypothesis}</span>
+                          <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">{outcome.conclusion}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="p-5 text-center text-xs text-muted-foreground">
+                    No rejected or inconclusive idea has an explicit conclusion yet.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            Baselines are omitted. Legacy attempts without controller-authored conclusions are not promoted into learnings.
+          </p>
         </TabsContent>
       </Tabs>
 

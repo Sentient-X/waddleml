@@ -111,10 +111,10 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
   falsification criteria, optional parent, optional evaluated subject); optional terminal
   `ResearchOutcome` (decision, evidence, conclusion, failed gates, next step); existing scalar
   metrics and source identity.
-- Derived objects/operations: research-session list, ordered campaign phases, direction-adjusted
-  attempt scatter plus accepted-incumbent staircase, graphical hypothesis/evaluation tree,
-  controller-authored learning list, per-phase rooted tree, baseline, current
-  incumbent, delta, best run, progress curve, valid/failed counts.
+- Derived objects/operations: research-session list, ordered campaign phases, per-goal raw attempt
+  scatter plus direction-correct accepted-incumbent staircase, focused parent/child/evaluation
+  lineage, controller-authored worked/didn't-work lists, baseline, current incumbent, delta, best
+  run, progress curve, valid/failed counts.
 - Boundary seams: one optional typed research record on `waddle.init`; the existing run-create
   API persists it; filtered run reads and MCP expose it; the console is read-only.
 - Laws made explicit: one effective session per campaign-name family; objective/direction define
@@ -163,7 +163,7 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
 
 | Metric | Upstream reported | Upstream reproduced | Fused | Tolerance | Verdict |
 |---|---:|---:|---:|---:|---|
-| Functional tree/incumbent behavior | Present in supplied Weco UI and canonical attempt/incumbent references | Characterized visually | Typed session/phase/parent/subject tree, all-attempt scatter, accepted-incumbent staircase, graphical hypothesis map, and controller-authored learning list | Exact fixture plus 76-trial desktop/mobile inspection | pass |
+| Functional tree/incumbent behavior | Present in supplied Weco UI and canonical attempt/incumbent references | Characterized visually | Typed session/phase/parent/subject lineage, selectable per-goal raw attempt scatter, accepted-incumbent staircase, focused idea context, and controller-authored worked/didn't-work lists | Exact fixture plus 79-trial desktop/mobile inspection | pass |
 | Existing Waddle compatibility | n/a | Current tests are target baseline | 92 passed; OpenAPI regenerated; console typecheck and production build passed | No regression | pass |
 | Kernel performance | Weco shows kernel use cases, not this model/device result | Not attempted | Owned by Train M10 | M10 contract | out of scope |
 

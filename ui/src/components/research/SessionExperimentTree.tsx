@@ -1,140 +1,105 @@
 import { Badge, Card, CardContent, CardHeader, CardTitle, StatusDot, cn } from "@sx/ui";
 
-import { formatScalar, runStateTone, shortHash } from "@/lib/format";
+import { formatScalar, runStateTone } from "@/lib/format";
 import {
-  bestRun,
-  objectiveValue,
-  researchAnalyses,
-  researchTreeRows,
+  researchVerdictLabel,
   type ResearchCampaign,
+  type ResearchMetric,
   type ResearchRun,
-  type ResearchSession,
 } from "@/lib/research";
 
+function verdictTone(verdict: string): string {
+  if (verdict === "keep") return "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400";
+  if (verdict === "baseline") return "border-blue-600/40 bg-blue-500/10 text-blue-700 dark:text-blue-400";
+  if (verdict === "fail") return "border-red-600/40 bg-red-500/10 text-red-700 dark:text-red-400";
+  if (verdict === "inconclusive") return "border-amber-600/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
+  return "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300";
+}
+
 export function SessionExperimentTree({
-  session,
+  metric,
   selectedRunId,
   onSelect,
 }: {
-  session: ResearchSession;
+  metric: ResearchMetric;
   selectedRunId: string;
   onSelect: (run: ResearchRun, campaign: ResearchCampaign) => void;
 }) {
-  const runLocations = new Map(
-    session.campaigns.flatMap((campaign, phaseIndex) =>
-      campaign.runs.map((run) => [run.run_id, { run, campaign, phaseIndex }] as const),
-    ),
-  );
+  const pointByRun = new Map(metric.points.map((point) => [point.run.run_id, point]));
 
   return (
     <Card className="min-w-0">
-      <CardHeader className="py-3">
-        <CardTitle className="flex items-center justify-between text-sm">
-          <span>Attempts</span>
-          <span className="font-mono text-[10px] font-normal text-muted-foreground">
-            {session.campaigns.length} phases · {session.runs.length} trials
+      <CardHeader className="px-3 py-2.5">
+        <CardTitle className="flex items-center justify-between gap-3 text-sm">
+          <span>Attempt ledger</span>
+          <span className="font-mono text-[9px] font-normal text-muted-foreground">
+            {metric.runs.length} on this goal
           </span>
         </CardTitle>
+        <p className="truncate font-mono text-[9px] text-muted-foreground">
+          {metric.objectiveName} · {metric.goal}
+        </p>
       </CardHeader>
-      <CardContent className="max-h-[52rem] overflow-auto p-2 pt-0">
-        <div className="relative pl-4">
-          <span className="absolute bottom-4 left-[7px] top-4 border-l border-border" />
-          {session.campaigns.map((campaign, phaseIndex) => {
-            const phaseBest = bestRun(campaign);
-            const analyses = researchAnalyses(campaign);
+      <CardContent className="max-h-[52rem] overflow-auto p-1.5 pt-0">
+        <div className="divide-y divide-border/70">
+          {metric.runs.map((location) => {
+            const { run, campaign, analysis, sessionOrdinal } = location;
+            const point = pointByRun.get(run.run_id);
+            const selected = run.run_id === selectedRunId;
+            const isBest = run.run_id === metric.bestPoint?.run.run_id;
             return (
-              <section key={campaign.key} className="relative pb-3 last:pb-0">
-                <span className="absolute -left-[13px] top-3 h-2 w-2 rounded-full border border-primary bg-background" />
-                <button
-                  type="button"
-                  onClick={() => onSelect(campaign.runs[0], campaign)}
-                  className="mb-1 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                    P{phaseIndex + 1}
+              <button
+                key={run.run_id}
+                type="button"
+                onClick={() => onSelect(run, campaign)}
+                className={cn(
+                  "grid w-full grid-cols-[2.4rem_minmax(0,1fr)_5.5rem] gap-2 border-l-2 border-transparent px-2 py-2 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  selected && "border-l-blue-500 bg-accent/70",
+                )}
+              >
+                <span className="flex items-start gap-1 pt-0.5 font-mono text-[9px] text-muted-foreground">
+                  <StatusDot tone={runStateTone(run.state)} />
+                  {sessionOrdinal + 1}
+                </span>
+                <span className="min-w-0">
+                  <span className="mb-1 flex flex-wrap items-center gap-1">
+                    <Badge
+                      variant="outline"
+                      className={cn("px-1 py-0 font-mono text-[8px] uppercase", verdictTone(analysis.verdict))}
+                    >
+                      {researchVerdictLabel(analysis)}
+                    </Badge>
+                    {isBest ? <Badge className="px-1 py-0 text-[8px]">current best</Badge> : null}
+                    {analysis.source === "controller" ? (
+                      <span className="text-[8px] text-muted-foreground">with conclusion</span>
+                    ) : null}
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold" title={campaign.name}>
-                      {campaign.name}
-                    </span>
-                    <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                      {campaign.objectiveName} · {campaign.goal}
-                    </span>
+                  <span className="line-clamp-2 text-[11px] font-medium leading-snug">
+                    {run.research.hypothesis}
                   </span>
-                </button>
-                <div className="ml-2 border-l border-dashed border-border pl-2">
-                  {researchTreeRows(campaign.runs).map(({ run, depth, orphan }) => {
-                    const value = objectiveValue(run);
-                    const analysis = analyses.get(run.run_id);
-                    const selected = run.run_id === selectedRunId;
-                    const parent = run.research.parent_run_id
-                      ? runLocations.get(run.research.parent_run_id)
-                      : undefined;
-                    const subject = run.research.subject_run_id
-                      ? runLocations.get(run.research.subject_run_id)
-                      : undefined;
-                    return (
-                      <button
-                        key={run.run_id}
-                        type="button"
-                        onClick={() => onSelect(run, campaign)}
-                        className={cn(
-                          "relative flex w-full items-start gap-2 rounded-md py-1.5 pr-2 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                          selected && "bg-accent",
-                        )}
-                        style={{ paddingLeft: `${8 + depth * 16}px` }}
-                      >
-                        {depth > 0 ? (
-                          <span
-                            className="absolute bottom-0 top-0 border-l border-border"
-                            style={{ left: `${7 + (depth - 1) * 16}px` }}
-                          />
-                        ) : null}
-                        <StatusDot tone={runStateTone(run.state)} />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex flex-wrap items-center gap-1 text-[11px] font-medium">
-                            trial {run.research.trial_index}
-                            {run.run_id === phaseBest?.run_id ? (
-                              <Badge className="px-1 py-0 text-[9px]">best</Badge>
-                            ) : null}
-                            {analysis?.verdict === "keep" ? (
-                              <Badge
-                                variant="outline"
-                                className="border-green-600/40 bg-green-500/10 px-1 py-0 text-[9px] text-green-700 dark:text-green-400"
-                              >
-                                {analysis.source === "controller" ? "kept" : "derived best"}
-                              </Badge>
-                            ) : null}
-                            {analysis?.verdict === "fail" ? (
-                              <Badge variant="destructive" className="px-1 py-0 text-[9px]">
-                                failed
-                              </Badge>
-                            ) : null}
-                            {orphan && !parent ? <Badge variant="outline">orphan</Badge> : null}
-                          </span>
-                          <span className="block truncate text-[10px] text-muted-foreground">
-                            {run.research.hypothesis}
-                          </span>
-                          {run.research.subject_run_id ? (
-                            <span className="mt-0.5 block truncate font-mono text-[9px] text-primary">
-                              ↗ evaluates {subject ? `P${subject.phaseIndex + 1}/trial ${subject.run.research.trial_index}` : shortHash(run.research.subject_run_id, 10)}
-                            </span>
-                          ) : null}
-                          {parent && parent.campaign.key !== campaign.key ? (
-                            <span className="mt-0.5 block truncate font-mono text-[9px] text-muted-foreground">
-                              ↳ from P{parent.phaseIndex + 1}/trial{" "}
-                              {parent.run.research.trial_index}
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="shrink-0 font-mono text-[10px] tabular-nums">
-                          {value === null ? "—" : formatScalar(value)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
+                  {analysis.source === "controller" && analysis.conclusion ? (
+                    <span className="mt-1 line-clamp-1 text-[9px] text-muted-foreground">
+                      {analysis.conclusion}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="min-w-0 text-right font-mono text-[9px] tabular-nums">
+                  <span className="block text-foreground">
+                    {point ? formatScalar(point.rawValue) : "—"}
+                  </span>
+                  {point ? (
+                    <span
+                      className={cn(
+                        "mt-1 block text-muted-foreground",
+                        point.baselineChange > 0 && "text-green-600 dark:text-green-400",
+                      )}
+                    >
+                      {point.baselineChange > 0 ? "+" : ""}
+                      {point.baselineChange.toFixed(1)}{metric.zeroBaseline ? " pp" : "%"}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
             );
           })}
         </div>

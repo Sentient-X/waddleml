@@ -1,30 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Badge, cn } from "@sx/ui";
 
 import { formatScalar } from "@/lib/format";
-import type {
-  ResearchCampaign,
-  ResearchRun,
-  ResearchTrajectoryPhase,
+import {
+  researchVerdictLabel,
+  type ResearchCampaign,
+  type ResearchMetric,
+  type ResearchMetricPoint,
+  type ResearchRun,
 } from "@/lib/research";
 
-const WIDTH_PER_POINT = 12;
-const MIN_WIDTH = 720;
-const HEIGHT = 304;
-const MARGIN = { top: 30, right: 18, bottom: 38, left: 58 } as const;
+const WIDTH_PER_ATTEMPT = 12;
+const MIN_WIDTH = 680;
+const HEIGHT = 292;
+const MARGIN = { top: 24, right: 18, bottom: 38, left: 64 } as const;
 
-function ticks(minimum: number, maximum: number): number[] {
+function numericTicks(minimum: number, maximum: number): number[] {
   const span = maximum - minimum || 1;
   return Array.from({ length: 5 }, (_, index) => minimum + (span * index) / 4);
 }
 
-function ordinalTicks(pointCount: number): number[] {
-  if (pointCount <= 1) return [0];
-  const interval = Math.max(1, Math.ceil((pointCount - 1) / 8));
-  const values = Array.from(
-    { length: Math.floor((pointCount - 1) / interval) + 1 },
-    (_, index) => index * interval,
-  );
-  if (values.at(-1) !== pointCount - 1) values.push(pointCount - 1);
+function ordinalTicks(minimum: number, maximum: number): number[] {
+  if (minimum === maximum) return [minimum];
+  const interval = Math.max(1, Math.ceil((maximum - minimum) / 7));
+  const values: number[] = [];
+  for (let value = minimum; value <= maximum; value += interval) values.push(value);
+  if (values.at(-1) !== maximum) values.push(maximum);
   return values;
 }
 
@@ -39,15 +40,28 @@ function stepPath(points: readonly { x: number; y: number }[]): string {
 }
 
 function shortLabel(value: string): string {
-  return value.length <= 28 ? value : `${value.slice(0, 27)}…`;
+  return value.length <= 27 ? value : `${value.slice(0, 26)}…`;
+}
+
+function verdictTone(verdict: string): string {
+  if (verdict === "keep") return "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400";
+  if (verdict === "baseline") return "border-blue-600/40 bg-blue-500/10 text-blue-700 dark:text-blue-400";
+  if (verdict === "fail") return "border-red-600/40 bg-red-500/10 text-red-700 dark:text-red-400";
+  if (verdict === "inconclusive") return "border-amber-600/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
+  return "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300";
+}
+
+function changeLabel(point: ResearchMetricPoint, zeroBaseline: boolean): string {
+  const prefix = point.baselineChange > 0 ? "+" : "";
+  return `${prefix}${point.baselineChange.toFixed(2)}${zeroBaseline ? " pp" : "%"}`;
 }
 
 export function ResearchTrajectoryChart({
-  phases,
+  metric,
   selectedRunId,
   onSelect,
 }: {
-  phases: readonly ResearchTrajectoryPhase[];
+  metric: ResearchMetric;
   selectedRunId: string;
   onSelect: (run: ResearchRun, campaign: ResearchCampaign) => void;
 }) {
@@ -62,67 +76,54 @@ export function ResearchTrajectoryChart({
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
-  let acceptedOffset = 0;
-  const locatedPoints = phases.flatMap((phase) => {
-    const located = phase.points.map((point) => ({
-      point,
-      phase,
-      candidateScore: acceptedOffset + point.improvement,
-      incumbentScore: acceptedOffset + point.incumbentImprovement,
-    }));
-    acceptedOffset += Math.max(0, phase.points.at(-1)?.incumbentImprovement ?? 0);
-    return located;
-  });
-  const points = locatedPoints.map(({ point }) => point);
+
+  const points = metric.points;
+  const firstOrdinal = points[0]?.sessionOrdinal ?? 0;
+  const lastOrdinal = points.at(-1)?.sessionOrdinal ?? firstOrdinal;
   const width = Math.max(
     MIN_WIDTH,
     containerWidth,
-    points.length * WIDTH_PER_POINT + MARGIN.left + MARGIN.right,
+    (lastOrdinal - firstOrdinal + 1) * WIDTH_PER_ATTEMPT + MARGIN.left + MARGIN.right,
   );
   const plotWidth = width - MARGIN.left - MARGIN.right;
   const plotHeight = HEIGHT - MARGIN.top - MARGIN.bottom;
-  const values = locatedPoints.flatMap(({ candidateScore, incumbentScore }) => [
-    candidateScore,
-    incumbentScore,
-  ]);
-  const rawMinimum = Math.min(0, ...values);
-  const rawMaximum = Math.max(0, ...values);
-  const padding = Math.max(0.5, (rawMaximum - rawMinimum) * 0.1);
+  const values = points.flatMap((point) => [point.rawValue, point.incumbentValue]);
+  const rawMinimum = Math.min(...values);
+  const rawMaximum = Math.max(...values);
+  const padding = Math.max(Math.abs(rawMaximum) * 0.02, (rawMaximum - rawMinimum) * 0.1, 0.01);
   const minimum = rawMinimum - padding;
   const maximum = rawMaximum + padding;
   const x = (ordinal: number) =>
     MARGIN.left +
-    (points.length <= 1 ? plotWidth / 2 : (ordinal / (points.length - 1)) * plotWidth);
+    (firstOrdinal === lastOrdinal
+      ? plotWidth / 2
+      : ((ordinal - firstOrdinal) / (lastOrdinal - firstOrdinal)) * plotWidth);
   const y = (value: number) =>
     MARGIN.top + ((maximum - value) / (maximum - minimum)) * plotHeight;
-  const yTicks = useMemo(() => ticks(minimum, maximum), [minimum, maximum]);
-  const xTicks = useMemo(() => ordinalTicks(points.length), [points.length]);
-  const incumbentPath = stepPath(
-    locatedPoints.map(({ point, incumbentScore }) => ({
-      x: x(point.ordinal),
-      y: y(incumbentScore),
-    })),
+  const yTicks = useMemo(() => numericTicks(minimum, maximum), [minimum, maximum]);
+  const xTicks = useMemo(
+    () => ordinalTicks(firstOrdinal, lastOrdinal),
+    [firstOrdinal, lastOrdinal],
   );
-  let priorIncumbent = Number.NEGATIVE_INFINITY;
-  const acceptedImprovements = locatedPoints.filter(({ incumbentScore }) => {
-    const improved = incumbentScore > priorIncumbent + 1e-9;
-    priorIncumbent = Math.max(priorIncumbent, incumbentScore);
-    return improved;
-  });
+  const incumbentPath = stepPath(
+    points.map((point) => ({ x: x(point.sessionOrdinal), y: y(point.incumbentValue) })),
+  );
+  const improvements = points.filter((point) => point.movedIncumbent);
   let lastLabelX = Number.NEGATIVE_INFINITY;
-  const labeledImprovements = acceptedImprovements.slice(1).filter(({ point }) => {
-    const position = x(point.ordinal);
-    if (position - lastLabelX < 72) return false;
+  const labeledImprovements = improvements.slice(1).filter((point) => {
+    const position = x(point.sessionOrdinal);
+    if (position - lastLabelX < 86) return false;
     lastLabelX = position;
     return true;
   });
+  const selectedPoint = points.find((point) => point.run.run_id === selectedRunId) ?? null;
 
   return (
     <div>
       <div ref={containerRef} className="overflow-x-auto">
         <svg
           role="img"
-          aria-label="All evaluated attempts as faint points and the accepted running best as one staircase"
+          aria-label={`${metric.objectiveName}: all evaluated attempts and the running best`}
           width={width}
           height={HEIGHT}
           viewBox={`0 0 ${width} ${HEIGHT}`}
@@ -144,7 +145,7 @@ export function ResearchTrajectoryChart({
                 textAnchor="end"
                 className="fill-muted-foreground font-mono text-[9px]"
               >
-                {tick.toFixed(1)}
+                {formatScalar(tick)}
               </text>
             </g>
           ))}
@@ -156,7 +157,7 @@ export function ResearchTrajectoryChart({
                 y1={MARGIN.top}
                 y2={MARGIN.top + plotHeight}
                 stroke="currentColor"
-                className="text-border/50"
+                className="text-border/45"
               />
               <text
                 x={x(tick)}
@@ -169,68 +170,67 @@ export function ResearchTrajectoryChart({
             </g>
           ))}
 
-          {locatedPoints.map(({ point, phase, candidateScore }) => {
-            const selected = point.run.run_id === selectedRunId;
-            const recorded = point.analysis.source === "controller";
-            return (
-              <circle
-                key={`scatter-${point.run.run_id}`}
-                cx={x(point.ordinal)}
-                cy={y(candidateScore)}
-                r={selected ? 5 : 3}
-                fill="#64748b"
-                fillOpacity={selected ? 0.72 : 0.2}
-                stroke={selected ? "#0f172a" : "transparent"}
-                strokeWidth={selected ? 1.5 : 0}
-                className="cursor-pointer focus:outline-none"
-                role="button"
-                tabIndex={0}
-                onClick={() => onSelect(point.run, phase.campaign)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onSelect(point.run, phase.campaign);
-                  }
-                }}
-              >
-                <title>
-                  {`P${point.phaseIndex + 1} · trial ${point.run.research.trial_index}\n${phase.campaign.objectiveName}: ${formatScalar(point.rawValue)}\nPhase-relative change: ${point.improvement.toFixed(2)}%\nCumulative progress index: ${candidateScore.toFixed(2)}\nDecision: ${point.analysis.verdict}${recorded ? " (controller)" : " (legacy-derived)"}\n${point.run.research.hypothesis}`}
-                </title>
-              </circle>
-            );
-          })}
+          {points.map((point) => (
+            <circle
+              key={`attempt-${point.run.run_id}`}
+              cx={x(point.sessionOrdinal)}
+              cy={y(point.rawValue)}
+              r={4}
+              className="cursor-pointer fill-slate-500 opacity-70 transition-opacity hover:opacity-100 focus:outline-none dark:fill-slate-300"
+              role="button"
+              tabIndex={0}
+              aria-label={`Attempt ${point.sessionOrdinal + 1}: ${point.run.research.hypothesis}; ${metric.objectiveName} ${formatScalar(point.rawValue)}; ${researchVerdictLabel(point.analysis)}`}
+              onClick={() => onSelect(point.run, point.campaign)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(point.run, point.campaign);
+                }
+              }}
+            />
+          ))}
 
           <path
             d={incumbentPath}
             fill="none"
             stroke="#16a34a"
-            strokeWidth={2}
+            strokeWidth={2.25}
             strokeLinejoin="round"
           />
-          {acceptedImprovements.map(({ point, incumbentScore }) => (
-              <circle
-                key={`kept-${point.run.run_id}`}
-                cx={x(point.ordinal)}
-                cy={y(incumbentScore)}
-                r={3.5}
-                fill="#bbf7d0"
-                stroke="#16a34a"
-                strokeWidth={1.5}
-                className="pointer-events-none"
-              />
-            ))}
-
-          {labeledImprovements.map(({ point, incumbentScore }) => (
+          {improvements.map((point) => (
+            <circle
+              key={`best-${point.run.run_id}`}
+              cx={x(point.sessionOrdinal)}
+              cy={y(point.incumbentValue)}
+              r={4}
+              fill="#bbf7d0"
+              stroke="#16a34a"
+              strokeWidth={1.75}
+              className="pointer-events-none"
+            />
+          ))}
+          {labeledImprovements.map((point) => (
             <text
               key={`label-${point.run.run_id}`}
-              x={x(point.ordinal) + 5}
-              y={y(incumbentScore) - 7}
-              transform={`rotate(-24 ${x(point.ordinal) + 5} ${y(incumbentScore) - 7})`}
+              x={x(point.sessionOrdinal) + 5}
+              y={y(point.incumbentValue) - 8}
+              transform={`rotate(-24 ${x(point.sessionOrdinal) + 5} ${y(point.incumbentValue) - 8})`}
               className="hidden fill-green-700 text-[7px] dark:fill-green-400 sm:block"
             >
               {shortLabel(point.run.research.hypothesis)}
             </text>
           ))}
+          {selectedPoint ? (
+            <circle
+              cx={x(selectedPoint.sessionOrdinal)}
+              cy={y(selectedPoint.rawValue)}
+              r={7}
+              fill="none"
+              stroke="#3b82f6"
+              strokeWidth={2}
+              className="pointer-events-none"
+            />
+          ) : null}
 
           <text
             x={MARGIN.left + plotWidth / 2}
@@ -238,7 +238,7 @@ export function ResearchTrajectoryChart({
             textAnchor="middle"
             className="fill-muted-foreground text-[9px]"
           >
-            attempt #
+            campaign attempt #
           </text>
           <text
             x={13}
@@ -247,19 +247,71 @@ export function ResearchTrajectoryChart({
             transform={`rotate(-90 13 ${MARGIN.top + plotHeight / 2})`}
             className="fill-muted-foreground text-[9px]"
           >
-            cumulative gain index
+            {metric.goal === "minimize" ? "lower is better" : "higher is better"}
           </text>
         </svg>
       </div>
+
       <div className="mt-1 flex flex-wrap items-center gap-4 text-[10px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-slate-500 opacity-25" /> all attempts
+          <span className="h-2.5 w-2.5 rounded-full bg-slate-500 opacity-70 dark:bg-slate-300" /> all attempts
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-0.5 w-4 bg-green-600" /> accepted running best
+          <span className="h-0.5 w-4 bg-green-600" /> running best
         </span>
-          <span>Cumulative phase-relative gain index; higher is better. Raw scores remain in trial detail.</span>
+        <span>Click a point to pin its decision.</span>
       </div>
+
+      {selectedPoint ? (
+        <section className="mt-3 grid gap-3 border-t pt-3 lg:grid-cols-[minmax(14rem,0.9fr)_minmax(12rem,0.55fr)_minmax(16rem,1.1fr)]">
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-2">
+              <Badge variant="outline" className={cn("font-mono text-[9px] uppercase", verdictTone(selectedPoint.analysis.verdict))}>
+                {researchVerdictLabel(selectedPoint.analysis)}
+              </Badge>
+              <span className="font-mono text-[9px] text-muted-foreground">
+                attempt {selectedPoint.sessionOrdinal + 1}
+              </span>
+            </div>
+            <p className="text-sm font-medium leading-snug">{selectedPoint.run.research.hypothesis}</p>
+          </div>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs lg:grid-cols-1">
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-muted-foreground">Result</dt>
+              <dd className="font-mono tabular-nums">{formatScalar(selectedPoint.rawValue)}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-muted-foreground">vs first</dt>
+              <dd className={cn("font-mono tabular-nums", selectedPoint.baselineChange > 0 && "text-green-600 dark:text-green-400")}>
+                {changeLabel(selectedPoint, metric.zeroBaseline)}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-muted-foreground">Moved best</dt>
+              <dd>{selectedPoint.movedIncumbent ? "yes" : "no"}</dd>
+            </div>
+          </dl>
+          <div className="min-w-0 text-xs">
+            <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+              What we learned
+            </p>
+            {selectedPoint.analysis.source === "controller" ? (
+              <>
+                <p className="leading-relaxed">{selectedPoint.analysis.conclusion}</p>
+                {selectedPoint.analysis.failedGates.length > 0 ? (
+                  <p className="mt-1 truncate text-red-600 dark:text-red-400">
+                    Failed: {selectedPoint.analysis.failedGates.join(", ")}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="italic leading-relaxed text-muted-foreground">
+                No controller conclusion was recorded. Only the numeric selection state is known.
+              </p>
+            )}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

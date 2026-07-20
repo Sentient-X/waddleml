@@ -27,27 +27,30 @@ export interface ResearchSession {
   updatedAt: string;
 }
 
-export interface ResearchTreeRow {
-  run: ResearchRun;
-  depth: number;
-  orphan: boolean;
-}
-
-export interface ResearchTrajectoryPoint {
-  ordinal: number;
+export interface LocatedResearchRun {
+  sessionOrdinal: number;
   phaseIndex: number;
   run: ResearchRun;
-  rawValue: number;
-  improvement: number;
-  incumbentImprovement: number;
+  campaign: ResearchCampaign;
   analysis: ResearchAnalysis;
 }
 
-export interface ResearchTrajectoryPhase {
-  campaign: ResearchCampaign;
-  phaseIndex: number;
+export interface ResearchMetricPoint extends LocatedResearchRun {
+  metricOrdinal: number;
+  rawValue: number;
+  incumbentValue: number;
+  baselineChange: number;
+  movedIncumbent: boolean;
+}
+
+export interface ResearchMetric {
+  key: string;
+  objectiveName: string;
+  goal: ResearchTrial["goal"];
+  runs: LocatedResearchRun[];
+  points: ResearchMetricPoint[];
+  bestPoint: ResearchMetricPoint | null;
   zeroBaseline: boolean;
-  points: ResearchTrajectoryPoint[];
 }
 
 export type ResearchVerdict =
@@ -64,6 +67,15 @@ export interface ResearchAnalysis {
   baselineImprovement: number | null;
 }
 
+export function researchVerdictLabel(analysis: ResearchAnalysis): string {
+  if (analysis.source === "controller") return analysis.verdict;
+  if (analysis.verdict === "keep") return "metric best";
+  if (analysis.verdict === "discard") return "non-best";
+  if (analysis.verdict === "fail") return "failed";
+  if (analysis.verdict === "inconclusive") return "unresolved";
+  return analysis.verdict;
+}
+
 export function researchSessionKey(project: string, name: string): string {
   return JSON.stringify([project, name]);
 }
@@ -76,6 +88,13 @@ function campaignKey(
   goal: ResearchTrial["goal"],
 ): string {
   return JSON.stringify([project, sessionName, campaign, objectiveName, goal]);
+}
+
+export function researchMetricKey(
+  objectiveName: string,
+  goal: ResearchTrial["goal"],
+): string {
+  return JSON.stringify([objectiveName, goal]);
 }
 
 export function objectiveValue(run: ResearchRun): number | null {
@@ -147,41 +166,12 @@ export function researchSessionFrom(
   };
 }
 
-export function researchTreeRows(runs: readonly ResearchRun[]): ResearchTreeRow[] {
-  const ordered = orderedRuns(runs);
-  const ids = new Set(ordered.map((run) => run.run_id));
-  const children = new Map<string, ResearchRun[]>();
-  for (const run of ordered) {
-    const parent = run.research.parent_run_id ?? null;
-    if (parent !== null && ids.has(parent)) {
-      const bucket = children.get(parent) ?? [];
-      bucket.push(run);
-      children.set(parent, bucket);
-    }
-  }
-
-  const rows: ResearchTreeRow[] = [];
-  const visited = new Set<string>();
-  const visit = (run: ResearchRun, depth: number, orphan: boolean) => {
-    if (visited.has(run.run_id)) return;
-    visited.add(run.run_id);
-    rows.push({ run, depth, orphan });
-    for (const child of children.get(run.run_id) ?? []) visit(child, depth + 1, false);
-  };
-  for (const run of ordered) {
-    const parent = run.research.parent_run_id ?? null;
-    if (parent === null || !ids.has(parent)) visit(run, 0, parent !== null);
-  }
-  for (const run of ordered) visit(run, 0, true);
-  return rows;
-}
-
 function directionalImprovement(
-  campaign: ResearchCampaign,
+  goal: ResearchTrial["goal"],
   baseline: number,
   value: number,
 ): number {
-  const delta = campaign.goal === "minimize" ? baseline - value : value - baseline;
+  const delta = goal === "minimize" ? baseline - value : value - baseline;
   return Math.abs(baseline) > 1e-12 ? (delta / Math.abs(baseline)) * 100 : delta * 100;
 }
 
@@ -220,7 +210,7 @@ export function researchAnalyses(campaign: ResearchCampaign): Map<string, Resear
     const verdict = outcome?.decision ?? derivedVerdict(run, value, isBaseline, improvesIncumbent);
     const baselineImprovement =
       value !== null && baseline !== undefined
-        ? directionalImprovement(campaign, baseline, value)
+        ? directionalImprovement(campaign.goal, baseline, value)
         : null;
     analyses.set(run.run_id, {
       verdict,
@@ -238,37 +228,85 @@ export function researchAnalyses(campaign: ResearchCampaign): Map<string, Resear
   return analyses;
 }
 
-export function researchTrajectory(session: ResearchSession): ResearchTrajectoryPhase[] {
-  let ordinal = 0;
-  return session.campaigns.flatMap((campaign, phaseIndex) => {
-    const evaluated = campaign.runs.flatMap((run) => {
-      const value = objectiveValue(run);
-      return value === null ? [] : [{ run, value }];
-    });
-    const baseline = evaluated[0]?.value;
-    if (baseline === undefined) return [];
-    const analyses = researchAnalyses(campaign);
-    let incumbent = baseline;
-    const points = evaluated.flatMap(({ run, value }) => {
-      const analysis = analyses.get(run.run_id);
-      if (!analysis) return [];
-      if (accepted(analysis.verdict) && better(campaign.goal, value, incumbent)) {
-        incumbent = value;
-      }
-      const point = {
-        ordinal,
-        phaseIndex,
-        run,
-        rawValue: value,
-        improvement: directionalImprovement(campaign, baseline, value),
-        incumbentImprovement: directionalImprovement(campaign, baseline, incumbent),
-        analysis,
-      } satisfies ResearchTrajectoryPoint;
-      ordinal += 1;
-      return [point];
-    });
-    return [{ campaign, phaseIndex, zeroBaseline: Math.abs(baseline) <= 1e-12, points }];
+export function researchRunLocations(session: ResearchSession): LocatedResearchRun[] {
+  const campaignLocation = new Map(
+    session.campaigns.flatMap((campaign, phaseIndex) => {
+      const analyses = researchAnalyses(campaign);
+      return campaign.runs.map(
+        (run) => [
+          run.run_id,
+          {
+            campaign,
+            phaseIndex,
+            analysis: analyses.get(run.run_id)!,
+          },
+        ] as const,
+      );
+    }),
+  );
+  return session.runs.flatMap((run, sessionOrdinal) => {
+    const location = campaignLocation.get(run.run_id);
+    return location ? [{ run, sessionOrdinal, ...location }] : [];
   });
+}
+
+export function researchMetrics(session: ResearchSession): ResearchMetric[] {
+  const locations = researchRunLocations(session);
+  const groups = new Map<string, LocatedResearchRun[]>();
+  for (const location of locations) {
+    const key = researchMetricKey(
+      location.run.research.objective_name,
+      location.run.research.goal,
+    );
+    const bucket = groups.get(key) ?? [];
+    bucket.push(location);
+    groups.set(key, bucket);
+  }
+
+  return [...groups.entries()]
+    .map(([key, runs]) => {
+      const objectiveName = runs[0].run.research.objective_name;
+      const goal = runs[0].run.research.goal;
+      const evaluated = runs.flatMap((location) => {
+        const value = objectiveValue(location.run);
+        return value === null ? [] : [{ location, value }];
+      });
+      const baseline = evaluated[0]?.value;
+      let incumbent: number | undefined;
+      let bestPoint: ResearchMetricPoint | null = null;
+      const points = evaluated.flatMap(({ location, value }, metricOrdinal) => {
+        if (baseline === undefined) return [];
+        const qualifies = accepted(location.analysis.verdict);
+        const movedIncumbent =
+          qualifies && (incumbent === undefined || better(goal, value, incumbent));
+        if (movedIncumbent) incumbent = value;
+        if (incumbent === undefined) return [];
+        const point = {
+          ...location,
+          metricOrdinal,
+          rawValue: value,
+          incumbentValue: incumbent,
+          baselineChange: directionalImprovement(goal, baseline, value),
+          movedIncumbent,
+        } satisfies ResearchMetricPoint;
+        if (movedIncumbent) bestPoint = point;
+        return [point];
+      });
+      return {
+        key,
+        objectiveName,
+        goal,
+        runs,
+        points,
+        bestPoint,
+        zeroBaseline: baseline !== undefined && Math.abs(baseline) <= 1e-12,
+      } satisfies ResearchMetric;
+    })
+    .sort(
+      (left, right) =>
+        right.runs.length - left.runs.length ||
+        left.runs[0].sessionOrdinal - right.runs[0].sessionOrdinal,
+    );
 }
 
 export function better(
@@ -277,25 +315,6 @@ export function better(
   incumbent: number,
 ): boolean {
   return goal === "minimize" ? candidate < incumbent : candidate > incumbent;
-}
-
-export function bestRun(campaign: ResearchCampaign): ResearchRun | null {
-  const analyses = researchAnalyses(campaign);
-  let selected: ResearchRun | null = null;
-  let selectedValue: number | null = null;
-  for (const run of campaign.runs) {
-    const value = objectiveValue(run);
-    const verdict = analyses.get(run.run_id)?.verdict;
-    if (
-      (verdict === "baseline" || verdict === "keep") &&
-      value !== null &&
-      (selectedValue === null || better(campaign.goal, value, selectedValue))
-    ) {
-      selected = run;
-      selectedValue = value;
-    }
-  }
-  return selected;
 }
 
 export function researchSessionPath(

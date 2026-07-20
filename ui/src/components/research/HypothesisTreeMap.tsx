@@ -1,167 +1,75 @@
-import { useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@sx/ui";
+import { Badge, Card, CardContent, CardHeader, CardTitle, cn } from "@sx/ui";
 
+import { formatScalar } from "@/lib/format";
 import {
-  researchAnalyses,
-  type ResearchAnalysis,
+  objectiveValue,
+  researchRunLocations,
+  researchVerdictLabel,
+  type LocatedResearchRun,
   type ResearchCampaign,
   type ResearchRun,
   type ResearchSession,
 } from "@/lib/research";
 
-const NODE_WIDTH = 224;
-const NODE_HEIGHT = 62;
-const COLUMN_GAP = 62;
-const ROW_GAP = 18;
-const MARGIN = 22;
-
-interface LocatedRun {
-  run: ResearchRun;
-  campaign: ResearchCampaign;
-  phaseIndex: number;
-  analysis: ResearchAnalysis;
+function verdictTone(verdict: string): string {
+  if (verdict === "keep") return "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400";
+  if (verdict === "baseline") return "border-blue-600/40 bg-blue-500/10 text-blue-700 dark:text-blue-400";
+  if (verdict === "fail") return "border-red-600/40 bg-red-500/10 text-red-700 dark:text-red-400";
+  if (verdict === "inconclusive") return "border-amber-600/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
+  return "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300";
 }
 
-interface TreeNode extends LocatedRun {
-  depth: number;
-  x: number;
-  y: number;
+function IdeaButton({
+  location,
+  selectedRunId,
+  onSelect,
+}: {
+  location: LocatedResearchRun;
+  selectedRunId: string;
+  onSelect: (run: ResearchRun, campaign: ResearchCampaign) => void;
+}) {
+  const value = objectiveValue(location.run);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(location.run, location.campaign)}
+      className={cn(
+        "w-full rounded-md border border-l-4 bg-background px-3 py-2 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        location.run.run_id === selectedRunId && "border-blue-500 bg-accent/60",
+        location.analysis.verdict === "keep" && "border-l-green-600",
+        location.analysis.verdict === "fail" && "border-l-red-600",
+        location.analysis.verdict === "inconclusive" && "border-l-amber-600",
+        location.analysis.verdict === "discard" && "border-l-slate-500",
+        location.analysis.verdict === "baseline" && "border-l-blue-600",
+        location.analysis.verdict === "running" && "border-l-violet-600",
+      )}
+    >
+      <span className="flex items-center justify-between gap-2 font-mono text-[8px] uppercase text-muted-foreground">
+        <span>attempt {location.sessionOrdinal + 1} · {researchVerdictLabel(location.analysis)}</span>
+        <span>{value === null ? "—" : formatScalar(value)}</span>
+      </span>
+      <span className="mt-1 line-clamp-2 text-[11px] font-medium leading-snug">
+        {location.run.research.hypothesis}
+      </span>
+    </button>
+  );
 }
 
-interface TreeLayout {
-  nodes: TreeNode[];
-  width: number;
-  height: number;
-}
-
-function lines(value: string): [string, string] {
-  const words = value.split(/\s+/);
-  let first = "";
-  let cursor = 0;
-  while (cursor < words.length && `${first} ${words[cursor]}`.trim().length <= 33) {
-    first = `${first} ${words[cursor]}`.trim();
-    cursor += 1;
+function parentChain(
+  selected: LocatedResearchRun,
+  byId: ReadonlyMap<string, LocatedResearchRun>,
+): LocatedResearchRun[] {
+  const chain: LocatedResearchRun[] = [];
+  const visited = new Set([selected.run.run_id]);
+  let cursor = selected;
+  while (cursor.run.research.parent_run_id) {
+    const parent = byId.get(cursor.run.research.parent_run_id);
+    if (!parent || visited.has(parent.run.run_id)) break;
+    visited.add(parent.run.run_id);
+    chain.unshift(parent);
+    cursor = parent;
   }
-  const remainder = words.slice(cursor).join(" ");
-  const second = remainder.length <= 35 ? remainder : `${remainder.slice(0, 34)}…`;
-  return [first || value.slice(0, 33), second];
-}
-
-function verdictColor(analysis: ResearchAnalysis): string {
-  switch (analysis.verdict) {
-    case "keep":
-      return "#16a34a";
-    case "baseline":
-      return "#2563eb";
-    case "fail":
-      return "#dc2626";
-    case "running":
-      return "#7c3aed";
-    case "discard":
-      return "#64748b";
-    case "inconclusive":
-      return "#d97706";
-  }
-}
-
-function treeLayout(session: ResearchSession): TreeLayout {
-  const located = session.campaigns.flatMap((campaign, phaseIndex) => {
-    const analyses = researchAnalyses(campaign);
-    return campaign.runs.map((run) => ({
-      run,
-      campaign,
-      phaseIndex,
-      analysis:
-        analyses.get(run.run_id) ??
-        ({
-          verdict: "inconclusive",
-          source: "legacy-derived",
-          conclusion: null,
-          evidence: null,
-          failedGates: [],
-          nextStep: null,
-          baselineImprovement: null,
-        } satisfies ResearchAnalysis),
-    }));
-  });
-  const byId = new Map(located.map((item) => [item.run.run_id, item]));
-  const children = new Map<string, LocatedRun[]>();
-  for (const item of located) {
-    const parentId = item.run.research.parent_run_id;
-    if (!parentId || !byId.has(parentId) || parentId === item.run.run_id) continue;
-    const bucket = children.get(parentId) ?? [];
-    bucket.push(item);
-    children.set(parentId, bucket);
-  }
-  const rank = (item: LocatedRun) =>
-    item.phaseIndex * 1_000_000 + item.run.research.trial_index * 1_000;
-  for (const bucket of children.values()) bucket.sort((a, b) => rank(a) - rank(b));
-
-  const roots = located.filter((item) => {
-    const parentId = item.run.research.parent_run_id;
-    return !parentId || !byId.has(parentId) || parentId === item.run.run_id;
-  });
-  roots.sort((a, b) => rank(a) - rank(b));
-  const visited = new Set<string>();
-  const nodes: TreeNode[] = [];
-  let nextLeafY = MARGIN;
-  let maximumDepth = 0;
-
-  const visit = (item: LocatedRun, depth: number): number => {
-    if (visited.has(item.run.run_id)) return nextLeafY;
-    visited.add(item.run.run_id);
-    maximumDepth = Math.max(maximumDepth, depth);
-    const childItems = (children.get(item.run.run_id) ?? []).filter(
-      (child) => !visited.has(child.run.run_id),
-    );
-    const childCenters = childItems.map((child) => visit(child, depth + 1));
-    const center =
-      childCenters.length > 0
-        ? (childCenters[0] + childCenters[childCenters.length - 1]) / 2
-        : nextLeafY + NODE_HEIGHT / 2;
-    if (childCenters.length === 0) nextLeafY += NODE_HEIGHT + ROW_GAP;
-    nodes.push({
-      ...item,
-      depth,
-      x: MARGIN + depth * (NODE_WIDTH + COLUMN_GAP),
-      y: center - NODE_HEIGHT / 2,
-    });
-    return center;
-  };
-
-  for (const root of roots) {
-    visit(root, 0);
-    nextLeafY += ROW_GAP;
-  }
-  for (const item of located) {
-    if (!visited.has(item.run.run_id)) {
-      visit(item, 0);
-      nextLeafY += ROW_GAP;
-    }
-  }
-  return {
-    nodes,
-    width: MARGIN * 2 + (maximumDepth + 1) * NODE_WIDTH + maximumDepth * COLUMN_GAP,
-    height: Math.max(360, nextLeafY + MARGIN - ROW_GAP),
-  };
-}
-
-function edgePath(parent: TreeNode, child: TreeNode): string {
-  const startX = parent.x + NODE_WIDTH;
-  const startY = parent.y + NODE_HEIGHT / 2;
-  const endX = child.x;
-  const endY = child.y + NODE_HEIGHT / 2;
-  const bend = Math.max(24, (endX - startX) / 2);
-  return `M ${startX} ${startY} C ${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`;
-}
-
-function subjectPath(subject: TreeNode, evaluation: TreeNode): string {
-  const startX = subject.x + NODE_WIDTH / 2;
-  const startY = subject.y + NODE_HEIGHT;
-  const endX = evaluation.x + NODE_WIDTH / 2;
-  const endY = evaluation.y;
-  const bendY = Math.max(startY, endY) + 24;
-  return `M ${startX} ${startY} C ${startX} ${bendY}, ${endX} ${bendY}, ${endX} ${endY}`;
+  return chain;
 }
 
 export function HypothesisTreeMap({
@@ -173,146 +81,209 @@ export function HypothesisTreeMap({
   selectedRunId: string;
   onSelect: (run: ResearchRun, campaign: ResearchCampaign) => void;
 }) {
-  const layout = useMemo(() => treeLayout(session), [session]);
-  const byId = new Map(layout.nodes.map((node) => [node.run.run_id, node]));
-  const parentEdges = layout.nodes.flatMap((node) => {
-    const parentId = node.run.research.parent_run_id;
-    const parent = parentId ? byId.get(parentId) : undefined;
-    return parent ? [{ parent, child: node }] : [];
+  const locations = researchRunLocations(session);
+  const byId = new Map(locations.map((location) => [location.run.run_id, location]));
+  const selected = byId.get(selectedRunId) ?? locations.at(-1);
+  if (!selected) return null;
+
+  const ancestors = parentChain(selected, byId);
+  const visibleAncestors = ancestors.slice(-5);
+  const children = locations.filter(
+    (location) => location.run.research.parent_run_id === selected.run.run_id,
+  );
+  const evaluations = locations.filter(
+    (location) => location.run.research.subject_run_id === selected.run.run_id,
+  );
+  const evaluatedSubject = selected.run.research.subject_run_id
+    ? byId.get(selected.run.research.subject_run_id)
+    : undefined;
+  const roots = locations.filter((location) => {
+    const parentId = location.run.research.parent_run_id;
+    return !parentId || !byId.has(parentId) || parentId === location.run.run_id;
   });
-  const subjectEdges = layout.nodes.flatMap((node) => {
-    const subjectId = node.run.research.subject_run_id;
-    const subject = subjectId ? byId.get(subjectId) : undefined;
-    return subject ? [{ subject, evaluation: node }] : [];
-  });
+  const kept = locations.filter((location) => location.analysis.verdict === "keep").length;
+  const rejected = locations.filter((location) =>
+    ["discard", "fail"].includes(location.analysis.verdict),
+  ).length;
+  const unresolved = locations.filter((location) =>
+    ["running", "inconclusive"].includes(location.analysis.verdict),
+  ).length;
+  const controllerBacked = locations.filter(
+    (location) => location.analysis.source === "controller",
+  ).length;
+  const value = objectiveValue(selected.run);
 
   return (
     <Card className="min-w-0">
-      <CardHeader className="flex-row items-start justify-between space-y-0 py-3">
+      <CardHeader className="flex-row items-start justify-between gap-4 space-y-0 px-4 py-3">
         <div>
-          <CardTitle className="text-sm">Hypothesis tree</CardTitle>
+          <CardTitle className="text-sm">Idea lineage</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            Solid edges show which idea produced the next hypothesis; dashed blue edges show what
-            an evaluation measured.
+            The path into the selected idea, its result, and the ideas or evaluations it produced.
           </p>
         </div>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-          {layout.nodes.length} ideas
-        </span>
+        <div className="flex shrink-0 flex-wrap justify-end gap-x-3 gap-y-1 font-mono text-[9px] text-muted-foreground">
+          <span className="text-green-600 dark:text-green-400">{kept} metric winners</span>
+          <span>{rejected} non-winners / failed</span>
+          <span className="text-amber-600 dark:text-amber-400">{unresolved} unresolved</span>
+          <span>{controllerBacked} concluded</span>
+        </div>
       </CardHeader>
-      <CardContent className="p-0">
-        <div className="max-h-[44rem] overflow-auto border-t">
-          <svg
-            role="tree"
-            aria-label="Research hypothesis lineage"
-            width={layout.width}
-            height={layout.height}
-            viewBox={`0 0 ${layout.width} ${layout.height}`}
-            className="block max-w-none bg-muted/10"
-          >
-            <defs>
-              <marker
-                id="evaluation-arrow"
-                markerWidth="8"
-                markerHeight="8"
-                refX="7"
-                refY="4"
-                orient="auto"
-              >
-                <path d="M 0 0 L 8 4 L 0 8 z" fill="#2563eb" />
-              </marker>
-            </defs>
-            {parentEdges.map(({ parent, child }) => (
-              <path
-                key={`parent-${parent.run.run_id}-${child.run.run_id}`}
-                d={edgePath(parent, child)}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.25}
-                className="text-border"
-              />
-            ))}
-            {subjectEdges.map(({ subject, evaluation }) => (
-              <path
-                key={`subject-${subject.run.run_id}-${evaluation.run.run_id}`}
-                d={subjectPath(subject, evaluation)}
-                fill="none"
-                stroke="#2563eb"
-                strokeDasharray="5 4"
-                strokeWidth={1.25}
-                markerEnd="url(#evaluation-arrow)"
-                opacity={0.75}
-              />
-            ))}
-            {layout.nodes.map((node) => {
-              const [firstLine, secondLine] = lines(node.run.research.hypothesis);
-              const color = verdictColor(node.analysis);
-              const selected = node.run.run_id === selectedRunId;
-              return (
-                <g
-                  key={node.run.run_id}
-                  role="treeitem"
-                  tabIndex={0}
-                  aria-label={`Phase ${node.phaseIndex + 1}, trial ${node.run.research.trial_index}, ${node.analysis.verdict}: ${node.run.research.hypothesis}`}
-                  className="cursor-pointer focus:outline-none"
-                  onClick={() => onSelect(node.run, node.campaign)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onSelect(node.run, node.campaign);
-                    }
-                  }}
+      <CardContent className="space-y-3 px-4 pb-4 pt-0">
+        <div className="grid gap-3 border-t pt-3 lg:grid-cols-[minmax(13rem,0.7fr)_minmax(20rem,1.3fr)_minmax(14rem,0.85fr)]">
+          <section className="min-w-0">
+            <h3 className="mb-2 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+              What led here
+            </h3>
+            {visibleAncestors.length > 0 ? (
+              <div className="space-y-2">
+                {ancestors.length > visibleAncestors.length ? (
+                  <p className="text-center text-[9px] text-muted-foreground">
+                    {ancestors.length - visibleAncestors.length} earlier ancestors…
+                  </p>
+                ) : null}
+                {visibleAncestors.map((ancestor) => (
+                  <IdeaButton
+                    key={ancestor.run.run_id}
+                    location={ancestor}
+                    selectedRunId={selectedRunId}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                This is a root direction.
+              </p>
+            )}
+            {evaluatedSubject ? (
+              <div className="mt-3">
+                <h3 className="mb-2 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  This run evaluates
+                </h3>
+                <IdeaButton
+                  location={evaluatedSubject}
+                  selectedRunId={selectedRunId}
+                  onSelect={onSelect}
+                />
+              </div>
+            ) : null}
+          </section>
+
+          <section className="min-w-0 rounded-lg border-2 border-blue-500/60 bg-blue-500/[0.035] p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn("font-mono text-[9px] uppercase", verdictTone(selected.analysis.verdict))}
                 >
-                  <rect
-                    x={node.x}
-                    y={node.y}
-                    width={NODE_WIDTH}
-                    height={NODE_HEIGHT}
-                    rx={7}
-                    fill="hsl(var(--background))"
-                    stroke={selected ? "#2563eb" : color}
-                    strokeWidth={selected ? 2.5 : 1.25}
-                  />
-                  <rect
-                    x={node.x}
-                    y={node.y}
-                    width={5}
-                    height={NODE_HEIGHT}
-                    rx={2.5}
-                    fill={color}
-                  />
-                  <text
-                    x={node.x + 14}
-                    y={node.y + 17}
-                    className="fill-muted-foreground font-mono text-[9px] uppercase"
-                  >
-                    P{node.phaseIndex + 1} · trial {node.run.research.trial_index} · {node.analysis.verdict}
-                  </text>
-                  <text x={node.x + 14} y={node.y + 35} className="fill-foreground text-[10px] font-medium">
-                    {firstLine}
-                  </text>
-                  {secondLine ? (
-                    <text x={node.x + 14} y={node.y + 50} className="fill-foreground text-[10px]">
-                      {secondLine}
-                    </text>
+                  {researchVerdictLabel(selected.analysis)}
+                </Badge>
+                <span className="font-mono text-[9px] text-muted-foreground">
+                  attempt {selected.sessionOrdinal + 1}
+                </span>
+              </div>
+              <span className="font-mono text-[9px] text-muted-foreground">
+                {selected.run.research.objective_name} · {value === null ? "—" : formatScalar(value)}
+              </span>
+            </div>
+            <h2 className="text-base font-semibold leading-snug">
+              {selected.run.research.hypothesis}
+            </h2>
+            {selected.run.research.rationale ? (
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                {selected.run.research.rationale}
+              </p>
+            ) : null}
+            <div className="mt-4 border-t pt-3">
+              <h3 className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                What we learned
+              </h3>
+              {selected.analysis.source === "controller" ? (
+                <>
+                  <p className="mt-1 text-sm leading-relaxed">{selected.analysis.conclusion}</p>
+                  {selected.analysis.evidence ? (
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      {selected.analysis.evidence}
+                    </p>
                   ) : null}
-                  <title>
-                    {node.analysis.source === "controller"
-                      ? `${node.analysis.evidence ?? ""}\n${node.analysis.conclusion ?? ""}`
-                      : "Legacy trial: no controller-authored conclusion was recorded."}
-                  </title>
-                </g>
-              );
-            })}
-          </svg>
+                  {selected.analysis.failedGates.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {selected.analysis.failedGates.map((gate) => (
+                        <Badge key={gate} variant="destructive" className="font-mono text-[8px]">
+                          {gate}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="mt-1 text-xs italic leading-relaxed text-muted-foreground">
+                  This legacy attempt has no controller-authored conclusion. Waddle only knows its
+                  numeric selection state.
+                </p>
+              )}
+            </div>
+            {selected.analysis.nextStep ? (
+              <div className="mt-3 border-t pt-3">
+                <h3 className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Next step
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed">{selected.analysis.nextStep}</p>
+              </div>
+            ) : null}
+          </section>
+
+          <section className="min-w-0">
+            <h3 className="mb-2 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+              What followed
+            </h3>
+            {children.length + evaluations.length > 0 ? (
+              <div className="space-y-2">
+                {children.map((child) => (
+                  <IdeaButton
+                    key={child.run.run_id}
+                    location={child}
+                    selectedRunId={selectedRunId}
+                    onSelect={onSelect}
+                  />
+                ))}
+                {evaluations.map((evaluation) => (
+                  <div key={evaluation.run.run_id}>
+                    <p className="mb-1 pl-1 text-[8px] font-semibold uppercase text-blue-600 dark:text-blue-400">
+                      evaluation
+                    </p>
+                    <IdeaButton
+                      location={evaluation}
+                      selectedRunId={selectedRunId}
+                      onSelect={onSelect}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                No recorded child idea or evaluation.
+              </p>
+            )}
+          </section>
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t px-4 py-2 text-[10px] text-muted-foreground">
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-blue-600" />baseline</span>
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-green-600" />kept</span>
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-slate-500" />discarded</span>
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-red-600" />failed</span>
-          <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-violet-600" />running</span>
-        </div>
+
+        <details className="border-t pt-3">
+          <summary className="cursor-pointer select-none text-xs text-muted-foreground">
+            Browse {roots.length} root directions
+          </summary>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {roots.map((root) => (
+              <IdeaButton
+                key={root.run.run_id}
+                location={root}
+                selectedRunId={selectedRunId}
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
+        </details>
       </CardContent>
     </Card>
   );
