@@ -14,6 +14,7 @@ type schemas = components["schemas"];
 
 // Closed wire vocabularies — the backend StrEnums are the source of truth.
 export type RunState = schemas["RunState"];
+export type RunType = schemas["RunType"];
 
 export type Run = schemas["RunOut"];
 export type RunDetail = schemas["RunDetailOut"];
@@ -24,6 +25,7 @@ export type ResearchSessionSummary = schemas["ResearchSessionSummaryOut"];
 export type ResearchSessionTrial = schemas["ResearchSessionTrialOut"];
 export type Worker = schemas["WorkerOut"];
 export type Project = schemas["ProjectOut"];
+export type RunFacets = schemas["RunFacetsOut"];
 
 export type MetricsQuery = schemas["MetricsQueryIn"];
 export type MetricSeries = schemas["MetricSeriesOut"];

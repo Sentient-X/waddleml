@@ -372,6 +372,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Run Facets */
+        get: operations["list_run_facets_api_v1_runs_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}": {
         parameters: {
             query?: never;
@@ -574,8 +591,7 @@ export interface components {
             environment?: components["schemas"]["RunEnvironment"] | null;
             /** Group Name */
             group_name?: string | null;
-            /** Job Type */
-            job_type?: string | null;
+            job_type?: components["schemas"]["RunType"] | null;
             /** Name */
             name: string;
             /** Project */
@@ -1002,8 +1018,7 @@ export interface components {
             group_name: string | null;
             /** Heartbeat At */
             heartbeat_at: string | null;
-            /** Job Type */
-            job_type: string | null;
+            job_type: components["schemas"]["RunType"] | null;
             /** Name */
             name: string;
             /** Project */
@@ -1056,6 +1071,13 @@ export interface components {
             /** Python Version */
             python_version?: string | null;
         };
+        /** RunFacetsOut */
+        RunFacetsOut: {
+            /** Groups */
+            groups: string[];
+            /** Run Types */
+            run_types: components["schemas"]["RunType"][];
+        };
         /** RunLineageOut */
         RunLineageOut: {
             /**
@@ -1094,8 +1116,7 @@ export interface components {
             group_name: string | null;
             /** Heartbeat At */
             heartbeat_at: string | null;
-            /** Job Type */
-            job_type: string | null;
+            job_type: components["schemas"]["RunType"] | null;
             /** Name */
             name: string;
             /** Project */
@@ -1132,6 +1153,12 @@ export interface components {
          * @enum {string}
          */
         RunState: "running" | "completed" | "failed" | "aborted";
+        /**
+         * RunType
+         * @description Stable intent of one run; byte-equal to the SDK's ``RunType``.
+         * @enum {string}
+         */
+        RunType: "training" | "evaluation" | "benchmark" | "data" | "autoresearch";
         /** SeriesPointOut */
         SeriesPointOut: {
             /** Step */
@@ -1960,8 +1987,10 @@ export interface operations {
                 project?: string | null;
                 state?: components["schemas"]["RunState"] | null;
                 group_name?: string | null;
-                job_type?: string | null;
+                job_type?: components["schemas"]["RunType"] | null;
+                query?: string | null;
                 limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -2018,6 +2047,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_run_facets_api_v1_runs_facets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunFacetsOut"];
                 };
             };
         };

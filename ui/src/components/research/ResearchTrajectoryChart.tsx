@@ -43,14 +43,6 @@ function shortLabel(value: string): string {
   return value.length <= 27 ? value : `${value.slice(0, 26)}…`;
 }
 
-function verdictTone(verdict: string): string {
-  if (verdict === "keep") return "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400";
-  if (verdict === "baseline") return "border-blue-600/40 bg-blue-500/10 text-blue-700 dark:text-blue-400";
-  if (verdict === "fail") return "border-red-600/40 bg-red-500/10 text-red-700 dark:text-red-400";
-  if (verdict === "inconclusive") return "border-amber-600/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
-  return "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300";
-}
-
 function changeLabel(point: ResearchMetricPoint, zeroBaseline: boolean): string {
   const prefix = point.baselineChange > 0 ? "+" : "";
   return `${prefix}${point.baselineChange.toFixed(2)}${zeroBaseline ? " pp" : "%"}`;
@@ -263,10 +255,17 @@ export function ResearchTrajectoryChart({
       </div>
 
       {selectedPoint ? (
-        <section className="mt-3 grid gap-3 border-t pt-3 lg:grid-cols-[minmax(14rem,0.9fr)_minmax(12rem,0.55fr)_minmax(16rem,1.1fr)]">
+        <section
+          className={cn(
+            "mt-3 grid gap-3 border-t pt-3",
+            selectedPoint.analysis.source === "controller"
+              ? "lg:grid-cols-[minmax(15rem,0.9fr)_minmax(16rem,1.1fr)]"
+              : "lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start",
+          )}
+        >
           <div className="min-w-0">
             <div className="mb-1 flex items-center gap-2">
-              <Badge variant="outline" className={cn("font-mono text-[9px] uppercase", verdictTone(selectedPoint.analysis.verdict))}>
+              <Badge variant="outline" className="font-mono text-[9px] uppercase">
                 {researchVerdictLabel(selectedPoint.analysis)}
               </Badge>
               <span className="font-mono text-[9px] text-muted-foreground">
@@ -275,41 +274,23 @@ export function ResearchTrajectoryChart({
             </div>
             <p className="text-sm font-medium leading-snug">{selectedPoint.run.research.hypothesis}</p>
           </div>
-          <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs lg:grid-cols-1">
-            <div className="flex items-baseline justify-between gap-3">
-              <dt className="text-muted-foreground">Result</dt>
-              <dd className="font-mono tabular-nums">{formatScalar(selectedPoint.rawValue)}</dd>
+          {selectedPoint.analysis.source === "controller" ? (
+            <div className="min-w-0 text-xs">
+              <p className="leading-relaxed">{selectedPoint.analysis.conclusion}</p>
+              {selectedPoint.analysis.failedGates.length > 0 ? (
+                <p className="mt-1 truncate text-red-600 dark:text-red-400">
+                  Failed: {selectedPoint.analysis.failedGates.join(", ")}
+                </p>
+              ) : null}
             </div>
-            <div className="flex items-baseline justify-between gap-3">
-              <dt className="text-muted-foreground">vs first</dt>
-              <dd className={cn("font-mono tabular-nums", selectedPoint.baselineChange > 0 && "text-green-600 dark:text-green-400")}>
-                {changeLabel(selectedPoint, metric.zeroBaseline)}
-              </dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-3">
-              <dt className="text-muted-foreground">Moved best</dt>
-              <dd>{selectedPoint.movedIncumbent ? "yes" : "no"}</dd>
-            </div>
-          </dl>
-          <div className="min-w-0 text-xs">
-            <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-              What we learned
+          ) : (
+            <p className="whitespace-nowrap font-mono text-xs tabular-nums">
+              {formatScalar(selectedPoint.rawValue)}
+              <span className="ml-2 text-[10px] text-muted-foreground">
+                {changeLabel(selectedPoint, metric.zeroBaseline)} vs first
+              </span>
             </p>
-            {selectedPoint.analysis.source === "controller" ? (
-              <>
-                <p className="leading-relaxed">{selectedPoint.analysis.conclusion}</p>
-                {selectedPoint.analysis.failedGates.length > 0 ? (
-                  <p className="mt-1 truncate text-red-600 dark:text-red-400">
-                    Failed: {selectedPoint.analysis.failedGates.join(", ")}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className="italic leading-relaxed text-muted-foreground">
-                No controller conclusion was recorded. Only the numeric selection state is known.
-              </p>
-            )}
-          </div>
+          )}
         </section>
       ) : null}
     </div>

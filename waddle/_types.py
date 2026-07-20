@@ -24,6 +24,20 @@ class ResearchDecision(str, Enum):
     INCONCLUSIVE = "inconclusive"
 
 
+class RunType(str, Enum):
+    """Stable intent of one run, used for browsing and retention policy."""
+
+    TRAINING = "training"
+    EVALUATION = "evaluation"
+    BENCHMARK = "benchmark"
+    DATA = "data"
+    AUTORESEARCH = "autoresearch"
+
+
+class RunTypeError(ValueError):
+    """A run type, group, or research identity is contradictory."""
+
+
 class ResearchTrialError(ValueError):
     """A research trial record violates Waddle's campaign contract."""
 

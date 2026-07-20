@@ -15,22 +15,25 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-  cn,
 } from "@sx/ui";
 
 import { waddleApi } from "@/api/client";
 import { HypothesisTreeMap } from "@/components/research/HypothesisTreeMap";
+import { ResearchListRow } from "@/components/research/ResearchListRow";
 import { ResearchTrajectoryChart } from "@/components/research/ResearchTrajectoryChart";
 import { SessionExperimentTree } from "@/components/research/SessionExperimentTree";
 import { formatScalar, runDuration, shortHash } from "@/lib/format";
 import {
   objectiveValue,
   researchAnalyses,
+  researchMetricLeaf,
   researchMetricKey,
+  researchMetricTree,
   researchMetrics,
   researchSessionFrom,
   researchVerdictLabel,
   type ResearchMetric,
+  type ResearchMetricNamespace,
   type ResearchRun,
 } from "@/lib/research";
 
@@ -49,16 +52,96 @@ function KeyValues({ values }: { values: Readonly<Record<string, unknown>> }) {
   );
 }
 
-function MissingFact({ children }: { children: string }) {
-  return <p className="mt-1 text-xs italic text-muted-foreground">{children}</p>;
+function MetricRow({
+  metric,
+  selectedMetricKey,
+  onSelect,
+  depth,
+}: {
+  metric: ResearchMetric;
+  selectedMetricKey: string;
+  onSelect: (metric: ResearchMetric) => void;
+  depth: number;
+}) {
+  const best = metric.bestPoint;
+  return (
+    <ResearchListRow
+      selected={metric.key === selectedMetricKey}
+      onClick={() => onSelect(metric)}
+      className="grid grid-cols-[1rem_minmax(0,1fr)_4.5rem] items-center gap-2"
+      style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
+      title={metric.objectiveName}
+    >
+      <span className="text-muted-foreground">
+        {metric.goal === "minimize" ? (
+          <ArrowDown className="h-3.5 w-3.5" />
+        ) : (
+          <ArrowUp className="h-3.5 w-3.5" />
+        )}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate font-mono text-[10px] font-medium leading-tight">
+          {researchMetricLeaf(metric)}
+        </span>
+        <span className="block text-[9px] text-muted-foreground">
+          {metric.runs.length} attempts · {metric.goal}
+        </span>
+      </span>
+      <span className="text-right font-mono text-[10px] tabular-nums">
+        <span className="block">{best ? formatScalar(best.rawValue) : "—"}</span>
+        <span className="block text-[8px] text-muted-foreground">best</span>
+      </span>
+    </ResearchListRow>
+  );
 }
 
-function verdictTone(verdict: string): string {
-  if (verdict === "keep") return "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400";
-  if (verdict === "baseline") return "border-blue-600/40 bg-blue-500/10 text-blue-700 dark:text-blue-400";
-  if (verdict === "fail") return "border-red-600/40 bg-red-500/10 text-red-700 dark:text-red-400";
-  if (verdict === "inconclusive") return "border-amber-600/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
-  return "";
+function metricNamespaceCount(namespace: ResearchMetricNamespace): number {
+  return (
+    namespace.metrics.length +
+    namespace.children.reduce((total, child) => total + metricNamespaceCount(child), 0)
+  );
+}
+
+function MetricNamespace({
+  namespace,
+  selectedMetricKey,
+  onSelect,
+  depth,
+}: {
+  namespace: ResearchMetricNamespace;
+  selectedMetricKey: string;
+  onSelect: (metric: ResearchMetric) => void;
+  depth: number;
+}) {
+  return (
+    <div role="group" aria-label={namespace.key}>
+      <div
+        className="flex h-7 items-center justify-between border-b border-border/60 pr-2 font-mono text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
+        style={{ paddingLeft: `${0.65 + depth * 0.75}rem` }}
+      >
+        <span>{namespace.label}</span>
+        <span>{metricNamespaceCount(namespace)}</span>
+      </div>
+      {namespace.metrics.map((metric) => (
+        <MetricRow
+          key={metric.key}
+          metric={metric}
+          selectedMetricKey={selectedMetricKey}
+          onSelect={onSelect}
+          depth={depth + 1}
+        />
+      ))}
+      {namespace.children.map((child) => (
+        <MetricNamespace
+          key={child.key}
+          namespace={child}
+          selectedMetricKey={selectedMetricKey}
+          onSelect={onSelect}
+          depth={depth + 1}
+        />
+      ))}
+    </div>
+  );
 }
 
 function MetricScoreboard({
@@ -70,6 +153,7 @@ function MetricScoreboard({
   selectedMetricKey: string;
   onSelect: (metric: ResearchMetric) => void;
 }) {
+  const tree = researchMetricTree(metrics);
   return (
     <aside className="min-w-0 border-b lg:border-b-0 lg:border-r">
       <div className="flex items-center justify-between border-b px-3 py-2.5">
@@ -79,35 +163,25 @@ function MetricScoreboard({
         </div>
         <Badge variant="outline" className="font-mono text-[9px]">{metrics.length}</Badge>
       </div>
-      <nav aria-label="Goal metrics" className="max-h-[25rem] overflow-auto p-1.5">
-        {metrics.map((metric) => {
-          const selected = metric.key === selectedMetricKey;
-          const best = metric.bestPoint;
-          return (
-            <button
-              key={metric.key}
-              type="button"
-              onClick={() => onSelect(metric)}
-              aria-pressed={selected}
-              className={cn(
-                "grid w-full grid-cols-[1rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded-md border-l-2 border-transparent px-2 py-2 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                selected && "border-l-blue-500 bg-accent/70",
-              )}
-            >
-              <span className="text-muted-foreground">
-                {metric.goal === "minimize" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
-              </span>
-              <span className="min-w-0">
-                <span className="block break-all font-mono text-[10px] font-medium leading-tight">{metric.objectiveName}</span>
-                <span className="block text-[9px] text-muted-foreground">{metric.runs.length} attempts</span>
-              </span>
-              <span className="text-right font-mono text-[10px] tabular-nums">
-                <span className="block">{best ? formatScalar(best.rawValue) : "—"}</span>
-                <span className="block text-[8px] text-muted-foreground">best</span>
-              </span>
-            </button>
-          );
-        })}
+      <nav aria-label="Goal metrics" className="max-h-[25rem] overflow-auto">
+        {tree.metrics.map((metric) => (
+          <MetricRow
+            key={metric.key}
+            metric={metric}
+            selectedMetricKey={selectedMetricKey}
+            onSelect={onSelect}
+            depth={0}
+          />
+        ))}
+        {tree.namespaces.map((namespace) => (
+          <MetricNamespace
+            key={namespace.key}
+            namespace={namespace}
+            selectedMetricKey={selectedMetricKey}
+            onSelect={onSelect}
+            depth={0}
+          />
+        ))}
       </nav>
     </aside>
   );
@@ -221,6 +295,11 @@ export function ResearchRunPage() {
   const subject = selectedRun?.research.subject_run_id
     ? session.runs.find((run) => run.run_id === selectedRun.research.subject_run_id)
     : undefined;
+  const hasProposalContext = Boolean(
+    selectedRun?.research.rationale ||
+      selectedRun?.research.expected_outcome ||
+      selectedRun?.research.falsification_criteria,
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -290,7 +369,7 @@ export function ResearchRunPage() {
         </TabsList>
 
         <TabsContent value="attempts" className="mt-3">
-          <div className="grid min-h-[28rem] gap-3 lg:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.28fr)]">
+          <div className="grid items-start gap-3 lg:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.28fr)]">
             <SessionExperimentTree
               metric={selectedMetric}
               selectedRunId={selectedRunId}
@@ -320,46 +399,44 @@ export function ResearchRunPage() {
               <CardContent className="space-y-4 px-4 pb-4 pt-0">
                 {selectedRun && selectedAnalysis ? (
                   <>
-                    <section className="border-t pt-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <h2 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Proposal</h2>
-                        <Badge variant="outline" className="font-mono text-[9px]">agent input</Badge>
-                      </div>
-                      <dl className="space-y-3 text-sm">
-                        <div>
-                          <dt className="text-[10px] uppercase text-muted-foreground">Hypothesis</dt>
-                          <dd className="mt-0.5 leading-relaxed">{selectedRun.research.hypothesis}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[10px] uppercase text-muted-foreground">Rationale</dt>
-                          {selectedRun.research.rationale ? <dd className="mt-0.5 leading-relaxed">{selectedRun.research.rationale}</dd> : <MissingFact>Not recorded by this legacy trial.</MissingFact>}
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div>
-                            <dt className="text-[10px] uppercase text-muted-foreground">Expected</dt>
-                            {selectedRun.research.expected_outcome ? <dd className="mt-0.5 text-xs leading-relaxed">{selectedRun.research.expected_outcome}</dd> : <MissingFact>Not recorded.</MissingFact>}
-                          </div>
-                          <div>
-                            <dt className="text-[10px] uppercase text-muted-foreground">Falsified when</dt>
-                            {selectedRun.research.falsification_criteria ? <dd className="mt-0.5 text-xs leading-relaxed">{selectedRun.research.falsification_criteria}</dd> : <MissingFact>Not recorded.</MissingFact>}
-                          </div>
-                        </div>
-                      </dl>
-                    </section>
+                    {hasProposalContext ? (
+                      <section className="border-t pt-3">
+                        <dl className="space-y-3 text-sm">
+                          {selectedRun.research.rationale ? (
+                            <div>
+                              <dt className="text-[10px] uppercase text-muted-foreground">Rationale</dt>
+                              <dd className="mt-0.5 leading-relaxed">{selectedRun.research.rationale}</dd>
+                            </div>
+                          ) : null}
+                          {selectedRun.research.expected_outcome ? (
+                            <div>
+                              <dt className="text-[10px] uppercase text-muted-foreground">Expected</dt>
+                              <dd className="mt-0.5 text-xs leading-relaxed">{selectedRun.research.expected_outcome}</dd>
+                            </div>
+                          ) : null}
+                          {selectedRun.research.falsification_criteria ? (
+                            <div>
+                              <dt className="text-[10px] uppercase text-muted-foreground">Falsified when</dt>
+                              <dd className="mt-0.5 text-xs leading-relaxed">{selectedRun.research.falsification_criteria}</dd>
+                            </div>
+                          ) : null}
+                        </dl>
+                      </section>
+                    ) : null}
 
-                    <section className="border-t pt-3">
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <h2 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Outcome</h2>
-                        <div className="flex items-center gap-1.5">
-                          <Badge variant="outline" className={cn("font-mono text-[9px] uppercase", verdictTone(selectedAnalysis.verdict))}>
-                            {researchVerdictLabel(selectedAnalysis)}
-                          </Badge>
-                          <span className="text-[9px] text-muted-foreground">
-                            {selectedAnalysis.source === "controller" ? "recorded by controller" : "legacy-derived selection"}
-                          </span>
+                    {selectedAnalysis.source === "controller" ? (
+                      <section className="border-t pt-3">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <h2 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Outcome</h2>
+                          <div className="flex items-center gap-1.5">
+                            <Badge variant="outline" className="font-mono text-[9px] uppercase">
+                              {researchVerdictLabel(selectedAnalysis)}
+                            </Badge>
+                            <span className="text-[9px] text-muted-foreground">
+                              recorded by controller
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      {selectedAnalysis.source === "controller" ? (
                         <dl className="space-y-3 text-sm">
                           <div>
                             <dt className="text-[10px] uppercase text-muted-foreground">Evidence</dt>
@@ -381,27 +458,24 @@ export function ResearchRunPage() {
                             </div>
                           ) : null}
                         </dl>
-                      ) : (
-                        <MissingFact>
-                          No controller-authored evidence or conclusion was recorded. The chart decision uses only terminal state and objective order.
-                        </MissingFact>
-                      )}
-                    </section>
-
-                    <section className="border-t pt-3">
-                      <h2 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Lineage</h2>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                        <span>parent · {parent ? <button type="button" className="font-mono text-primary hover:underline" onClick={() => selectRun(parent)}>{shortHash(parent.run_id, 10)}</button> : selectedRun.research.parent_run_id ? shortHash(selectedRun.research.parent_run_id, 10) : "root"}</span>
-                        {selectedRun.research.subject_run_id ? <span>evaluates · {subject ? <button type="button" className="font-mono text-primary hover:underline" onClick={() => selectRun(subject)}>{shortHash(subject.run_id, 10)}</button> : shortHash(selectedRun.research.subject_run_id, 10)}</span> : null}
-                        <span>source · <span className="font-mono">{selectedRun.commit_sha ? shortHash(selectedRun.commit_sha, 10) : "uncommitted"}</span></span>
-                      </div>
-                    </section>
+                      </section>
+                    ) : null}
 
                     <details className="border-t pt-3 text-xs">
-                      <summary className="cursor-pointer select-none text-muted-foreground">Raw config and metrics</summary>
-                      <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                        <section><h3 className="mb-1 text-[10px] uppercase text-muted-foreground">Config</h3><KeyValues values={detailQuery.data?.config ?? {}} /></section>
-                        <section><h3 className="mb-1 text-[10px] uppercase text-muted-foreground">Metrics</h3><KeyValues values={detailQuery.data?.summary ?? {}} /></section>
+                      <summary className="cursor-pointer select-none text-muted-foreground">Lineage and raw data</summary>
+                      <div className="mt-3 space-y-4">
+                        <section>
+                          <h3 className="mb-1 text-[10px] uppercase text-muted-foreground">Lineage</h3>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1">
+                            <span>parent · {parent ? <button type="button" className="font-mono text-primary hover:underline" onClick={() => selectRun(parent)}>{shortHash(parent.run_id, 10)}</button> : selectedRun.research.parent_run_id ? shortHash(selectedRun.research.parent_run_id, 10) : "root"}</span>
+                            {selectedRun.research.subject_run_id ? <span>evaluates · {subject ? <button type="button" className="font-mono text-primary hover:underline" onClick={() => selectRun(subject)}>{shortHash(subject.run_id, 10)}</button> : shortHash(selectedRun.research.subject_run_id, 10)}</span> : null}
+                            <span>source · <span className="font-mono">{selectedRun.commit_sha ? shortHash(selectedRun.commit_sha, 10) : "uncommitted"}</span></span>
+                          </div>
+                        </section>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <section><h3 className="mb-1 text-[10px] uppercase text-muted-foreground">Config</h3><KeyValues values={detailQuery.data?.config ?? {}} /></section>
+                          <section><h3 className="mb-1 text-[10px] uppercase text-muted-foreground">Metrics</h3><KeyValues values={detailQuery.data?.summary ?? {}} /></section>
+                        </div>
                       </div>
                     </details>
                   </>
@@ -423,9 +497,9 @@ export function ResearchRunPage() {
 
         <TabsContent value="learnings" className="mt-3">
           <div className="grid gap-3 lg:grid-cols-2">
-            <Card className="overflow-hidden border-green-600/30">
-              <CardHeader className="flex-row items-center justify-between space-y-0 border-b bg-green-500/[0.04] px-4 py-2.5">
-                <CardTitle className="text-sm text-green-700 dark:text-green-400">Worked</CardTitle>
+            <Card className="overflow-hidden">
+              <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-2.5">
+                <CardTitle className="text-sm">Worked</CardTitle>
                 <Badge variant="outline" className="font-mono text-[9px]">{workedLearnings.length}</Badge>
               </CardHeader>
               <CardContent className="p-0">
@@ -455,9 +529,9 @@ export function ResearchRunPage() {
               </CardContent>
             </Card>
 
-            <Card className="overflow-hidden border-red-600/25">
-              <CardHeader className="flex-row items-center justify-between space-y-0 border-b bg-red-500/[0.035] px-4 py-2.5">
-                <CardTitle className="text-sm text-red-700 dark:text-red-400">Didn't work or prove out</CardTitle>
+            <Card className="overflow-hidden">
+              <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-2.5">
+                <CardTitle className="text-sm">Didn't work or prove out</CardTitle>
                 <Badge variant="outline" className="font-mono text-[9px]">{failedLearnings.length}</Badge>
               </CardHeader>
               <CardContent className="p-0">

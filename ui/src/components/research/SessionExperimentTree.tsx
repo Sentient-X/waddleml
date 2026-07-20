@@ -1,4 +1,4 @@
-import { Badge, Card, CardContent, CardHeader, CardTitle, StatusDot, cn } from "@sx/ui";
+import { Badge, Card, CardContent, CardHeader, CardTitle, StatusDot } from "@sx/ui";
 
 import { formatScalar, runStateTone } from "@/lib/format";
 import {
@@ -7,14 +7,7 @@ import {
   type ResearchMetric,
   type ResearchRun,
 } from "@/lib/research";
-
-function verdictTone(verdict: string): string {
-  if (verdict === "keep") return "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400";
-  if (verdict === "baseline") return "border-blue-600/40 bg-blue-500/10 text-blue-700 dark:text-blue-400";
-  if (verdict === "fail") return "border-red-600/40 bg-red-500/10 text-red-700 dark:text-red-400";
-  if (verdict === "inconclusive") return "border-amber-600/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
-  return "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300";
-}
+import { ResearchListRow } from "./ResearchListRow";
 
 export function SessionExperimentTree({
   metric,
@@ -48,14 +41,11 @@ export function SessionExperimentTree({
             const selected = run.run_id === selectedRunId;
             const isBest = run.run_id === metric.bestPoint?.run.run_id;
             return (
-              <button
+              <ResearchListRow
                 key={run.run_id}
-                type="button"
                 onClick={() => onSelect(run, campaign)}
-                className={cn(
-                  "grid w-full grid-cols-[2.4rem_minmax(0,1fr)_5.5rem] gap-2 border-l-2 border-transparent px-2 py-2 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  selected && "border-l-blue-500 bg-accent/70",
-                )}
+                selected={selected}
+                className="grid grid-cols-[2.4rem_minmax(0,1fr)_5.5rem] gap-2"
               >
                 <span className="flex items-start gap-1 pt-0.5 font-mono text-[9px] text-muted-foreground">
                   <StatusDot tone={runStateTone(run.state)} />
@@ -65,11 +55,11 @@ export function SessionExperimentTree({
                   <span className="mb-1 flex flex-wrap items-center gap-1">
                     <Badge
                       variant="outline"
-                      className={cn("px-1 py-0 font-mono text-[8px] uppercase", verdictTone(analysis.verdict))}
+                      className="px-1 py-0 font-mono text-[8px] uppercase"
                     >
                       {researchVerdictLabel(analysis)}
                     </Badge>
-                    {isBest ? <Badge className="px-1 py-0 text-[8px]">current best</Badge> : null}
+                    {isBest ? <Badge variant="outline" className="px-1 py-0 text-[8px]">current best</Badge> : null}
                     {analysis.source === "controller" ? (
                       <span className="text-[8px] text-muted-foreground">with conclusion</span>
                     ) : null}
@@ -88,18 +78,13 @@ export function SessionExperimentTree({
                     {point ? formatScalar(point.rawValue) : "—"}
                   </span>
                   {point ? (
-                    <span
-                      className={cn(
-                        "mt-1 block text-muted-foreground",
-                        point.baselineChange > 0 && "text-green-600 dark:text-green-400",
-                      )}
-                    >
+                    <span className="mt-1 block text-muted-foreground">
                       {point.baselineChange > 0 ? "+" : ""}
                       {point.baselineChange.toFixed(1)}{metric.zeroBaseline ? " pp" : "%"}
                     </span>
                   ) : null}
                 </span>
-              </button>
+              </ResearchListRow>
             );
           })}
         </div>

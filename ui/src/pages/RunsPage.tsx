@@ -1,12 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Waypoints } from "lucide-react";
+import { ChevronLeft, ChevronRight, Waypoints } from "lucide-react";
 import {
+  Button,
   DataTable,
   EmptyState,
   Input,
-  KpiStat,
   PageHeader,
   Select,
   SelectContent,
@@ -18,159 +18,172 @@ import {
 } from "@sx/ui";
 
 import { waddleApi } from "@/api/client";
-import type { Run, RunState } from "@/api/types";
-import { formatCount, formatDateTime, formatScalar, runDuration, runStateTone } from "@/lib/format";
+import type { Run, RunState, RunType } from "@/api/types";
+import { formatDateTime, runDuration, runStateTone } from "@/lib/format";
 
 const STATES: readonly RunState[] = ["running", "completed", "failed", "aborted"];
 const ALL = "all";
-
-function lossOf(run: Run): number | null {
-  const value = run.summary["loss"] ?? run.summary["train/loss"];
-  return typeof value === "number" ? value : null;
-}
-
-function isToday(iso: string | null): boolean {
-  if (iso === null) return false;
-  const d = new Date(iso);
-  const now = new Date();
-  return (
-    d.getUTCFullYear() === now.getUTCFullYear() &&
-    d.getUTCMonth() === now.getUTCMonth() &&
-    d.getUTCDate() === now.getUTCDate()
-  );
-}
+const PAGE_SIZE = 50;
 
 export function RunsPage() {
   const navigate = useNavigate();
   const [project, setProject] = useState<string>(ALL);
   const [state, setState] = useState<string>(ALL);
+  const [runType, setRunType] = useState<string>(ALL);
+  const [group, setGroup] = useState<string>(ALL);
   const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQuery(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => setPage(0), [project, state, runType, group, query]);
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
     queryFn: () => waddleApi.listProjects(),
   });
-
+  const facetsQuery = useQuery({
+    queryKey: ["run-facets"],
+    queryFn: () => waddleApi.listRunFacets(),
+  });
   const runsQuery = useQuery({
-    queryKey: ["runs", project, state],
+    queryKey: ["runs", project, state, runType, group, query, page],
     queryFn: () =>
       waddleApi.listRuns({
         project: project === ALL ? undefined : project,
         state: state === ALL ? undefined : (state as RunState),
-        limit: 500,
+        jobType: runType === ALL ? undefined : (runType as RunType),
+        groupName: group === ALL ? undefined : group,
+        query: query || undefined,
+        limit: PAGE_SIZE + 1,
+        offset: page * PAGE_SIZE,
       }),
-    refetchInterval: 5000,
+    refetchInterval: (request) =>
+      request.state.data?.some((run) => run.state === "running") ? 5_000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 
-  const runs = runsQuery.data ?? [];
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return runs;
-    return runs.filter(
-      (r) =>
-        r.name.toLowerCase().includes(needle) ||
-        (r.display_name ?? "").toLowerCase().includes(needle) ||
-        r.run_id.includes(needle),
-    );
-  }, [runs, search]);
-
-  const runningNow = runs.filter((r) => r.state === "running").length;
-  const failedToday = runs.filter((r) => r.state === "failed" && isToday(r.finished_at)).length;
+  const received = runsQuery.data ?? [];
+  const rows = received.slice(0, PAGE_SIZE);
+  const hasNext = received.length > PAGE_SIZE;
+  const firstRow = rows.length > 0 ? page * PAGE_SIZE + 1 : 0;
+  const lastRow = page * PAGE_SIZE + rows.length;
 
   const columns: DataTableColumn<Run>[] = [
     {
       key: "name",
       header: "Run",
-      sort: (r) => r.display_name ?? r.name,
-      cell: (r) => (
+      sort: (run) => run.display_name ?? run.name,
+      cell: (run) => (
         <div className="flex flex-col">
-          <span className="font-medium">{r.display_name ?? r.name}</span>
-          <span className="font-mono text-[11px] text-muted-foreground">{r.run_id.slice(0, 12)}</span>
+          <span className="font-medium">{run.display_name ?? run.name}</span>
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {run.run_id.slice(0, 12)}
+          </span>
         </div>
       ),
     },
-    { key: "project", header: "Project", sort: (r) => r.project, cell: (r) => r.project },
+    { key: "project", header: "Project", sort: (run) => run.project, cell: (run) => run.project },
+    {
+      key: "type",
+      header: "Type",
+      sort: (run) => run.job_type,
+      cell: (run) => run.job_type ?? <span className="text-muted-foreground">untyped</span>,
+    },
+    {
+      key: "group",
+      header: "Group",
+      sort: (run) => run.group_name,
+      cell: (run) => run.group_name ?? <span className="text-muted-foreground">—</span>,
+    },
     {
       key: "state",
       header: "State",
-      sort: (r) => r.state,
-      cell: (r) => <StatusDot tone={runStateTone(r.state)} label={r.state} />,
+      sort: (run) => run.state,
+      cell: (run) => <StatusDot tone={runStateTone(run.state)} label={run.state} />,
     },
     {
       key: "started",
       header: "Started · UTC",
       mono: true,
-      sort: (r) => r.started_at,
-      cell: (r) => formatDateTime(r.started_at),
+      sort: (run) => run.started_at,
+      cell: (run) => formatDateTime(run.started_at),
     },
     {
       key: "duration",
       header: "Duration",
       align: "right",
       mono: true,
-      sort: (r) => new Date(r.finished_at ?? Date.now()).getTime() - new Date(r.started_at).getTime(),
-      cell: (r) => runDuration(r.started_at, r.finished_at),
-    },
-    {
-      key: "loss",
-      header: "Loss",
-      align: "right",
-      mono: true,
-      sort: (r) => lossOf(r),
-      cell: (r) => {
-        const loss = lossOf(r);
-        return loss === null ? <span className="text-muted-foreground">—</span> : formatScalar(loss);
-      },
+      sort: (run) =>
+        new Date(run.finished_at ?? Date.now()).getTime() - new Date(run.started_at).getTime(),
+      cell: (run) => runDuration(run.started_at, run.finished_at),
     },
   ];
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <PageHeader
         title="Runs"
-        description="Experiment runs across your org's projects — live from the tracker."
+        description="Find training, evaluation, benchmark, data, and research work across projects."
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <KpiStat label="Total runs" value={formatCount(runs.length)} />
-        <KpiStat label="Running now" value={formatCount(runningNow)} />
-        <KpiStat label="Failed today" value={formatCount(failedToday)} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={project} onValueChange={setProject}>
-          <SelectTrigger className="h-9 w-48 text-sm">
-            <SelectValue placeholder="Project" />
+      <section aria-label="Run filters" className="grid gap-2 border-y py-3 md:grid-cols-6">
+        <Input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search run name or id…"
+          className="h-8 text-xs md:col-span-2"
+        />
+        <Select value={runType} onValueChange={setRunType}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Type" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All projects</SelectItem>
-            {(projectsQuery.data ?? []).map((p) => (
-              <SelectItem key={p.name} value={p.name}>
-                {p.name}
-              </SelectItem>
+            <SelectItem value={ALL}>All types</SelectItem>
+            {(facetsQuery.data?.run_types ?? []).map((value) => (
+              <SelectItem key={value} value={value}>{value}</SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={state} onValueChange={setState}>
-          <SelectTrigger className="h-9 w-40 text-sm">
+          <SelectTrigger className="h-8 text-xs">
             <SelectValue placeholder="State" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All states</SelectItem>
-            {STATES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {s}
-              </SelectItem>
+            {STATES.map((value) => (
+              <SelectItem key={value} value={value}>{value}</SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name or id…"
-          className="h-9 w-56 text-sm"
-        />
-      </div>
+        <Select value={project} onValueChange={setProject}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Project" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All projects</SelectItem>
+            {(projectsQuery.data ?? []).map((value) => (
+              <SelectItem key={value.name} value={value.name}>{value.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={group} onValueChange={setGroup}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Group" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All groups</SelectItem>
+            {(facetsQuery.data?.groups ?? []).map((value) => (
+              <SelectItem key={value} value={value}>{value}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </section>
 
       {runsQuery.isError ? (
         <EmptyState
@@ -181,20 +194,45 @@ export function RunsPage() {
       ) : (
         <DataTable
           columns={columns}
-          rows={filtered}
-          rowKey={(r) => r.run_id}
+          rows={rows}
+          rowKey={(run) => run.run_id}
           defaultSort={{ key: "started", dir: "desc" }}
           loading={runsQuery.isLoading}
-          onRowClick={(r) => navigate(`/runs/${r.run_id}`)}
+          dense
+          onRowClick={(run) => navigate(`/runs/${run.run_id}`)}
           empty={
             <EmptyState
               icon={<Waypoints />}
-              title="No runs yet"
-              hint="Runs appear here as soon as a training job reports to the tracker."
+              title="No matching runs"
+              hint="Change a filter or start a typed Waddle run."
             />
           }
         />
       )}
+
+      <footer className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
+        <span>{rows.length > 0 ? `${firstRow}–${lastRow}` : "No rows"} · page {page + 1}</span>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2"
+            disabled={page === 0 || runsQuery.isFetching}
+            onClick={() => setPage((value) => Math.max(0, value - 1))}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" /> Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2"
+            disabled={!hasNext || runsQuery.isFetching}
+            onClick={() => setPage((value) => value + 1)}
+          >
+            Next <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </footer>
     </div>
   );
 }

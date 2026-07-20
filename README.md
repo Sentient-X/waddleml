@@ -21,6 +21,8 @@ waddle ls        # terminal
 ## Features
 
 - **Wandb-style API** — `waddle.init()`, `waddle.log()`, `waddle.finish()` with auto-incrementing steps, context manager, and atexit handler.
+- **Typed run intent** — `RunType.TRAINING`, `EVALUATION`, `BENCHMARK`, `DATA`, and
+  `AUTORESEARCH` feed server-derived Runs filters; the UI does not keep a parallel category list.
 - **Works anywhere** — no git required. Use in Jupyter, Colab, Docker, or plain scripts. If you happen to be in a git repo, waddle auto-captures the commit as a bonus.
 - **DuckDB storage** — fast, single-file database in `.waddle/waddle.duckdb`. No server process needed.
 - **System metrics** — optional background thread captures CPU, memory, and GPU utilization.
@@ -34,8 +36,9 @@ waddle ls        # terminal
 - **Three-command CLI** — `waddle init`, `waddle ls`, `waddle sync`.
 - **Autoresearch observation** — attach a typed `ResearchTrial` to ordinary runs; the hosted
   Research view groups a long optimization session into campaign phases, then derives each
-  phase's live candidates and minimize/maximize incumbent curve. The workbench lists every goal
-  metric explicitly; selecting one plots its raw attempts and one direction-correct running-best
+  phase's live candidates and minimize/maximize incumbent curve. The workbench discovers every
+  observed goal metric and groups slash-separated names into a namespace tree; selecting one plots
+  its raw attempts and one direction-correct running-best
   staircase, so unlike objectives are never collapsed into an invented aggregate. A focused idea
   lineage and simple controller-authored worked/didn't-work lists make the whole
   search legible without Waddle fabricating analysis or taking ownership of the optimizer.
@@ -86,6 +89,8 @@ import waddle
 with waddle.init(
     project="cifar10",
     name="resnet-baseline",
+    run_type=waddle.RunType.TRAINING,
+    group_name="resnet18-ablation",
     config={"lr": 0.001, "batch_size": 64, "epochs": 50},
     tags={"model": "resnet18"},
 ):
@@ -120,7 +125,9 @@ Start a new run. If inside a git repo, auto-captures the commit. If not, works f
 | `tags` | `dict` | `None` | Categorical labels |
 | `system_metrics` | `bool` | `True` | Collect CPU/mem/GPU in background |
 | `db_path` | `str` | `None` | Override DuckDB path |
-| `research` | `ResearchTrial` | `None` | Make this run one typed candidate in an external optimization campaign |
+| `run_type` | `RunType` | `None` | Typed workload intent used by the hosted Runs filters |
+| `group_name` | `str` | `None` | Optional related-run group used by the hosted Runs filters |
+| `research` | `ResearchTrial` | `None` | Make this run one typed candidate in an external optimization campaign; this fixes the run type to `AUTORESEARCH` |
 
 Returns a `Run` that works as a context manager.
 
@@ -169,11 +176,18 @@ that motivated the phase. Legacy research records without `session_name` are gro
 so an existing overnight history becomes one run without rewriting evidence. Remote outages do
 not interrupt the loop because the local DuckDB remains the durable spool.
 
+Treat `objective_name` as a stable namespaced identifier (`quality/success_rate`,
+`latency/p99_ms`, and so on). Before adding a trial to an existing session, controllers should call
+`waddle.research.session`, then copy the exact objective name and direction; Waddle rejects either
+one drifting inside a campaign. Mint a new campaign and path only for a genuinely new measurement.
+Humans discover those same paths through the metric namespace tree. Agents can also omit
+`metric_names` from `waddle.metrics.series` to enumerate everything selected runs logged.
+
 Proposal context and terminal outcomes are controller-authored facts. Waddle does not generate
 explanations: `ResearchTrial` carries the rationale, expected outcome, and falsification criteria;
 `ResearchOutcome` carries the decision, evidence, conclusion, failed gates, and next step. Legacy,
-running, or interrupted trials may lack those additive fields. The console labels the omission and
-uses only terminal state plus objective order for its explicitly marked legacy selection line.
+running, or interrupted trials may lack those additive fields. The console simply omits absent
+sections and uses terminal state plus objective order for the legacy selection line.
 
 An evaluator uses `subject_run_id` to identify the run whose artifact or policy it measures. This
 edge may cross campaign phases inside the same research session. `parent_run_id` is the search-tree

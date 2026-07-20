@@ -13,7 +13,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import class_row
 
 from waddle_server.errors import BatchDigestMismatchError
-from waddle_server.model import RunState
+from waddle_server.model import RunState, RunType
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +80,17 @@ class ResearchSessionRow:
     updated_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class FacetValueRow:
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class RunFacets:
+    run_types: tuple[RunType, ...]
+    groups: tuple[str, ...]
+
+
 _RUN_COLUMNS: LiteralString = """
     r.org_id, r.id, r.project_id, p.name AS project_name, r.name, r.display_name,
     r.state, r.group_name, r.job_type, r.config, r.summary, r.research_outcome, r.commit_sha,
@@ -125,7 +136,7 @@ async def upsert_run(
     name: str,
     display_name: str | None,
     group_name: str | None,
-    job_type: str | None,
+    job_type: RunType | None,
     config: dict[str, object],
     commit_sha: str | None,
     environment: dict[str, object],
@@ -168,7 +179,7 @@ async def upsert_run(
                 "name": name,
                 "display": display_name,
                 "grp": group_name,
-                "job": job_type,
+                "job": job_type.value if job_type is not None else None,
                 "config": json.dumps(config),
                 "commit": commit_sha,
                 "environment": json.dumps(environment),
@@ -224,8 +235,10 @@ async def list_runs(
     project: str | None,
     state: RunState | None,
     group_name: str | None,
-    job_type: str | None,
+    job_type: RunType | None,
+    query: str | None,
     limit: int,
+    offset: int,
 ) -> list[RunRow]:
     async with conn.cursor(row_factory=class_row(RunRow)) as cur:
         await cur.execute(
@@ -236,18 +249,46 @@ async def list_runs(
               AND (%(state)s::text IS NULL OR r.state = %(state)s)
               AND (%(group)s::text IS NULL OR r.group_name = %(group)s)
               AND (%(job)s::text IS NULL OR r.job_type = %(job)s)
-            ORDER BY r.created_at DESC LIMIT %(limit)s
+              AND (
+                %(search)s::text IS NULL
+                OR r.id ILIKE %(search)s
+                OR r.name ILIKE %(search)s
+                OR r.display_name ILIKE %(search)s
+              )
+            ORDER BY r.created_at DESC LIMIT %(limit)s OFFSET %(offset)s
             """,
             {
                 "org": org_id,
                 "project": project,
                 "state": state.value if state is not None else None,
                 "group": group_name,
-                "job": job_type,
+                "job": job_type.value if job_type is not None else None,
+                "search": f"%{query}%" if query is not None else None,
                 "limit": limit,
+                "offset": offset,
             },
         )
         return await cur.fetchall()
+
+
+async def list_run_facets(conn: AsyncConnection[Any], org_id: UUID) -> RunFacets:
+    async with conn.cursor(row_factory=class_row(FacetValueRow)) as cur:
+        await cur.execute(
+            "SELECT DISTINCT job_type AS value FROM runs"
+            " WHERE org_id = %s AND job_type IS NOT NULL ORDER BY value",
+            (org_id,),
+        )
+        run_type_rows = await cur.fetchall()
+        await cur.execute(
+            "SELECT DISTINCT group_name AS value FROM runs"
+            " WHERE org_id = %s AND group_name IS NOT NULL ORDER BY value",
+            (org_id,),
+        )
+        group_rows = await cur.fetchall()
+    return RunFacets(
+        run_types=tuple(RunType(row.value) for row in run_type_rows),
+        groups=tuple(row.value for row in group_rows),
+    )
 
 
 async def list_workers(

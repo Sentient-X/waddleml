@@ -17,6 +17,7 @@ from waddle_server.model import (
     ResearchDecision,
     ResearchGoal,
     RunState,
+    RunType,
 )
 
 RUN_ID_PATTERN = r"^[a-f0-9]{32}$"
@@ -121,7 +122,7 @@ class CreateRunIn(BaseModel):
     name: str = Field(min_length=1, max_length=512)
     display_name: str | None = None
     group_name: str | None = None
-    job_type: str | None = None
+    job_type: RunType | None = None
     research: ResearchTrial | None = (
         None  # none-ok: ordinary runs are not research trials
     )
@@ -156,7 +157,7 @@ class RunOut(BaseModel):
     display_name: str | None
     state: RunState
     group_name: str | None
-    job_type: str | None
+    job_type: RunType | None
     research: ResearchTrial | None  # none-ok: ordinary runs are not research trials
     research_outcome: (
         ResearchOutcome | None
@@ -178,6 +179,11 @@ class RunDetailOut(RunOut):
 class ProjectOut(BaseModel):
     name: str
     created_at: datetime
+
+
+class RunFacetsOut(BaseModel):
+    run_types: list[RunType]
+    groups: list[str]
 
 
 class MetricPointIn(BaseModel):

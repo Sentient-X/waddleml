@@ -15,7 +15,14 @@ pytestmark = requires_dev_postgres
 
 
 def _create_run(
-    client: TestClient, key: str, run_id: str, *, rank: int = 0, resume: bool = False
+    client: TestClient,
+    key: str,
+    run_id: str,
+    *,
+    rank: int = 0,
+    resume: bool = False,
+    job_type: str | None = None,
+    group_name: str | None = None,
 ):
     return client.post(
         "/api/v1/runs",
@@ -24,6 +31,8 @@ def _create_run(
             "run_id": run_id,
             "project": "demo",
             "name": f"run-{run_id[:6]}",
+            "job_type": job_type,
+            "group_name": group_name,
             "config": {"lr": 0.01},
             "started_at": "2026-07-19T00:00:00Z",
             "resume": resume,
@@ -46,6 +55,7 @@ def _create_research_run(
     trial_index: int,
     parent_run_id: str | None = None,
     objective_name: str = "latency/p99_ms",
+    goal: str = "minimize",
     session_name: str | None = "overnight-sm120",
     campaign: str = "m10-5090",
     subject_run_id: str | None = None,
@@ -62,7 +72,7 @@ def _create_research_run(
             "research": {
                 "trial_index": trial_index,
                 "objective_name": objective_name,
-                "goal": "minimize",
+                "goal": goal,
                 "hypothesis": "baseline"
                 if trial_index == 0
                 else "remove launch overhead",
@@ -259,6 +269,66 @@ def test_research_trials_roundtrip_and_filter(
         }
 
 
+def test_run_facets_search_and_offset_are_server_backed(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
+    client, _ = rig
+    with client:
+        training_id = uuid4().hex
+        evaluation_id = uuid4().hex
+        benchmark_id = uuid4().hex
+        assert _create_run(
+            client,
+            "key-a-writer",
+            training_id,
+            job_type="training",
+            group_name="policy-a",
+        ).status_code == 200
+        assert _create_run(
+            client,
+            "key-a-writer",
+            evaluation_id,
+            job_type="evaluation",
+            group_name="policy-a",
+        ).status_code == 200
+        assert _create_run(
+            client,
+            "key-a-writer",
+            benchmark_id,
+            job_type="benchmark",
+            group_name="kernel-lab",
+        ).status_code == 200
+
+        facets = client.get(
+            "/api/v1/runs/facets", headers={"x-api-key": "key-a-reader"}
+        ).json()
+        assert {"training", "evaluation", "benchmark"} <= set(facets["run_types"])
+        assert {"policy-a", "kernel-lab"} <= set(facets["groups"])
+
+        evaluations = client.get(
+            f"/api/v1/runs?job_type=evaluation&query={evaluation_id[:8]}",
+            headers={"x-api-key": "key-a-reader"},
+        ).json()
+        assert [run["run_id"] for run in evaluations] == [evaluation_id]
+
+        first = client.get(
+            "/api/v1/runs?project=demo&limit=1&offset=0",
+            headers={"x-api-key": "key-a-reader"},
+        ).json()
+        second = client.get(
+            "/api/v1/runs?project=demo&limit=1&offset=1",
+            headers={"x-api-key": "key-a-reader"},
+        ).json()
+        assert len(first) == len(second) == 1
+        assert first[0]["run_id"] != second[0]["run_id"]
+
+        invalid = client.get(
+            "/api/v1/runs?job_type=custom",
+            headers={"x-api-key": "key-a-reader"},
+        )
+        assert invalid.status_code == 422
+
+
 def test_research_sessions_are_compact_and_outcomes_are_immutable(
     rig: tuple[TestClient, FakeMetricStore],
 ) -> None:
@@ -346,14 +416,25 @@ def test_research_contract_supports_cross_phase_lineage_and_rejects_foreign_link
         assert untyped_attach.status_code == 422
         assert untyped_attach.json()["detail"]["code"] == "invalid_research_trial"
 
-        mixed = _create_research_run(
+        mistyped_objective = _create_research_run(
             client,
             uuid4().hex,
             trial_index=1,
             parent_run_id=root_id,
             objective_name="throughput",
         )
-        assert mixed.status_code == 200
+        assert mistyped_objective.status_code == 422
+        assert mistyped_objective.json()["detail"]["code"] == "invalid_research_trial"
+
+        changed_direction = _create_research_run(
+            client,
+            uuid4().hex,
+            trial_index=1,
+            parent_run_id=root_id,
+            goal="maximize",
+        )
+        assert changed_direction.status_code == 422
+        assert changed_direction.json()["detail"]["code"] == "invalid_research_trial"
 
         legacy_root = _create_research_run(
             client,

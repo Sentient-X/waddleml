@@ -293,13 +293,12 @@
           "job_type": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/RunType"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Job Type"
+            ]
           },
           "name": {
             "maxLength": 512,
@@ -1538,13 +1537,12 @@
           "job_type": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/RunType"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Job Type"
+            ]
           },
           "name": {
             "title": "Name",
@@ -1762,6 +1760,30 @@
         "title": "RunEnvironment",
         "type": "object"
       },
+      "RunFacetsOut": {
+        "properties": {
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "run_types": {
+            "items": {
+              "$ref": "#/components/schemas/RunType"
+            },
+            "title": "Run Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_types",
+          "groups"
+        ],
+        "title": "RunFacetsOut",
+        "type": "object"
+      },
       "RunLineageOut": {
         "properties": {
           "artifact_id": {
@@ -1878,13 +1900,12 @@
           "job_type": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/RunType"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Job Type"
+            ]
           },
           "name": {
             "title": "Name",
@@ -1991,6 +2012,18 @@
           "aborted"
         ],
         "title": "RunState",
+        "type": "string"
+      },
+      "RunType": {
+        "description": "Stable intent of one run; byte-equal to the SDK's ``RunType``.",
+        "enum": [
+          "training",
+          "evaluation",
+          "benchmark",
+          "data",
+          "autoresearch"
+        ],
+        "title": "RunType",
         "type": "string"
       },
       "SeriesPointOut": {
@@ -3309,13 +3342,31 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/RunType"
                 },
                 {
                   "type": "null"
                 }
               ],
               "title": "Job Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
             }
           },
           {
@@ -3327,6 +3378,17 @@
               "maximum": 1000,
               "minimum": 1,
               "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
               "type": "integer"
             }
           }
@@ -3394,6 +3456,24 @@
           }
         },
         "summary": "Create Run"
+      }
+    },
+    "/api/v1/runs/facets": {
+      "get": {
+        "operationId": "list_run_facets_api_v1_runs_facets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFacetsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Run Facets"
       }
     },
     "/api/v1/runs/{run_id}": {

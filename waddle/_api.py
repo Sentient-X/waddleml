@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 from ._db import WaddleDB
 from ._run import Run
 from . import _state
-from ._types import ResearchOutcome, ResearchTrial, WorkerInfo
+from ._types import ResearchOutcome, ResearchTrial, RunType, WorkerInfo
 
 
 def _gpu_name() -> Optional[str]:
@@ -74,6 +74,8 @@ def init(
     worker: Optional[WorkerInfo] = None,
     lineage: Optional[Dict[str, str]] = None,
     research: Optional[ResearchTrial] = None,
+    run_type: Optional[RunType] = None,
+    group_name: Optional[str] = None,
     resume: bool = False,
     sync: Optional[bool] = None,
     capture_logging: bool = True,
@@ -154,6 +156,8 @@ def init(
         worker=worker,
         lineage=lineage,
         research=research,
+        run_type=run_type,
+        group_name=group_name,
         resume=resume,
         sync=sync,
         environment=_capture_environment(

@@ -16,10 +16,17 @@ from typing import Any, Dict, Optional
 
 from ._db import WaddleDB
 from ._sync import SyncConfig, SyncEngine
-from ._types import ResearchOutcome, ResearchTrial, ResearchTrialError, WorkerInfo
+from ._types import (
+    ResearchOutcome,
+    ResearchTrial,
+    ResearchTrialError,
+    RunType,
+    RunTypeError,
+    WorkerInfo,
+)
 
 RESEARCH_CONFIG_KEY = "_waddle_research"
-RESEARCH_JOB_TYPE = "autoresearch"
+RESEARCH_JOB_TYPE = RunType.AUTORESEARCH.value
 
 
 #: python logging levelno → the platform's four wire levels
@@ -75,6 +82,8 @@ class Run:
         worker: WorkerInfo = WorkerInfo(),
         lineage: Optional[Dict[str, str]] = None,
         research: Optional[ResearchTrial] = None,
+        run_type: Optional[RunType] = None,
+        group_name: Optional[str] = None,
         resume: bool = False,
         sync: Optional[bool] = None,
         environment: Optional[Dict[str, Any]] = None,
@@ -119,10 +128,16 @@ class Run:
             raise ResearchTrialError(
                 f"{RESEARCH_CONFIG_KEY!r} is reserved; pass research=ResearchTrial(...)"
             )
+        if group_name is not None and not group_name.strip():
+            raise RunTypeError("group_name must not be empty when present")
         research_dict: Optional[Dict[str, Any]] = None
-        group_name: Optional[str] = None
-        job_type: Optional[str] = None
+        effective_group_name = group_name
+        job_type = run_type.value if run_type is not None else None
         if research is not None:
+            if run_type is not None and run_type is not RunType.AUTORESEARCH:
+                raise RunTypeError("a research trial requires run_type=AUTORESEARCH")
+            if group_name is not None and group_name != research.campaign:
+                raise RunTypeError("a research trial's group_name must equal its campaign")
             research_dict = {
                 "trial_index": research.trial_index,
                 "objective_name": research.objective_name,
@@ -143,8 +158,10 @@ class Run:
                     research.falsification_criteria
                 )
             config_dict[RESEARCH_CONFIG_KEY] = research_dict
-            group_name = research.campaign
+            effective_group_name = research.campaign
             job_type = RESEARCH_JOB_TYPE
+        elif run_type is RunType.AUTORESEARCH:
+            raise RunTypeError("run_type=AUTORESEARCH requires a research trial")
         config_json = json.dumps(config_dict, ensure_ascii=False, sort_keys=True)
         if resume:
             existing = db.fetchone(
@@ -155,7 +172,7 @@ class Run:
             ):
                 existing_config = json.loads(existing[2])
                 if (
-                    existing[0] != group_name
+                    existing[0] != effective_group_name
                     or existing[1] != job_type
                     or existing_config.get(RESEARCH_CONFIG_KEY) != research_dict
                 ):
@@ -194,7 +211,7 @@ class Run:
                 config_json,
                 None,
                 json.dumps(lineage or {}, sort_keys=True),
-                group_name,
+                effective_group_name,
                 job_type,
             ],
         )
@@ -241,7 +258,7 @@ class Run:
                     project=project,
                     name=self.name,
                     config_dict=dict(config or {}),
-                    group_name=group_name,
+                    group_name=effective_group_name,
                     job_type=job_type,
                     research_dict=research_dict,
                     commit_sha=commit_sha,

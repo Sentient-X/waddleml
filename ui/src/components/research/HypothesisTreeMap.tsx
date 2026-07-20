@@ -1,4 +1,4 @@
-import { Badge, Card, CardContent, CardHeader, CardTitle, cn } from "@sx/ui";
+import { Badge, Card, CardContent, CardHeader, CardTitle } from "@sx/ui";
 
 import { formatScalar } from "@/lib/format";
 import {
@@ -10,14 +10,7 @@ import {
   type ResearchRun,
   type ResearchSession,
 } from "@/lib/research";
-
-function verdictTone(verdict: string): string {
-  if (verdict === "keep") return "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400";
-  if (verdict === "baseline") return "border-blue-600/40 bg-blue-500/10 text-blue-700 dark:text-blue-400";
-  if (verdict === "fail") return "border-red-600/40 bg-red-500/10 text-red-700 dark:text-red-400";
-  if (verdict === "inconclusive") return "border-amber-600/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
-  return "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300";
-}
+import { ResearchListRow } from "./ResearchListRow";
 
 function IdeaButton({
   location,
@@ -30,19 +23,10 @@ function IdeaButton({
 }) {
   const value = objectiveValue(location.run);
   return (
-    <button
-      type="button"
+    <ResearchListRow
       onClick={() => onSelect(location.run, location.campaign)}
-      className={cn(
-        "w-full rounded-md border border-l-4 bg-background px-3 py-2 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        location.run.run_id === selectedRunId && "border-blue-500 bg-accent/60",
-        location.analysis.verdict === "keep" && "border-l-green-600",
-        location.analysis.verdict === "fail" && "border-l-red-600",
-        location.analysis.verdict === "inconclusive" && "border-l-amber-600",
-        location.analysis.verdict === "discard" && "border-l-slate-500",
-        location.analysis.verdict === "baseline" && "border-l-blue-600",
-        location.analysis.verdict === "running" && "border-l-violet-600",
-      )}
+      selected={location.run.run_id === selectedRunId}
+      className="border border-l-2 bg-background px-3"
     >
       <span className="flex items-center justify-between gap-2 font-mono text-[8px] uppercase text-muted-foreground">
         <span>attempt {location.sessionOrdinal + 1} · {researchVerdictLabel(location.analysis)}</span>
@@ -51,7 +35,7 @@ function IdeaButton({
       <span className="mt-1 line-clamp-2 text-[11px] font-medium leading-snug">
         {location.run.research.hypothesis}
       </span>
-    </button>
+    </ResearchListRow>
   );
 }
 
@@ -123,9 +107,9 @@ export function HypothesisTreeMap({
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-x-3 gap-y-1 font-mono text-[9px] text-muted-foreground">
-          <span className="text-green-600 dark:text-green-400">{kept} metric winners</span>
+          <span>{kept} metric winners</span>
           <span>{rejected} non-winners / failed</span>
-          <span className="text-amber-600 dark:text-amber-400">{unresolved} unresolved</span>
+          <span>{unresolved} unresolved</span>
           <span>{controllerBacked} concluded</span>
         </div>
       </CardHeader>
@@ -170,12 +154,12 @@ export function HypothesisTreeMap({
             ) : null}
           </section>
 
-          <section className="min-w-0 rounded-lg border-2 border-blue-500/60 bg-blue-500/[0.035] p-4">
+          <section className="min-w-0 border-2 border-foreground/35 bg-muted/20 p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Badge
                   variant="outline"
-                  className={cn("font-mono text-[9px] uppercase", verdictTone(selected.analysis.verdict))}
+                  className="font-mono text-[9px] uppercase"
                 >
                   {researchVerdictLabel(selected.analysis)}
                 </Badge>
@@ -195,12 +179,11 @@ export function HypothesisTreeMap({
                 {selected.run.research.rationale}
               </p>
             ) : null}
-            <div className="mt-4 border-t pt-3">
-              <h3 className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-                What we learned
-              </h3>
-              {selected.analysis.source === "controller" ? (
-                <>
+            {selected.analysis.source === "controller" ? (
+              <div className="mt-4 border-t pt-3">
+                <h3 className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  What we learned
+                </h3>
                   <p className="mt-1 text-sm leading-relaxed">{selected.analysis.conclusion}</p>
                   {selected.analysis.evidence ? (
                     <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -216,14 +199,8 @@ export function HypothesisTreeMap({
                       ))}
                     </div>
                   ) : null}
-                </>
-              ) : (
-                <p className="mt-1 text-xs italic leading-relaxed text-muted-foreground">
-                  This legacy attempt has no controller-authored conclusion. Waddle only knows its
-                  numeric selection state.
-                </p>
-              )}
-            </div>
+              </div>
+            ) : null}
             {selected.analysis.nextStep ? (
               <div className="mt-3 border-t pt-3">
                 <h3 className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">

@@ -24,8 +24,10 @@ import type {
   ResearchSessionTrial,
   Run,
   RunDetail,
+  RunFacets,
   RunLineage,
   RunState,
+  RunType,
 } from "./types";
 
 export class WaddleApiError extends Error {
@@ -104,8 +106,10 @@ export interface RunFilter {
   project?: string;
   state?: RunState;
   groupName?: string;
-  jobType?: string;
+  jobType?: RunType;
+  query?: string;
   limit?: number;
+  offset?: number;
 }
 
 export const waddleApi = {
@@ -124,10 +128,13 @@ export const waddleApi = {
     if (filter.state) params.set("state", filter.state);
     if (filter.groupName) params.set("group_name", filter.groupName);
     if (filter.jobType) params.set("job_type", filter.jobType);
+    if (filter.query) params.set("query", filter.query);
     if (filter.limit) params.set("limit", String(filter.limit));
+    if (filter.offset) params.set("offset", String(filter.offset));
     const qs = params.toString();
     return getJson<Run[]>(`/v1/runs${qs ? `?${qs}` : ""}`);
   },
+  listRunFacets: (): Promise<RunFacets> => getJson<RunFacets>("/v1/runs/facets"),
   getRun: (runId: string): Promise<RunDetail> => getJson<RunDetail>(`/v1/runs/${runId}`),
   listProjects: (): Promise<Project[]> => getJson<Project[]>("/v1/projects"),
   queryMetrics: (query: MetricsQuery): Promise<MetricSeries[]> =>

@@ -9,6 +9,8 @@ from ._types import (
     ResearchOutcome,
     ResearchTrial,
     ResearchTrialError,
+    RunType,
+    RunTypeError,
     WorkerInfo,
 )
 
@@ -28,4 +30,6 @@ __all__ = [
     "ResearchOutcome",
     "ResearchTrial",
     "ResearchTrialError",
+    "RunType",
+    "RunTypeError",
 ]

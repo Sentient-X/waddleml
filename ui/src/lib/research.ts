@@ -53,6 +53,18 @@ export interface ResearchMetric {
   zeroBaseline: boolean;
 }
 
+export interface ResearchMetricNamespace {
+  key: string;
+  label: string;
+  metrics: ResearchMetric[];
+  children: ResearchMetricNamespace[];
+}
+
+export interface ResearchMetricTree {
+  metrics: ResearchMetric[];
+  namespaces: ResearchMetricNamespace[];
+}
+
 export type ResearchVerdict =
   | ResearchDecision
   | "running";
@@ -307,6 +319,55 @@ export function researchMetrics(session: ResearchSession): ResearchMetric[] {
         right.runs.length - left.runs.length ||
         left.runs[0].sessionOrdinal - right.runs[0].sessionOrdinal,
     );
+}
+
+interface MutableMetricNamespace {
+  key: string;
+  label: string;
+  metrics: ResearchMetric[];
+  children: Map<string, MutableMetricNamespace>;
+}
+
+function freezeMetricNamespace(node: MutableMetricNamespace): ResearchMetricNamespace {
+  return {
+    key: node.key,
+    label: node.label,
+    metrics: node.metrics,
+    children: [...node.children.values()].map(freezeMetricNamespace),
+  };
+}
+
+export function researchMetricTree(metrics: readonly ResearchMetric[]): ResearchMetricTree {
+  const rootMetrics: ResearchMetric[] = [];
+  const roots = new Map<string, MutableMetricNamespace>();
+  for (const metric of metrics) {
+    const segments = metric.objectiveName.split("/").filter(Boolean);
+    if (segments.length < 2) {
+      rootMetrics.push(metric);
+      continue;
+    }
+    let siblings = roots;
+    let path = "";
+    let node: MutableMetricNamespace | undefined;
+    for (const segment of segments.slice(0, -1)) {
+      path = path ? `${path}/${segment}` : segment;
+      node = siblings.get(segment);
+      if (!node) {
+        node = { key: path, label: segment, metrics: [], children: new Map() };
+        siblings.set(segment, node);
+      }
+      siblings = node.children;
+    }
+    node?.metrics.push(metric);
+  }
+  return {
+    metrics: rootMetrics,
+    namespaces: [...roots.values()].map(freezeMetricNamespace),
+  };
+}
+
+export function researchMetricLeaf(metric: ResearchMetric): string {
+  return metric.objectiveName.split("/").filter(Boolean).at(-1) ?? metric.objectiveName;
 }
 
 export function better(

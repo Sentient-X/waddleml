@@ -48,7 +48,7 @@ from waddle_server.errors import (
     RunNotFoundError,
     SqlSandboxError,
 )
-from waddle_server.model import ColumnType, RunState, WaddleRole
+from waddle_server.model import ColumnType, RunState, RunType, WaddleRole
 from waddle_server.server import artifacts, ch, db, quotas, repo
 from waddle_server.server.auth import WaddlePrincipal, require_role, resolve_principal
 from waddle_server.server.schemas import (
@@ -84,6 +84,7 @@ from waddle_server.server.schemas import (
     ReportVersionOut,
     RunDetailOut,
     RunEnvironment,
+    RunFacetsOut,
     RunLineageOut,
     RunOut,
     RunRef,
@@ -109,7 +110,7 @@ from waddle_server.server.storage import (
 
 log = get_logger(__name__)
 RESEARCH_CONFIG_KEY = "_waddle_research"
-RESEARCH_JOB_TYPE = "autoresearch"
+RESEARCH_JOB_TYPE = RunType.AUTORESEARCH
 
 
 def _error(status: int, exc: Exception, code: str) -> HTTPException:
@@ -166,7 +167,7 @@ def build_app(
     def _run_config(row: repo.RunRow) -> tuple[dict[str, object], ResearchTrial | None]:
         config = dict(row.config)
         raw = config.pop(RESEARCH_CONFIG_KEY, None)
-        if row.job_type != RESEARCH_JOB_TYPE:
+        if row.job_type != RESEARCH_JOB_TYPE.value:
             if raw is not None:
                 raise ResearchContractError(
                     f"run {row.id!r} has reserved research config without autoresearch job type"
@@ -186,14 +187,15 @@ def build_app(
     def _run_out(row: repo.RunRow) -> RunOut:
         config, research = _run_config(row)
         try:
+            run_type = RunType(row.job_type) if row.job_type is not None else None
             research_outcome = (
                 ResearchOutcome.model_validate(row.research_outcome)
                 if row.research_outcome is not None
                 else None
             )
-        except pydantic.ValidationError as exc:
+        except (ValueError, pydantic.ValidationError) as exc:
             raise ResearchContractError(
-                f"research run {row.id!r} has an invalid outcome"
+                f"run {row.id!r} has an invalid type or research outcome"
             ) from exc
         return RunOut(
             run_id=row.id,
@@ -202,7 +204,7 @@ def build_app(
             display_name=row.display_name,
             state=RunState(row.state),
             group_name=row.group_name,
-            job_type=row.job_type,
+            job_type=run_type,
             research=research,
             research_outcome=research_outcome,
             config=config,
@@ -250,7 +252,8 @@ def build_app(
             if existing_research is not None and (
                 existing.project_id != project.id
                 or existing.group_name != body.group_name
-                or existing.job_type != body.job_type
+                or existing.job_type
+                != (body.job_type.value if body.job_type is not None else None)
             ):
                 err = ResearchContractError(
                     "a research run cannot move between projects, campaigns, or job types"
@@ -289,7 +292,7 @@ def build_app(
                 if (
                     parent is None
                     or parent.project_id != project.id
-                    or parent.job_type != RESEARCH_JOB_TYPE
+                    or parent.job_type != RESEARCH_JOB_TYPE.value
                 ):
                     err = ResearchContractError(
                         "parent_run_id must name an existing research trial in the same project"
@@ -327,7 +330,9 @@ def build_app(
                 state=None,
                 group_name=body.group_name,
                 job_type=RESEARCH_JOB_TYPE,
+                query=None,
                 limit=1,
+                offset=0,
             )
             if anchors:
                 _, anchor = _run_config(anchors[0])
@@ -337,6 +342,16 @@ def build_app(
                 if anchor_session_name != session_name:
                     err = ResearchContractError(
                         "session_name must remain fixed within a research campaign family"
+                    )
+                    raise _error(422, err, err.code)
+                if (
+                    anchor.objective_name != body.research.objective_name
+                    or anchor.goal != body.research.goal
+                ):
+                    err = ResearchContractError(
+                        "a campaign's objective_name and goal are immutable; read the "
+                        "research session and reuse its canonical metric path, or start a "
+                        "new campaign"
                     )
                     raise _error(422, err, err.code)
             run_config[RESEARCH_CONFIG_KEY] = body.research.model_dump(mode="json")
@@ -383,8 +398,10 @@ def build_app(
         project: str | None = None,
         state: RunState | None = None,
         group_name: str | None = None,
-        job_type: str | None = None,
+        job_type: RunType | None = None,
+        query: str | None = Query(default=None, min_length=1, max_length=256),
         limit: int = Query(default=200, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
         c: AsyncConnection[Any] = Depends(conn),
         pr: WaddlePrincipal = Depends(principal),
     ) -> list[RunOut]:
@@ -396,9 +413,20 @@ def build_app(
             state=state,
             group_name=group_name,
             job_type=job_type,
+            query=query,
             limit=limit,
+            offset=offset,
         )
         return [_run_out(r) for r in rows]
+
+    @app.get("/api/v1/runs/facets", response_model=RunFacetsOut)
+    async def list_run_facets(
+        c: AsyncConnection[Any] = Depends(conn),
+        pr: WaddlePrincipal = Depends(principal),
+    ) -> RunFacetsOut:
+        require_role(pr, WaddleRole.READER)
+        facets = await repo.list_run_facets(c, pr.org_id)
+        return RunFacetsOut(run_types=list(facets.run_types), groups=list(facets.groups))
 
     @app.get("/api/v1/runs/{run_id}", response_model=RunDetailOut)
     async def get_run(

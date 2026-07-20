@@ -16,6 +16,16 @@ class RunState(StrEnum):
     ABORTED = "aborted"
 
 
+class RunType(StrEnum):
+    """Stable intent of one run; byte-equal to the SDK's ``RunType``."""
+
+    TRAINING = "training"
+    EVALUATION = "evaluation"
+    BENCHMARK = "benchmark"
+    DATA = "data"
+    AUTORESEARCH = "autoresearch"
+
+
 class ResearchGoal(StrEnum):
     """Direction of one immutable autoresearch objective."""
 

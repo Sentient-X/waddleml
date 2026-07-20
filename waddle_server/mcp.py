@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
+from waddle_server.model import RunType
 
 mcp = FastMCP(
     "waddle",
@@ -68,19 +69,56 @@ async def projects_list(ctx: Context | None = None) -> list[dict[str, Any]]:  # 
     return await _call(ctx, "GET", "/api/v1/projects")
 
 
+@mcp.tool(name="waddle.research.sessions")
+async def research_sessions(
+    limit: int = 100,
+    ctx: Context | None = None,  # type: ignore[type-arg]
+) -> list[dict[str, Any]]:
+    """Research sessions with trial, phase, and running counts.
+
+    Read this before extending an existing autoresearch loop; then inspect the
+    chosen session to reuse its canonical objective paths.
+    """
+    return await _call(
+        ctx, "GET", "/api/v1/research/sessions", params={"limit": limit}
+    )
+
+
+@mcp.tool(name="waddle.research.session")
+async def research_session(
+    project: str,
+    session_name: str,
+    limit: int = 5000,
+    ctx: Context | None = None,  # type: ignore[type-arg]
+) -> list[dict[str, Any]]:
+    """One research session's ordered trials and exact objective paths.
+
+    Reuse an existing trial's ``research.objective_name`` and ``goal`` when
+    continuing its campaign. Waddle rejects objective drift inside a campaign.
+    """
+    return await _call(
+        ctx,
+        "GET",
+        f"/api/v1/research/sessions/{project}/{session_name}",
+        params={"limit": limit},
+    )
+
+
 @mcp.tool(name="waddle.runs.list")
 async def runs_list(
     project: str | None = None,
     state: str | None = None,
     group_name: str | None = None,
-    job_type: str | None = None,
+    job_type: RunType | None = None,
+    query: str | None = None,
     limit: int = 50,
+    offset: int = 0,
     ctx: Context | None = None,  # type: ignore[type-arg]
 ) -> list[dict[str, Any]]:
     """Recent runs (newest first) with config, latest-metric summary, and typed
     research facts when present. state: running | completed | failed | aborted.
     Use job_type='autoresearch' and optional group_name for candidate trees."""
-    params: dict[str, Any] = {"limit": limit}
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
     if project:
         params["project"] = project
     if state:
@@ -88,7 +126,9 @@ async def runs_list(
     if group_name:
         params["group_name"] = group_name
     if job_type:
-        params["job_type"] = job_type
+        params["job_type"] = job_type.value
+    if query:
+        params["query"] = query
     return await _call(ctx, "GET", "/api/v1/runs", params=params)
 
 
