@@ -110,8 +110,9 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
   trial index, objective, direction, hypothesis, optional parent, optional evaluated subject);
   existing scalar metrics and source identity.
 - Derived objects/operations: research-session list, ordered campaign phases, direction-adjusted
-  unified trajectory, full-session tree, per-phase rooted tree, baseline, current incumbent,
-  delta, best run, progress curve, valid/failed counts.
+  attempt scatter plus accepted-incumbent staircase, graphical hypothesis/evaluation tree,
+  evidence-derived working/discarded synthesis, per-phase rooted tree, baseline, current
+  incumbent, delta, best run, progress curve, valid/failed counts.
 - Boundary seams: one optional typed research record on `waddle.init`; the existing run-create
   API persists it; filtered run reads and MCP expose it; the console is read-only.
 - Laws made explicit: one effective session per campaign-name family; objective/direction define
@@ -160,7 +161,7 @@ Allowed decisions: `adopt verbatim`, `adapt`, `rederive`, `omit`, `replace`.
 
 | Metric | Upstream reported | Upstream reproduced | Fused | Tolerance | Verdict |
 |---|---:|---:|---:|---:|---|
-| Functional tree/incumbent behavior | Present in supplied Weco UI | Characterized visually | Typed session/phase/parent/subject tree, completed-only candidate points, per-phase prefix incumbents, and direction-adjusted unified trajectory | Exact fixture | pass |
+| Functional tree/incumbent behavior | Present in supplied Weco UI and canonical attempt/incumbent references | Characterized visually | Typed session/phase/parent/subject tree, all-attempt scatter, accepted-incumbent staircases, graphical hypothesis map, and evidence-derived synthesis | Exact fixture plus 76-trial desktop/mobile inspection | pass |
 | Existing Waddle compatibility | n/a | Current tests are target baseline | 92 passed; OpenAPI regenerated; console typecheck and production build passed | No regression | pass |
 | Kernel performance | Weco shows kernel use cases, not this model/device result | Not attempted | Owned by Train M10 | M10 contract | out of scope |
 

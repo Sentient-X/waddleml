@@ -4,6 +4,7 @@ import { formatScalar, runStateTone, shortHash } from "@/lib/format";
 import {
   bestRun,
   objectiveValue,
+  researchAnalyses,
   researchTreeRows,
   type ResearchCampaign,
   type ResearchRun,
@@ -40,6 +41,7 @@ export function SessionExperimentTree({
           <span className="absolute bottom-4 left-[7px] top-4 border-l border-border" />
           {session.campaigns.map((campaign, phaseIndex) => {
             const phaseBest = bestRun(campaign);
+            const analyses = researchAnalyses(campaign);
             return (
               <section key={campaign.key} className="relative pb-3 last:pb-0">
                 <span className="absolute -left-[13px] top-3 h-2 w-2 rounded-full border border-primary bg-background" />
@@ -63,6 +65,7 @@ export function SessionExperimentTree({
                 <div className="ml-2 border-l border-dashed border-border pl-2">
                   {researchTreeRows(campaign.runs).map(({ run, depth, orphan }) => {
                     const value = objectiveValue(run);
+                    const analysis = analyses.get(run.run_id);
                     const selected = run.run_id === selectedRunId;
                     const parent = run.research.parent_run_id
                       ? runLocations.get(run.research.parent_run_id)
@@ -93,6 +96,19 @@ export function SessionExperimentTree({
                             trial {run.research.trial_index}
                             {run.run_id === phaseBest?.run_id ? (
                               <Badge className="px-1 py-0 text-[9px]">best</Badge>
+                            ) : null}
+                            {analysis?.verdict === "kept" ? (
+                              <Badge
+                                variant="outline"
+                                className="border-green-600/40 bg-green-500/10 px-1 py-0 text-[9px] text-green-700 dark:text-green-400"
+                              >
+                                working
+                              </Badge>
+                            ) : null}
+                            {analysis?.verdict === "failed" ? (
+                              <Badge variant="destructive" className="px-1 py-0 text-[9px]">
+                                failed
+                              </Badge>
                             ) : null}
                             {orphan && !parent ? <Badge variant="outline">orphan</Badge> : null}
                           </span>

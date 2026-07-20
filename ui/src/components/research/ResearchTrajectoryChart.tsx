@@ -9,8 +9,12 @@ import type {
 
 const WIDTH_PER_POINT = 15;
 const MIN_WIDTH = 760;
-const HEIGHT = 300;
-const MARGIN = { top: 34, right: 24, bottom: 40, left: 58 } as const;
+const HEIGHT = 340;
+const MARGIN = { top: 54, right: 24, bottom: 40, left: 58 } as const;
+
+function shortLabel(value: string): string {
+  return value.length <= 24 ? value : `${value.slice(0, 23)}…`;
+}
 
 function ticks(minimum: number, maximum: number): number[] {
   const span = maximum - minimum || 1;
@@ -63,7 +67,7 @@ export function ResearchTrajectoryChart({
       <div className="overflow-x-auto">
         <svg
           role="img"
-          aria-label="Direction-adjusted score improvement across every research campaign phase"
+          aria-label="Every evaluated attempt as scatter points with the accepted incumbent staircase"
           width={width}
           height={HEIGHT}
           viewBox={`0 0 ${width} ${HEIGHT}`}
@@ -112,11 +116,6 @@ export function ResearchTrajectoryChart({
                 y: y(point.incumbentImprovement),
               })),
             );
-            const candidatePath = phase.points
-              .map((point, index) =>
-                `${index === 0 ? "M" : "L"} ${x(point.ordinal).toFixed(2)} ${y(point.improvement).toFixed(2)}`,
-              )
-              .join(" ");
             return (
               <g key={phase.campaign.key}>
                 <rect
@@ -147,33 +146,59 @@ export function ResearchTrajectoryChart({
                     P{phase.phaseIndex + 1}
                   </text>
                 ) : null}
-                <path d={candidatePath} fill="none" stroke="#2563eb" strokeWidth={1.4} />
-                <path d={incumbentPath} fill="none" stroke="#f97316" strokeWidth={1.8} />
-                {phase.points.map((point) => (
-                  <circle
-                    key={point.run.run_id}
-                    cx={x(point.ordinal)}
-                    cy={y(point.improvement)}
-                    r={point.run.run_id === selectedRunId ? 5.5 : 4}
-                    fill={point.improvement >= 0 ? "#2563eb" : "#dc2626"}
-                    stroke={point.run.run_id === selectedRunId ? "#f8fafc" : "transparent"}
-                    strokeWidth={2}
-                    className="cursor-pointer focus:outline-none"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onSelect(point.run, phase.campaign)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        onSelect(point.run, phase.campaign);
-                      }
-                    }}
-                  >
-                    <title>
-                      {`Phase ${phase.phaseIndex + 1} · trial ${point.run.research.trial_index}\n${phase.campaign.objectiveName}: ${formatScalar(point.rawValue)}\nDirection-adjusted improvement: ${point.improvement.toFixed(2)}%\n${point.run.research.hypothesis}`}
-                    </title>
-                  </circle>
-                ))}
+                <path d={incumbentPath} fill="none" stroke="#16a34a" strokeWidth={2} />
+                {phase.points.map((point) => {
+                  const accepted =
+                    point.analysis.verdict === "baseline" || point.analysis.verdict === "kept";
+                  const baseline = point.analysis.verdict === "baseline";
+                  const failed = point.analysis.verdict === "failed";
+                  const selected = point.run.run_id === selectedRunId;
+                  return (
+                    <g key={point.run.run_id}>
+                      <circle
+                        cx={x(point.ordinal)}
+                        cy={y(point.improvement)}
+                        r={selected ? 5.5 : accepted ? 4.5 : 3.5}
+                        fill={baseline ? "#2563eb" : accepted ? "#16a34a" : failed ? "#dc2626" : "#64748b"}
+                        fillOpacity={accepted || selected ? 1 : 0.28}
+                        stroke={
+                          selected
+                            ? "#f8fafc"
+                            : baseline
+                              ? "#1e40af"
+                              : accepted
+                                ? "#166534"
+                                : "transparent"
+                        }
+                        strokeWidth={selected ? 2 : 1}
+                        className="cursor-pointer focus:outline-none"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => onSelect(point.run, phase.campaign)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onSelect(point.run, phase.campaign);
+                          }
+                        }}
+                      >
+                        <title>
+                          {`Phase ${phase.phaseIndex + 1} · trial ${point.run.research.trial_index} · ${point.analysis.verdict}\n${phase.campaign.objectiveName}: ${formatScalar(point.rawValue)}\nDirection-adjusted improvement: ${point.improvement.toFixed(2)}%\n${point.run.research.hypothesis}\n${point.analysis.evidence}\n${point.analysis.conclusion}`}
+                        </title>
+                      </circle>
+                      {point.analysis.verdict === "kept" ? (
+                        <text
+                          x={x(point.ordinal) + 5}
+                          y={y(point.improvement) - 8}
+                          transform={`rotate(-24 ${x(point.ordinal) + 5} ${y(point.improvement) - 8})`}
+                          className="pointer-events-none fill-green-700 text-[8px] dark:fill-green-400"
+                        >
+                          {shortLabel(point.run.research.hypothesis)}
+                        </text>
+                      ) : null}
+                    </g>
+                  );
+                })}
               </g>
             );
           })}
@@ -184,17 +209,23 @@ export function ResearchTrajectoryChart({
             textAnchor="middle"
             className="fill-muted-foreground text-[10px]"
           >
-            evaluated candidates in campaign order
+            evaluated attempts in campaign order
           </text>
         </svg>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
         <div className="flex items-center gap-4">
           <span className="inline-flex shrink-0 items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-[#2563eb]" /> candidate
+            <span className="h-2 w-2 rounded-full bg-slate-500 opacity-40" /> discarded attempt
           </span>
           <span className="inline-flex shrink-0 items-center gap-1.5">
-            <span className="h-0.5 w-3 bg-[#f97316]" /> phase incumbent
+            <span className="h-2 w-2 rounded-full bg-blue-600" /> phase baseline
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-[#16a34a]" /> accepted improvement
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1.5">
+            <span className="h-0.5 w-3 bg-[#16a34a]" /> running best
           </span>
           <span>higher is better; each phase resets to 0%</span>
         </div>

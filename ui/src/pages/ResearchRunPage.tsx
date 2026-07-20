@@ -23,13 +23,16 @@ import {
 
 import { waddleApi } from "@/api/client";
 import { MetricChart } from "@/components/MetricChart";
+import { HypothesisTreeMap } from "@/components/research/HypothesisTreeMap";
 import { ResearchTrajectoryChart } from "@/components/research/ResearchTrajectoryChart";
+import { ResearchSynthesis } from "@/components/research/ResearchSynthesis";
 import { SessionExperimentTree } from "@/components/research/SessionExperimentTree";
 import { formatScalar, runDuration, shortHash } from "@/lib/format";
 import {
   bestRun,
   better,
   objectiveValue,
+  researchAnalyses,
   researchSessionKey,
   researchSessionsFrom,
   researchTrajectory,
@@ -142,6 +145,11 @@ export function ResearchRunPage() {
     (item) => item.key === researchSessionKey(projectParam, sessionParam),
   );
   const trajectory = useMemo(() => (session ? researchTrajectory(session) : []), [session]);
+  const sessionOutcomes = useMemo(
+    () =>
+      session?.campaigns.flatMap((item) => [...researchAnalyses(item).values()]) ?? [],
+    [session],
+  );
 
   useEffect(() => {
     if (!session || session.campaigns.length === 0) return;
@@ -155,12 +163,19 @@ export function ResearchRunPage() {
     session?.campaigns[session.campaigns.length - 1];
   const incumbent = useMemo(() => {
     if (!campaign) return { points: [], bestRun: null as ResearchRun | null };
+    const analyses = researchAnalyses(campaign);
     let bestValue: number | null = null;
     let selected: ResearchRun | null = null;
     const points: { step: number; value: number }[] = [];
     for (const run of campaign.runs) {
       const value = objectiveValue(run);
-      if (value !== null && (bestValue === null || better(campaign.goal, value, bestValue))) {
+      const verdict = analyses.get(run.run_id)?.verdict;
+      const accepted = verdict === "baseline" || verdict === "kept";
+      if (
+        accepted &&
+        value !== null &&
+        (bestValue === null || better(campaign.goal, value, bestValue))
+      ) {
         bestValue = value;
         selected = run;
       }
@@ -206,6 +221,9 @@ export function ResearchRunPage() {
   }
 
   const selectedRun = campaign.runs.find((run) => run.run_id === selectedRunId) ?? null;
+  const selectedAnalysis = selectedRun
+    ? researchAnalyses(campaign).get(selectedRun.run_id)
+    : undefined;
   const candidatePoints = campaign.runs.flatMap((run) => {
     const value = objectiveValue(run);
     return value === null ? [] : [{ step: run.research.trial_index, value }];
@@ -220,7 +238,10 @@ export function ResearchRunPage() {
       : null;
   const evaluated = campaign.runs.filter((run) => objectiveValue(run) !== null).length;
   const running = campaign.runs.filter((run) => run.state === "running").length;
-  const sessionEvaluated = session.runs.filter((run) => objectiveValue(run) !== null).length;
+  const workingIdeas = sessionOutcomes.filter((outcome) => outcome.verdict === "kept").length;
+  const discardedIdeas = sessionOutcomes.filter(
+    (outcome) => outcome.verdict === "discarded" || outcome.verdict === "failed",
+  ).length;
   const selectRun = (run: ResearchRun, targetCampaign: ResearchCampaign) => {
     setSelectedCampaignKey(targetCampaign.key);
     setSelectedRunId(run.run_id);
@@ -258,7 +279,7 @@ export function ResearchRunPage() {
         </Button>
         <PageHeader
           title={session.name}
-          description={`${session.campaigns.length} campaign phases and ${session.runs.length} candidate trials in ${session.project}.`}
+          description={`${session.campaigns.length} campaign phases and ${session.runs.length} candidate trials in ${session.project} over ${runDuration(session.startedAt, session.updatedAt)}.`}
           actions={
             <Select value={campaign.key} onValueChange={setSelectedCampaignKey}>
               <SelectTrigger className="h-9 w-[min(26rem,70vw)] text-sm">
@@ -279,8 +300,8 @@ export function ResearchRunPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiStat label="Campaign phases" value={String(session.campaigns.length)} />
         <KpiStat label="Candidate trials" value={String(session.runs.length)} />
-        <KpiStat label="Evaluated" value={`${sessionEvaluated} / ${session.runs.length}`} />
-        <KpiStat label="Research span" value={runDuration(session.startedAt, session.updatedAt)} />
+        <KpiStat label="Working ideas" value={String(workingIdeas)} />
+        <KpiStat label="Discarded / failed" value={String(discardedIdeas)} />
       </div>
 
       <Card>
@@ -288,8 +309,8 @@ export function ResearchRunPage() {
           <div>
             <CardTitle className="text-sm">Unified score trajectory</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              Every evaluated trial across every phase, normalized to direction-aware improvement
-              from that phase's baseline.
+              Every attempt remains visible as scatter; only accepted, gate-valid improvements
+              form the running-best staircase. Scores are direction-normalized per phase.
             </p>
           </div>
           <Badge variant="outline" className="font-mono text-[10px]">
@@ -310,6 +331,14 @@ export function ResearchRunPage() {
           )}
         </CardContent>
       </Card>
+
+      <HypothesisTreeMap
+        session={session}
+        selectedRunId={selectedRunId}
+        onSelect={selectRun}
+      />
+
+      <ResearchSynthesis session={session} onSelect={selectRun} />
 
       <CampaignPhases
         campaigns={session.campaigns}
@@ -399,11 +428,63 @@ export function ResearchRunPage() {
           <CardContent>
             {selectedRun ? (
               <div className="flex flex-col gap-5">
-                <section>
-                  <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Hypothesis
-                  </h2>
-                  <p className="text-sm leading-relaxed">{selectedRun.research.hypothesis}</p>
+                <section className="rounded-lg border p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Idea outcome
+                    </h2>
+                    {selectedAnalysis ? (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "font-mono text-[10px] uppercase",
+                          selectedAnalysis.verdict === "kept" &&
+                            "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400",
+                          selectedAnalysis.verdict === "baseline" &&
+                            "border-blue-600/40 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+                          selectedAnalysis.verdict === "failed" &&
+                            "border-red-600/40 bg-red-500/10 text-red-700 dark:text-red-400",
+                        )}
+                      >
+                        {selectedAnalysis.verdict}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 grid gap-4">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Why it might work
+                      </div>
+                      <p className="mt-1 text-sm leading-relaxed">
+                        {selectedRun.research.hypothesis}
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        What the evidence says
+                      </div>
+                      <p className="mt-1 text-sm leading-relaxed">
+                        {selectedAnalysis?.evidence ?? "No derived evidence summary is available."}
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Conclusion
+                      </div>
+                      <p className="mt-1 text-sm leading-relaxed">
+                        {selectedAnalysis?.conclusion ?? "No conclusion recorded."}
+                      </p>
+                    </div>
+                    {selectedAnalysis && selectedAnalysis.failedGates.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedAnalysis.failedGates.map((gate) => (
+                          <Badge key={gate} variant="destructive" className="font-mono text-[9px]">
+                            {gate}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </section>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-lg border p-3">

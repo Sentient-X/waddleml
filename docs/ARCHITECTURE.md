@@ -19,9 +19,12 @@ run, and optional evaluated-subject run). `parent_run_id` is the search edge acr
 session; `subject_run_id` is a separate typed edge from an evaluation to the run it measures. Legacy
 records without an explicit session are projected under their project name. This
 means failures, workers, metrics, git identity, logs, artifacts, sync, and org isolation keep their
-existing semantics. The session index, direction-adjusted cross-phase trajectory, phase sequence,
-incumbent curves, and full experiment tree are read-time projections. Waddle never proposes code
-or decides whether a candidate wins; those remain controller responsibilities.
+existing semantics. The session index, direction-adjusted cross-phase attempt scatter, accepted-
+incumbent staircases, phase sequence, graphical hypothesis/evaluation tree, and evidence-derived
+idea synthesis are read-time projections. Explicit recorded retention/rejection facts take
+precedence; legacy trials derive an outcome from objective deltas and the gates they recorded.
+Waddle never proposes code or decides whether a candidate wins; those remain controller
+responsibilities.
 
 The local DuckDB file is the supported initial deployment. Quack remote transport is planned
 behind the same writer API after its beta protocol stabilizes. It is not required for local

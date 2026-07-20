@@ -35,6 +35,7 @@ export interface ResearchTrajectoryPoint {
   rawValue: number;
   improvement: number;
   incumbentImprovement: number;
+  analysis: ResearchAnalysis;
 }
 
 export interface ResearchTrajectoryPhase {
@@ -42,6 +43,16 @@ export interface ResearchTrajectoryPhase {
   phaseIndex: number;
   zeroBaseline: boolean;
   points: ResearchTrajectoryPoint[];
+}
+
+export type ResearchVerdict = "baseline" | "kept" | "discarded" | "running" | "failed";
+
+export interface ResearchAnalysis {
+  verdict: ResearchVerdict;
+  conclusion: string;
+  evidence: string;
+  failedGates: string[];
+  baselineImprovement: number | null;
 }
 
 export function isResearchRun(run: Run): run is ResearchRun {
@@ -183,6 +194,123 @@ function directionalImprovement(
   return Math.abs(baseline) > 1e-12 ? (delta / Math.abs(baseline)) * 100 : delta * 100;
 }
 
+function scalarFlag(value: unknown): boolean | null {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  return null;
+}
+
+function recordedConclusion(run: ResearchRun): string | null {
+  for (const key of ["rejection_reason", "verdict", "promotion_blocker"]) {
+    const value = run.config[key];
+    if (
+      typeof value === "string" &&
+      value.trim() &&
+      !(key === "verdict" && value.trim().toLowerCase() === "valid")
+    ) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function failedResearchGates(run: ResearchRun): string[] {
+  return Object.entries(run.summary).flatMap(([key, value]) => {
+    const correctnessGate = key.startsWith("correctness/") && /(pass|passed)$/.test(key);
+    const decisionGate = key === "determinism/pass" || key === "retention/pass";
+    return (correctnessGate || decisionGate) && scalarFlag(value) === false ? [key] : [];
+  });
+}
+
+function percentText(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+export function researchAnalyses(campaign: ResearchCampaign): Map<string, ResearchAnalysis> {
+  const analyses = new Map<string, ResearchAnalysis>();
+  const evaluated = campaign.runs.flatMap((run) => {
+    const value = objectiveValue(run);
+    return value === null ? [] : [{ run, value }];
+  });
+  const baseline = evaluated[0]?.value;
+  let incumbent = baseline;
+  for (const run of campaign.runs) {
+    const value = objectiveValue(run);
+    const failedGates = failedResearchGates(run);
+    const recorded = recordedConclusion(run);
+    if (run.state === "running") {
+      analyses.set(run.run_id, {
+        verdict: "running",
+        conclusion: "Evaluation is still running; no selection decision is implied.",
+        evidence: "Waiting for a completed objective and terminal gates.",
+        failedGates,
+        baselineImprovement: null,
+      });
+      continue;
+    }
+    if (run.state === "failed" || run.state === "aborted") {
+      analyses.set(run.run_id, {
+        verdict: "failed",
+        conclusion: recorded ?? `Run ${run.state}; the attempted idea remains visible.`,
+        evidence: "No failed execution can become the accepted incumbent.",
+        failedGates,
+        baselineImprovement: null,
+      });
+      continue;
+    }
+    if (value === null || baseline === undefined || incumbent === undefined) {
+      analyses.set(run.run_id, {
+        verdict: "discarded",
+        conclusion: recorded ?? "Completed without a finite value for the declared objective.",
+        evidence: `Missing ${campaign.objectiveName}; it cannot enter the incumbent line.`,
+        failedGates,
+        baselineImprovement: null,
+      });
+      continue;
+    }
+
+    const baselineImprovement = directionalImprovement(campaign, baseline, value);
+    const isBaseline = run.run_id === evaluated[0]?.run.run_id;
+    const explicitlyKept =
+      scalarFlag(run.config.retained) === true || scalarFlag(run.summary["retention/pass"]) === true;
+    const explicitlyDiscarded =
+      scalarFlag(run.config.retained) === false ||
+      scalarFlag(run.summary["retention/pass"]) === false ||
+      (typeof run.config.rejection_reason === "string" && run.config.rejection_reason.trim() !== "") ||
+      failedGates.length > 0;
+    const improvesIncumbent = better(campaign.goal, value, incumbent);
+    const accepted = isBaseline || explicitlyKept || (!explicitlyDiscarded && improvesIncumbent);
+    const verdict: ResearchVerdict = isBaseline ? "baseline" : accepted ? "kept" : "discarded";
+    if (accepted && better(campaign.goal, value, incumbent)) incumbent = value;
+
+    let evidence: string;
+    if (isBaseline) {
+      evidence = `${campaign.objectiveName} = ${value}; this is the phase comparison baseline.`;
+    } else if (failedGates.length > 0) {
+      evidence = `${percentText(baselineImprovement)} versus baseline, but failed ${failedGates.join(", ")}.`;
+    } else if (accepted) {
+      evidence = `${percentText(baselineImprovement)} versus baseline with no recorded decision gate failing.`;
+    } else {
+      evidence = `${percentText(baselineImprovement)} versus baseline; it did not replace the accepted incumbent.`;
+    }
+    const conclusion =
+      recorded ??
+      (verdict === "baseline"
+        ? "Reference point for this campaign phase."
+        : verdict === "kept"
+          ? "Working: accepted onto the phase incumbent staircase."
+          : "Discarded: retained as evidence, not as the running best.");
+    analyses.set(run.run_id, {
+      verdict,
+      conclusion,
+      evidence,
+      failedGates,
+      baselineImprovement,
+    });
+  }
+  return analyses;
+}
+
 export function researchTrajectory(session: ResearchSession): ResearchTrajectoryPhase[] {
   let ordinal = 0;
   return session.campaigns.flatMap((campaign, phaseIndex) => {
@@ -192,9 +320,17 @@ export function researchTrajectory(session: ResearchSession): ResearchTrajectory
     });
     const baseline = evaluated[0]?.value;
     if (baseline === undefined) return [];
+    const analyses = researchAnalyses(campaign);
     let incumbent = baseline;
     const points = evaluated.map(({ run, value }) => {
-      if (better(campaign.goal, value, incumbent)) incumbent = value;
+      const analysis = analyses.get(run.run_id);
+      if (!analysis) return null;
+      if (
+        (analysis.verdict === "baseline" || analysis.verdict === "kept") &&
+        better(campaign.goal, value, incumbent)
+      ) {
+        incumbent = value;
+      }
       const point = {
         ordinal,
         phaseIndex,
@@ -202,10 +338,11 @@ export function researchTrajectory(session: ResearchSession): ResearchTrajectory
         rawValue: value,
         improvement: directionalImprovement(campaign, baseline, value),
         incumbentImprovement: directionalImprovement(campaign, baseline, incumbent),
+        analysis,
       } satisfies ResearchTrajectoryPoint;
       ordinal += 1;
       return point;
-    });
+    }).filter((point): point is ResearchTrajectoryPoint => point !== null);
     return [
       {
         campaign,
@@ -226,11 +363,18 @@ export function better(
 }
 
 export function bestRun(campaign: ResearchCampaign): ResearchRun | null {
+  const analyses = researchAnalyses(campaign);
   let selected: ResearchRun | null = null;
   let selectedValue: number | null = null;
   for (const run of campaign.runs) {
     const value = objectiveValue(run);
-    if (value !== null && (selectedValue === null || better(campaign.goal, value, selectedValue))) {
+    const verdict = analyses.get(run.run_id)?.verdict;
+    const accepted = verdict === "baseline" || verdict === "kept";
+    if (
+      accepted &&
+      value !== null &&
+      (selectedValue === null || better(campaign.goal, value, selectedValue))
+    ) {
       selected = run;
       selectedValue = value;
     }

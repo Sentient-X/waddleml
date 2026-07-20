@@ -35,8 +35,9 @@ waddle ls        # terminal
 - **Autoresearch observation** — attach a typed `ResearchTrial` to ordinary runs; the hosted
   Research view groups a long optimization session into campaign phases, then derives each
   phase's live candidate tree and minimize/maximize incumbent curve. A direction-aware unified
-  trajectory and full-session tree make the whole search legible without Waddle taking ownership
-  of the optimizer.
+  trajectory keeps every attempt as scatter while accepted improvements form the incumbent
+  staircase. A graphical hypothesis tree and evidence-derived synthesis make the whole search
+  legible without Waddle taking ownership of the optimizer.
 
 ## The hosted platform (this repo's second half)
 
