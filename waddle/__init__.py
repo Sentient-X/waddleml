@@ -12,6 +12,7 @@ from ._api import (
 )
 from ._run import Run
 from ._db import WaddleDB
+from ._state import NoActiveRunError
 from ._types import (
     ArtifactRelation,
     ResearchDecision,
@@ -35,6 +36,7 @@ __all__ = [
     "log_tag",
     "Run",
     "WaddleDB",
+    "NoActiveRunError",
     "WorkerInfo",
     "ArtifactRelation",
     "ResearchGoal",

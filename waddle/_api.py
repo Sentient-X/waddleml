@@ -172,23 +172,17 @@ def init(
 
 def log(metrics: Dict[str, float], step: Optional[int] = None) -> None:
     """Log metrics to the active run."""
-    run = _state.get_active_run()
-    if run is None:
-        raise RuntimeError("No active run. Call waddle.init() first.")
+    run = _state.require_active_run()
     run.log(metrics, step=step)
 
 
 def log_param(key: str, value: Any) -> None:
-    run = _state.get_active_run()
-    if run is None:
-        raise RuntimeError("No active run. Call waddle.init() first.")
+    run = _state.require_active_run()
     run.log_param(key, value)
 
 
 def log_tag(key: str, value: Any) -> None:
-    run = _state.get_active_run()
-    if run is None:
-        raise RuntimeError("No active run. Call waddle.init() first.")
+    run = _state.require_active_run()
     run.log_tag(key, value)
 
 
@@ -203,17 +197,13 @@ def log_line(message: str, level: str = "info", source: str = "") -> None:
 def log_artifact(
     name: str, path: Optional[str] = None, kind: str = "file", inline: bool = False
 ) -> str:
-    run = _state.get_active_run()
-    if run is None:
-        raise RuntimeError("No active run. Call waddle.init() first.")
+    run = _state.require_active_run()
     return run.log_artifact(name, path, kind, inline)
 
 
 def use_artifact(name: str, path: str, kind: str = "file") -> str:
     """Record an artifact the active run consumed (an input lineage edge)."""
-    run = _state.get_active_run()
-    if run is None:
-        raise RuntimeError("No active run. Call waddle.init() first.")
+    run = _state.require_active_run()
     return run.use_artifact(name, path, kind)
 
 

@@ -388,7 +388,7 @@ async def finish_run(
     run_id: str,
     *,
     state: RunState,
-    summary: dict[str, object] | None,
+    summary: dict[str, object],
     research_outcome: dict[str, object] | None,
 ) -> RunRow | None:
     async with conn.cursor(row_factory=class_row(RunRow)) as cur:
@@ -405,7 +405,7 @@ async def finish_run(
             """,
             (
                 state.value,
-                json.dumps(summary or {}),
+                json.dumps(summary),
                 json.dumps(research_outcome) if research_outcome is not None else None,
                 org_id,
                 run_id,

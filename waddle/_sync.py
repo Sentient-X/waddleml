@@ -236,7 +236,10 @@ class SyncEngine:
         row = self._conn.execute(
             "SELECT writer_id FROM sync_cursor WHERE run_id = $1", [self._run_id]
         ).fetchone()
-        assert row is not None
+        if row is None:
+            raise SyncStateError(
+                f"sync_cursor row missing for run {self._run_id!r} after insert"
+            )
         return str(row[0])
 
     def _ensure_run_registered(self) -> None:
@@ -382,7 +385,10 @@ class SyncEngine:
             " COALESCE(last_log_rowid, -1) FROM sync_cursor WHERE run_id = $1",
             [self._run_id],
         ).fetchone()
-        assert cursor is not None
+        if cursor is None:
+            raise SyncStateError(
+                f"sync_cursor row missing for run {self._run_id!r}"
+            )
         last_rowid, next_sequence, last_log_rowid = (
             int(cursor[0]),
             int(cursor[1]),

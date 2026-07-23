@@ -13,6 +13,10 @@ _active_run: Optional[Run] = None
 _step_counter: int = 0
 
 
+class NoActiveRunError(RuntimeError):
+    """Raised when a write verb runs with no active run started by waddle.init()."""
+
+
 def set_active_run(run: Optional[Run]) -> None:
     global _active_run, _step_counter
     with _lock:
@@ -22,6 +26,13 @@ def set_active_run(run: Optional[Run]) -> None:
 
 def get_active_run() -> Optional[Run]:
     with _lock:
+        return _active_run
+
+
+def require_active_run() -> "Run":
+    with _lock:
+        if _active_run is None:
+            raise NoActiveRunError("No active run. Call waddle.init() first.")
         return _active_run
 
 
