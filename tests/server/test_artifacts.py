@@ -25,7 +25,11 @@ def _open_session(client: TestClient, key: str):
         headers={"x-api-key": key},
         json={
             "files": [
-                {"logical_path": "model.safetensors", "sha256": SHA, "size_bytes": len(BLOB)}
+                {
+                    "logical_path": "model.safetensors",
+                    "sha256": SHA,
+                    "size_bytes": len(BLOB),
+                }
             ]
         },
     )
@@ -48,7 +52,12 @@ def test_upload_commit_lineage_roundtrip(
         committed = client.post(
             f"/api/v1/artifacts/upload-sessions/{session['session_id']}/commit",
             headers={"x-api-key": "key-a-writer"},
-            json={"collection": "policy", "project": "demo", "kind": "model", "run_id": run_id},
+            json={
+                "collection": "policy",
+                "project": "demo",
+                "kind": "model",
+                "run_id": run_id,
+            },
         )
         assert committed.status_code == 201
         version = committed.json()
@@ -81,7 +90,12 @@ def test_upload_commit_lineage_roundtrip(
         reused = client.post(
             f"/api/v1/artifacts/upload-sessions/{again['session_id']}/commit",
             headers={"x-api-key": "key-a-writer"},
-            json={"collection": "policy", "project": "demo", "kind": "model", "run_id": run_b},
+            json={
+                "collection": "policy",
+                "project": "demo",
+                "kind": "model",
+                "run_id": run_b,
+            },
         )
         assert reused.status_code == 200
         assert reused.json()["id"] == version["id"] and reused.json()["version"] == 0
@@ -162,6 +176,7 @@ def test_commit_requires_uploaded_blob_and_org_isolation(
         )
         assert b_commit.status_code == 201
         foreign = client.get(
-            f"/api/v1/artifacts/{b_commit.json()['id']}", headers={"x-api-key": "key-a-reader"}
+            f"/api/v1/artifacts/{b_commit.json()['id']}",
+            headers={"x-api-key": "key-a-reader"},
         )
         assert foreign.status_code == 404

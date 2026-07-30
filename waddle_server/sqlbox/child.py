@@ -67,7 +67,9 @@ def main() -> int:
             # CREATE VIEW cannot be a prepared statement; the paths come from the
             # parent (never the user) and are quoted defensively anyway.
             quoted = ", ".join("'" + p.replace("'", "''") + "'" for p in paths)
-            conn.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet([{quoted}])")
+            conn.execute(
+                f"CREATE VIEW {name} AS SELECT * FROM read_parquet([{quoted}])"
+            )
         # A dataset with no files yet simply has no view: honest absence beats a
         # fabricated empty schema (SELECTing it errors with "no such table").
     scratch = spec["scratch"].replace("'", "''")

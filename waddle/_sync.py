@@ -386,9 +386,7 @@ class SyncEngine:
             [self._run_id],
         ).fetchone()
         if cursor is None:
-            raise SyncStateError(
-                f"sync_cursor row missing for run {self._run_id!r}"
-            )
+            raise SyncStateError(f"sync_cursor row missing for run {self._run_id!r}")
         last_rowid, next_sequence, last_log_rowid = (
             int(cursor[0]),
             int(cursor[1]),

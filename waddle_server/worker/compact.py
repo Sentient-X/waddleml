@@ -50,19 +50,34 @@ def _as_utc(value: datetime) -> datetime:
 
 
 METRIC_COLUMNS = [
-    ("run_id", "VARCHAR"), ("metric_name", "VARCHAR"), ("step", "BIGINT"),
-    ("ts", "TIMESTAMP"), ("value", "DOUBLE"), ("rank", "INTEGER"),
-    ("node_id", "VARCHAR"), ("attempt", "INTEGER"),
+    ("run_id", "VARCHAR"),
+    ("metric_name", "VARCHAR"),
+    ("step", "BIGINT"),
+    ("ts", "TIMESTAMP"),
+    ("value", "DOUBLE"),
+    ("rank", "INTEGER"),
+    ("node_id", "VARCHAR"),
+    ("attempt", "INTEGER"),
 ]
 LOG_COLUMNS = [
-    ("run_id", "VARCHAR"), ("ts", "TIMESTAMP"), ("level", "VARCHAR"),
-    ("source", "VARCHAR"), ("message", "VARCHAR"),
+    ("run_id", "VARCHAR"),
+    ("ts", "TIMESTAMP"),
+    ("level", "VARCHAR"),
+    ("source", "VARCHAR"),
+    ("message", "VARCHAR"),
 ]
 RUN_COLUMNS = [
-    ("run_id", "VARCHAR"), ("project", "VARCHAR"), ("name", "VARCHAR"),
-    ("state", "VARCHAR"), ("group_name", "VARCHAR"), ("job_type", "VARCHAR"),
-    ("config", "VARCHAR"), ("summary", "VARCHAR"), ("commit_sha", "VARCHAR"),
-    ("created_at", "TIMESTAMPTZ"), ("started_at", "TIMESTAMPTZ"),
+    ("run_id", "VARCHAR"),
+    ("project", "VARCHAR"),
+    ("name", "VARCHAR"),
+    ("state", "VARCHAR"),
+    ("group_name", "VARCHAR"),
+    ("job_type", "VARCHAR"),
+    ("config", "VARCHAR"),
+    ("summary", "VARCHAR"),
+    ("commit_sha", "VARCHAR"),
+    ("created_at", "TIMESTAMPTZ"),
+    ("started_at", "TIMESTAMPTZ"),
     ("finished_at", "TIMESTAMPTZ"),
 ]
 
@@ -83,9 +98,14 @@ class Compactor:
                 await self._export_org(conn, org_id)
                 await self._sample_digests(conn, org_id)
 
-    async def _export_org(self, conn: psycopg.AsyncConnection[Any], org_id: UUID) -> None:
+    async def _export_org(
+        self, conn: psycopg.AsyncConnection[Any], org_id: UUID
+    ) -> None:
         await self._export_pg_snapshot(conn, org_id)
-        for dataset, table, ts_col in (("metrics", "metric_points", "ts"), ("logs", "log_events", "ts")):
+        for dataset, table, ts_col in (
+            ("metrics", "metric_points", "ts"),
+            ("logs", "log_events", "ts"),
+        ):
             months = await self._ch.client.query(
                 f"SELECT toYYYYMM({ts_col}) AS m, max({ts_col}) FROM {table}"
                 " WHERE org_id = {org:UUID} GROUP BY m",
@@ -103,9 +123,15 @@ class Compactor:
                         (org_id, dataset, partition),
                     )
                 ).fetchone()
-                if stale is not None and stale[0] is not None and _as_utc(stale[0]) >= max_ts:
+                if (
+                    stale is not None
+                    and stale[0] is not None
+                    and _as_utc(stale[0]) >= max_ts
+                ):
                     continue
-                await self._export_ch_partition(org_id, dataset, table, int(month), partition)
+                await self._export_ch_partition(
+                    org_id, dataset, table, int(month), partition
+                )
                 await conn.execute(
                     """
                     INSERT INTO parquet_exports (org_id, dataset, partition, max_ts)
@@ -133,11 +159,17 @@ class Compactor:
             self._store.put_file_replace(dest, parquet_key(org_id, dataset, partition))
         log.info(
             "exported parquet partition",
-            extra={"org": str(org_id), "dataset": dataset, "partition": partition,
-                   "rows": len(result.result_rows)},
+            extra={
+                "org": str(org_id),
+                "dataset": dataset,
+                "partition": partition,
+                "rows": len(result.result_rows),
+            },
         )
 
-    async def _export_pg_snapshot(self, conn: psycopg.AsyncConnection[Any], org_id: UUID) -> None:
+    async def _export_pg_snapshot(
+        self, conn: psycopg.AsyncConnection[Any], org_id: UUID
+    ) -> None:
         runs = await (
             await conn.execute(
                 """
@@ -157,7 +189,9 @@ class Compactor:
             write_parquet([tuple(row) for row in runs], RUN_COLUMNS, dest)
             self._store.put_file_replace(dest, parquet_key(org_id, "runs", "snapshot"))
 
-    async def _sample_digests(self, conn: psycopg.AsyncConnection[Any], org_id: UUID) -> None:
+    async def _sample_digests(
+        self, conn: psycopg.AsyncConnection[Any], org_id: UUID
+    ) -> None:
         rows = await (
             await conn.execute(
                 """

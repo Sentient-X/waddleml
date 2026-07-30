@@ -22,7 +22,9 @@ from waddle_server.server.ch import MetricStore  # noqa: E402
 
 def _dev_clickhouse_available() -> bool:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8124/ping", timeout=2) as response:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:8124/ping", timeout=2
+        ) as response:
             return response.status == 200
     except (urllib.error.URLError, OSError):
         return False
@@ -74,18 +76,41 @@ async def _exercise() -> None:
         rows: list[tuple[object, ...]] = []
         batch = uuid4()
         for step in range(2000):
-            rows.append(_row(run_id, "loss", step, 1.0 / (step + 1), seq=step, batch_id=batch, writer_id=writer))
+            rows.append(
+                _row(
+                    run_id,
+                    "loss",
+                    step,
+                    1.0 / (step + 1),
+                    seq=step,
+                    batch_id=batch,
+                    writer_id=writer,
+                )
+            )
         # A resume: attempt 1 rewrites steps 1000.. with different values — the
         # latest attempt must win in every query.
         batch2 = uuid4()
         for i, step in enumerate(range(1000, 1100)):
             rows.append(
-                _row(run_id, "loss", step, 42.0, attempt=1, seq=2000 + i, batch_id=batch2, writer_id=writer)
+                _row(
+                    run_id,
+                    "loss",
+                    step,
+                    42.0,
+                    attempt=1,
+                    seq=2000 + i,
+                    batch_id=batch2,
+                    writer_id=writer,
+                )
             )
         await store.insert_metrics(rows)
 
         series = await store.series(
-            ORG, run_ids=[run_id], metric_names=["loss"], step_min=None, step_max=None,
+            ORG,
+            run_ids=[run_id],
+            metric_names=["loss"],
+            step_min=None,
+            step_max=None,
             max_points=100,
         )
         assert 0 < len(series) <= 100
@@ -106,14 +131,26 @@ async def _exercise() -> None:
         batch3 = uuid4()
         await store.insert_metrics(
             [
-                _row(run_id, "loss", step, 7.0, rank=1, seq=3000 + step,
-                     batch_id=batch3, writer_id=writer)
+                _row(
+                    run_id,
+                    "loss",
+                    step,
+                    7.0,
+                    rank=1,
+                    seq=3000 + step,
+                    batch_id=batch3,
+                    writer_id=writer,
+                )
                 for step in range(10)
             ]
         )
         two_rank_series = await store.series(
-            ORG, run_ids=[run_id], metric_names=["loss"], step_min=None,
-            step_max=None, max_points=100,
+            ORG,
+            run_ids=[run_id],
+            metric_names=["loss"],
+            step_min=None,
+            step_max=None,
+            max_points=100,
         )
         assert {(p.rank) for p in two_rank_series} == {0, 1}
         two_rank_latest = await store.latest(ORG, run_ids=[run_id])
@@ -121,15 +158,32 @@ async def _exercise() -> None:
         assert two_rank_latest[1].value == 7.0
 
         # Foreign org: nothing.
-        assert await store.series(
-            UUID(int=0xDEAD), run_ids=[run_id], metric_names=[], step_min=None,
-            step_max=None, max_points=10,
-        ) == []
+        assert (
+            await store.series(
+                UUID(int=0xDEAD),
+                run_ids=[run_id],
+                metric_names=[],
+                step_min=None,
+                step_max=None,
+                max_points=10,
+            )
+            == []
+        )
 
         await store.insert_logs(
             [
-                (ORG, UUID(int=1), run_id, datetime.now(UTC), "info", "loop", f"line {i}",
-                 writer, uuid4(), i)
+                (
+                    ORG,
+                    UUID(int=1),
+                    run_id,
+                    datetime.now(UTC),
+                    "info",
+                    "loop",
+                    f"line {i}",
+                    writer,
+                    uuid4(),
+                    i,
+                )
                 for i in range(10)
             ]
         )

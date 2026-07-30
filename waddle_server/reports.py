@@ -108,7 +108,8 @@ INPUT_KINDS = frozenset(
 #: kinds that only exist as children of a specific parent
 _CHILD_ONLY: dict[ComponentKind, frozenset[ComponentKind]] = {
     ComponentKind.COLUMN: frozenset({ComponentKind.DATA_TABLE}),
-    ComponentKind.REFERENCE_LINE: _XY_CHART_KINDS | frozenset({ComponentKind.HISTOGRAM}),
+    ComponentKind.REFERENCE_LINE: _XY_CHART_KINDS
+    | frozenset({ComponentKind.HISTOGRAM}),
     ComponentKind.TAB: frozenset({ComponentKind.TABS}),
 }
 #: kinds whose `data=` prop is mandatory
@@ -224,7 +225,9 @@ def render_sql(report: CompiledReport, params: Mapping[str, str]) -> dict[str, s
     }
 
 
-def effective_params(report: CompiledReport, params: Mapping[str, str]) -> dict[str, str]:
+def effective_params(
+    report: CompiledReport, params: Mapping[str, str]
+) -> dict[str, str]:
     """The param values a render actually used (defaults ⊕ supplied) — echoed
     on the wire so input controls display their live state."""
     return {**report.param_defaults, **params}
@@ -268,7 +271,9 @@ def _split_frontmatter(body: str) -> tuple[dict[str, str], str]:
         matched = _FRONTMATTER_LINE.match(line)
         if matched:  # top-level scalars only; nested YAML is tolerated, ignored
             meta[matched.group(1)] = matched.group(2).strip().strip("'\"")
-    raise ReportCompileError("bad_frontmatter", "frontmatter opened with --- but never closed")
+    raise ReportCompileError(
+        "bad_frontmatter", "frontmatter opened with --- but never closed"
+    )
 
 
 def _parse_blocks(text: str, queries: dict[str, str]) -> tuple[Block, ...]:
@@ -296,7 +301,9 @@ def _parse_blocks(text: str, queries: dict[str, str]) -> tuple[Block, ...]:
                 raise ReportCompileError("bad_query", "unclosed ``` fence")
             if fence.group(1) == "sql":
                 _flush()
-                _collect_query(fence.group(2), "\n".join(lines[index + 1 : close]), queries)
+                _collect_query(
+                    fence.group(2), "\n".join(lines[index + 1 : close]), queries
+                )
             else:  # a display code fence stays markdown, verbatim
                 markdown.extend(lines[index : close + 1])
             index = close + 1
@@ -322,7 +329,9 @@ def _collect_query(name: str, sql: str, queries: dict[str, str]) -> None:
             "use a ```text fence for display-only SQL",
         )
     if name == "params":
-        raise ReportCompileError("bad_query", "'params' is the parameter namespace, not a query name")
+        raise ReportCompileError(
+            "bad_query", "'params' is the parameter namespace, not a query name"
+        )
     if name in queries:
         raise ReportCompileError("duplicate_query", f"query {name!r} is defined twice")
     if not sql.strip():
@@ -362,7 +371,8 @@ def _parse_component(text: str, queries: dict[str, str]) -> tuple[ComponentBlock
         attr = _ATTR_NAME.match(text, cursor)
         if attr is None:
             raise ReportCompileError(
-                "bad_component", f"<{name}>: cannot parse attributes near {text[cursor:cursor+30]!r}"
+                "bad_component",
+                f"<{name}>: cannot parse attributes near {text[cursor : cursor + 30]!r}",
             )
         cursor = attr.end()
         value, cursor = _parse_attr_value(name, text, cursor)
@@ -384,12 +394,16 @@ def _parse_component(text: str, queries: dict[str, str]) -> tuple[ComponentBlock
 
 def _parse_attr_value(component: str, text: str, cursor: int) -> tuple[str, int]:
     if cursor >= len(text):
-        raise ReportCompileError("bad_component", f"<{component}>: attribute has no value")
+        raise ReportCompileError(
+            "bad_component", f"<{component}>: attribute has no value"
+        )
     head = text[cursor]
     if head in "'\"":
         end = text.find(head, cursor + 1)
         if end < 0:
-            raise ReportCompileError("bad_component", f"<{component}>: unterminated string")
+            raise ReportCompileError(
+                "bad_component", f"<{component}>: unterminated string"
+            )
         return text[cursor + 1 : end], end + 1
     if head == "{":
         depth, index = 1, cursor + 1
@@ -397,10 +411,14 @@ def _parse_attr_value(component: str, text: str, cursor: int) -> tuple[str, int]
             depth += {"{": 1, "}": -1}.get(text[index], 0)
             index += 1
         if depth:
-            raise ReportCompileError("bad_component", f"<{component}>: unbalanced {{ in attribute")
+            raise ReportCompileError(
+                "bad_component", f"<{component}>: unbalanced {{ in attribute"
+            )
         return text[cursor + 1 : index - 1].strip(), index
     end = cursor
-    while end < len(text) and text[end] not in " \t\n>" and not text.startswith("/>", end):
+    while (
+        end < len(text) and text[end] not in " \t\n>" and not text.startswith("/>", end)
+    ):
         end += 1
     return text[cursor:end], end
 
@@ -435,7 +453,9 @@ def _compile_queries(sources: Mapping[str, str]) -> dict[str, CompiledQuery]:
         if qid in compiled:
             return compiled[qid]
         if qid in visiting:
-            raise ReportCompileError("cycle", f"query {qid!r} participates in a reference cycle")
+            raise ReportCompileError(
+                "cycle", f"query {qid!r} participates in a reference cycle"
+            )
         visiting.add(qid)
         sql = sources[qid]
         transitive_params = set(params[qid])
@@ -448,7 +468,9 @@ def _compile_queries(sources: Mapping[str, str]) -> dict[str, CompiledQuery]:
             )
             transitive_params |= resolved.params
         visiting.discard(qid)
-        compiled[qid] = CompiledQuery(id=qid, sql=sql, params=frozenset(transitive_params))
+        compiled[qid] = CompiledQuery(
+            id=qid, sql=sql, params=frozenset(transitive_params)
+        )
         return compiled[qid]
 
     for qid in sources:
@@ -470,7 +492,8 @@ def _validate_components(
             for ref, _row, _col in _TEXT_VALUE.findall(block.text):
                 if ref not in queries and ref != "params":
                     raise ReportCompileError(
-                        "unknown_reference", f"markdown references {{{ref}[…]}} — no such query"
+                        "unknown_reference",
+                        f"markdown references {{{ref}[…]}} — no such query",
                     )
             continue
         allowed_parents = _CHILD_ONLY.get(block.kind)
@@ -480,7 +503,9 @@ def _validate_components(
                 f"<{block.kind.value}> only appears inside "
                 f"<{'/'.join(sorted(k.value for k in allowed_parents))}>",
             )
-        if block.kind in INPUT_KINDS and not _QUERY_NAME.match(block.props.get("name", "")):
+        if block.kind in INPUT_KINDS and not _QUERY_NAME.match(
+            block.props.get("name", "")
+        ):
             raise ReportCompileError(
                 "bad_component",
                 f"<{block.kind.value}> requires name=<identifier> — the "

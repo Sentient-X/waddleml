@@ -66,7 +66,11 @@ def test_compiles_the_full_dialect() -> None:
     assert report.queries["kpis"].params == frozenset()
 
     kinds = [b.kind for b in report.blocks if isinstance(b, ComponentBlock)]
-    assert kinds == [ComponentKind.BIG_VALUE, ComponentKind.LINE_CHART, ComponentKind.DATA_TABLE]
+    assert kinds == [
+        ComponentKind.BIG_VALUE,
+        ComponentKind.LINE_CHART,
+        ComponentKind.DATA_TABLE,
+    ]
     table = report.blocks[-1]
     assert isinstance(table, ComponentBlock)
     assert [c.kind for c in table.children if isinstance(c, ComponentBlock)] == [
@@ -89,7 +93,9 @@ def test_transitive_chaining_and_param_propagation() -> None:
 
 def test_cycle_fails_closed() -> None:
     with pytest.raises(ReportCompileError) as err:
-        compile_report("```sql a\nselect * from (${b})\n```\n```sql b\nselect * from (${a})\n```\n")
+        compile_report(
+            "```sql a\nselect * from (${b})\n```\n```sql b\nselect * from (${a})\n```\n"
+        )
     assert err.value.kind == "cycle"
 
 
@@ -147,7 +153,9 @@ def test_tabs_only_hold_tabs() -> None:
     )
     assert isinstance(ok.blocks[0], ComponentBlock)
     with pytest.raises(ReportCompileError) as err:
-        compile_report("```sql q\nselect 1 as v\n```\n<Tabs>\n<Value data={q} column=v />\n</Tabs>\n")
+        compile_report(
+            "```sql q\nselect 1 as v\n```\n<Tabs>\n<Value data={q} column=v />\n</Tabs>\n"
+        )
     assert err.value.kind == "bad_component"
     with pytest.raises(ReportCompileError) as err:
         compile_report('<Tab title="loose">\ntext\n</Tab>\n')

@@ -79,9 +79,7 @@ async def research_sessions(
     Read this before extending an existing autoresearch loop; then inspect the
     chosen session to reuse its canonical objective paths.
     """
-    return await _call(
-        ctx, "GET", "/api/v1/research/sessions", params={"limit": limit}
-    )
+    return await _call(ctx, "GET", "/api/v1/research/sessions", params={"limit": limit})
 
 
 @mcp.tool(name="waddle.research.session")

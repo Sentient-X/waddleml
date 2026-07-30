@@ -6,6 +6,7 @@ auth path."""
 from __future__ import annotations
 
 from datetime import datetime
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -125,7 +126,9 @@ class FakeMetricStore(MetricStore):
         step_max: int | None,
         max_points: int,
     ) -> list[SeriesPoint]:
-        latest_attempt: dict[tuple[str, str, int, int], tuple[int, float, datetime]] = {}
+        latest_attempt: dict[
+            tuple[str, str, int, int], tuple[int, float, datetime]
+        ] = {}
         for row in self.metrics:
             (org, _proj, run, name, step, ts, value, rank, _node, attempt, *_rest) = row
             if org != org_id or run not in run_ids:
@@ -200,10 +203,17 @@ class FakeMetricStore(MetricStore):
         self, org_id: UUID, *, run_id: str, after_ts: datetime | None, limit: int
     ) -> list[LogLine]:
         lines = [
-            LogLine(run_id=str(row[2]), ts=row[3], level=str(row[4]), source=str(row[5]), message=str(row[6]))  # type: ignore[arg-type]
+            LogLine(
+                run_id=str(row[2]),
+                ts=cast("datetime", row[3]),
+                level=str(row[4]),
+                source=str(row[5]),
+                message=str(row[6]),
+            )
             for row in self.logs
-            if row[0] == org_id and row[2] == run_id
-            and (after_ts is None or row[3] > after_ts)  # type: ignore[operator]
+            if row[0] == org_id
+            and row[2] == run_id
+            and (after_ts is None or cast("datetime", row[3]) > after_ts)
         ]
         return lines[-limit:]
 
@@ -241,7 +251,9 @@ class FakeObjectStore(ObjectStore):
 
         for key in sorted(self.objects):
             if key.startswith(prefix):
-                yield ObjectInfo(key=key, etag=sha256(self.objects[key]).hexdigest()[:16])
+                yield ObjectInfo(
+                    key=key, etag=sha256(self.objects[key]).hexdigest()[:16]
+                )
 
     def ensure_bucket(self) -> None:
         pass

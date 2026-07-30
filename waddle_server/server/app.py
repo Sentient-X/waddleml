@@ -286,10 +286,7 @@ def build_app(
                 raise _error(422, err, err.code)
             if body.research.parent_run_id is not None:
                 parent = await repo.get_run(c, pr.org_id, body.research.parent_run_id)
-                if (
-                    parent is None
-                    or parent.project_id != project.id
-                ):
+                if parent is None or parent.project_id != project.id:
                     err = ResearchContractError(
                         "parent_run_id must name an existing research trial in the same project"
                     )
@@ -421,7 +418,9 @@ def build_app(
     ) -> RunFacetsOut:
         require_role(pr, WaddleRole.READER)
         facets = await repo.list_run_facets(c, pr.org_id)
-        return RunFacetsOut(run_types=list(facets.run_types), groups=list(facets.groups))
+        return RunFacetsOut(
+            run_types=list(facets.run_types), groups=list(facets.groups)
+        )
 
     @app.get("/api/v1/runs/{run_id}", response_model=RunDetailOut)
     async def get_run(

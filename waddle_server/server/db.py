@@ -40,14 +40,19 @@ def migrate(dsn: str) -> list[str]:
             )
             """
         )
-        done = {row[0] for row in conn.execute("SELECT filename FROM schema_migrations").fetchall()}
+        done = {
+            row[0]
+            for row in conn.execute("SELECT filename FROM schema_migrations").fetchall()
+        }
         for path in sorted(_migration_files()):
             if path.name in done:
                 continue
             sql = path.read_text()
             with conn.transaction():
                 conn.execute(sql)  # type: ignore[arg-type]  # migrations are trusted files
-                conn.execute("INSERT INTO schema_migrations (filename) VALUES (%s)", (path.name,))
+                conn.execute(
+                    "INSERT INTO schema_migrations (filename) VALUES (%s)", (path.name,)
+                )
             applied.append(path.name)
     return applied
 
@@ -57,4 +62,6 @@ def _migration_files() -> list[Path]:
         return [p for p in MIGRATIONS_DIR.iterdir() if p.suffix == ".sql"]
     # Installed-wheel fallback: migrations ship as package data.
     pkg = resources.files("waddle_server") / "migrations"
-    return [Path(str(p)) for p in pkg.iterdir() if str(p).endswith(".sql")]  # pragma: no cover
+    return [
+        Path(str(p)) for p in pkg.iterdir() if str(p).endswith(".sql")
+    ]  # pragma: no cover

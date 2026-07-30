@@ -207,7 +207,11 @@ async def set_alias(
 
 
 async def record_lineage(
-    conn: AsyncConnection[Any], org_id: UUID, run_id: str, version_id: UUID, relation: str
+    conn: AsyncConnection[Any],
+    org_id: UUID,
+    run_id: str,
+    version_id: UUID,
+    relation: str,
 ) -> None:
     await conn.execute(
         "INSERT INTO artifact_lineage (org_id, run_id, artifact_version_id, relation)"
@@ -245,7 +249,12 @@ async def create_upload_session(
             VALUES (%s, %s, 'open', %s, %s)
             RETURNING id, org_id, state, files, created_at, expires_at
             """,
-            (uuid4(), org_id, json.dumps(files), datetime.now(UTC) + timedelta(seconds=ttl_s)),
+            (
+                uuid4(),
+                org_id,
+                json.dumps(files),
+                datetime.now(UTC) + timedelta(seconds=ttl_s),
+            ),
         )
         row = await cur.fetchone()
         assert row is not None

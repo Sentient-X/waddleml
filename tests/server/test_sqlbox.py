@@ -50,8 +50,13 @@ def test_full_duckdb_expressiveness_over_org_views(
     with client:
         run_id = uuid4().hex
         _create_run(client, "key-a-writer", run_id)
-        blobs.objects[parquet_key(ORG_A.id, "metrics", "month=202607")] = _metrics_parquet(
-            [(run_id, "loss", s, 1.0 / (s + 1), 1_753_000_000.0 + s) for s in range(50)]
+        blobs.objects[parquet_key(ORG_A.id, "metrics", "month=202607")] = (
+            _metrics_parquet(
+                [
+                    (run_id, "loss", s, 1.0 / (s + 1), 1_753_000_000.0 + s)
+                    for s in range(50)
+                ]
+            )
         )
 
         # A join + window over the runs snapshot and the metrics parquet.
@@ -68,7 +73,13 @@ def test_full_duckdb_expressiveness_over_org_views(
         )
         assert result.status_code == 200, result.text
         payload = result.json()
-        assert payload["columns"] == ["project", "metric_name", "best", "best_step", "points"]
+        assert payload["columns"] == [
+            "project",
+            "metric_name",
+            "best",
+            "best_step",
+            "points",
+        ]
         assert payload["rows"] == [["demo", "loss", 1.0 / 50, 49, 50]]
 
         # Row cap reports truncation honestly.
@@ -87,8 +98,8 @@ def test_foreign_org_sees_nothing(
     with client:
         run_id = uuid4().hex
         _create_run(client, "key-a-writer", run_id)
-        blobs.objects[parquet_key(ORG_A.id, "metrics", "month=202607")] = _metrics_parquet(
-            [(run_id, "loss", 0, 1.0, 1_753_000_000.0)]
+        blobs.objects[parquet_key(ORG_A.id, "metrics", "month=202607")] = (
+            _metrics_parquet([(run_id, "loss", 0, 1.0, 1_753_000_000.0)])
         )
         # Org B: its own empty jail — org A's runs and metrics do not exist.
         runs_b = _sql(client, "SELECT count(*) FROM runs", key="key-b-writer").json()
@@ -111,7 +122,9 @@ HOSTILE = [
 ]
 
 
-@pytest.mark.parametrize("query", HOSTILE, ids=[q.split("(")[0].strip()[:28] for q in HOSTILE])
+@pytest.mark.parametrize(
+    "query", HOSTILE, ids=[q.split("(")[0].strip()[:28] for q in HOSTILE]
+)
 def test_hostile_sql_fails_typed(
     rig: tuple[TestClient, FakeMetricStore], query: str
 ) -> None:

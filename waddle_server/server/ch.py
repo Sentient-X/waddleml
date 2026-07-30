@@ -17,17 +17,67 @@ Design notes (recorded deviations from the raw W&B-spec DDL):
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 import clickhouse_connect
 
 from waddle_server.config import WaddleSettings
 
-if TYPE_CHECKING:
-    from clickhouse_connect.driver.asyncclient import AsyncClient
+
+class QueryResult(Protocol):
+    """The one part of a clickhouse-connect result this server reads."""
+
+    @property
+    def result_rows(self) -> Sequence[Sequence[Any]]: ...
+
+
+class ClickHouseClient(Protocol):
+    """The exact clickhouse-connect surface this server uses.
+
+    The SDK's own methods are only partially typed, so its shape is declared once
+    here — one door per SDK — instead of leaking Unknown into every call site.
+    """
+
+    async def command(self, cmd: str) -> Any: ...
+
+    async def query(
+        self,
+        query: str,
+        parameters: Mapping[str, Any] | None = ...,
+        settings: Mapping[str, Any] | None = ...,
+    ) -> QueryResult: ...
+
+    async def insert(
+        self,
+        table: str,
+        data: Sequence[Sequence[Any]],
+        column_names: Sequence[str],
+    ) -> Any: ...
+
+    async def close(self) -> None: ...
+
+
+async def _open_client(
+    *, dsn: str, username: str, password: str, database: str
+) -> ClickHouseClient:
+    """Open one async ClickHouse connection through the single typed SDK door.
+
+    clickhouse-connect declares ``**kwargs: Unknown`` on its factory, so referencing
+    it is unavoidably partially-unknown. The suppression is scoped to this one line
+    and this one rule; every other call site sees the ``ClickHouseClient`` Protocol.
+    """
+    factory = cast(
+        "Callable[..., Awaitable[ClickHouseClient]]",
+        clickhouse_connect.get_async_client,  # pyright: ignore[reportUnknownMemberType]
+    )
+    return await factory(
+        dsn=dsn, username=username, password=password, database=database
+    )
+
 
 _DDL = [
     """
@@ -141,7 +191,7 @@ class MetricStore:
 
     def __init__(self, cfg: WaddleSettings) -> None:
         self._cfg = cfg
-        self._client: AsyncClient | None = None
+        self._client: ClickHouseClient | None = None
         self._query_settings = {
             "readonly": 1,
             "max_execution_time": cfg.ch_max_execution_time_s,
@@ -150,7 +200,7 @@ class MetricStore:
         }
 
     async def open(self) -> None:
-        self._client = await clickhouse_connect.get_async_client(
+        self._client = await _open_client(
             dsn=self._cfg.ch_url,
             username=self._cfg.ch_user,
             password=self._cfg.ch_password,
@@ -170,13 +220,15 @@ class MetricStore:
             self._client = None
 
     @property
-    def client(self) -> AsyncClient:
+    def client(self) -> ClickHouseClient:
         assert self._client is not None, "MetricStore used before lifespan open()"
         return self._client
 
     async def insert_metrics(self, rows: list[tuple[object, ...]]) -> None:
         if rows:
-            await self.client.insert("metric_points", rows, column_names=_METRIC_COLUMNS)
+            await self.client.insert(
+                "metric_points", rows, column_names=_METRIC_COLUMNS
+            )
 
     async def insert_logs(self, rows: list[tuple[object, ...]]) -> None:
         if rows:

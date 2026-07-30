@@ -292,27 +292,36 @@ def test_run_facets_search_and_offset_are_server_backed(
         training_id = uuid4().hex
         evaluation_id = uuid4().hex
         benchmark_id = uuid4().hex
-        assert _create_run(
-            client,
-            "key-a-writer",
-            training_id,
-            job_type="training",
-            group_name="policy-a",
-        ).status_code == 200
-        assert _create_run(
-            client,
-            "key-a-writer",
-            evaluation_id,
-            job_type="evaluation",
-            group_name="policy-a",
-        ).status_code == 200
-        assert _create_run(
-            client,
-            "key-a-writer",
-            benchmark_id,
-            job_type="benchmark",
-            group_name="kernel-lab",
-        ).status_code == 200
+        assert (
+            _create_run(
+                client,
+                "key-a-writer",
+                training_id,
+                job_type="training",
+                group_name="policy-a",
+            ).status_code
+            == 200
+        )
+        assert (
+            _create_run(
+                client,
+                "key-a-writer",
+                evaluation_id,
+                job_type="evaluation",
+                group_name="policy-a",
+            ).status_code
+            == 200
+        )
+        assert (
+            _create_run(
+                client,
+                "key-a-writer",
+                benchmark_id,
+                job_type="benchmark",
+                group_name="kernel-lab",
+            ).status_code
+            == 200
+        )
 
         facets = client.get(
             "/api/v1/runs/facets", headers={"x-api-key": "key-a-reader"}
@@ -606,8 +615,12 @@ def test_query_series_and_logs(rig: tuple[TestClient, FakeMetricStore]) -> None:
             f"/api/v1/runs/{run_id}/batches",
             headers={"x-api-key": "key-a-writer"},
             content=_batch_body(
-                batch_id=str(uuid4()), writer_id=str(uuid4()), seq=0, points=50,
-                rank=1, value0=2.0,
+                batch_id=str(uuid4()),
+                writer_id=str(uuid4()),
+                seq=0,
+                points=50,
+                rank=1,
+                value0=2.0,
             ),
         )
 
@@ -616,7 +629,10 @@ def test_query_series_and_logs(rig: tuple[TestClient, FakeMetricStore]) -> None:
             headers={"x-api-key": "key-a-reader"},
             json={"run_ids": [run_id], "metric_names": ["loss"], "max_points": 10},
         ).json()
-        assert [(s["metric_name"], s["rank"]) for s in series] == [("loss", 0), ("loss", 1)]
+        assert [(s["metric_name"], s["rank"]) for s in series] == [
+            ("loss", 0),
+            ("loss", 1),
+        ]
         assert all(0 < len(s["points"]) <= 10 for s in series)
 
         latest = client.post(

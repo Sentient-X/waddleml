@@ -209,9 +209,7 @@ def test_artifact_upload_carries_relation(tmp_path, server):
 
     assert server.blobs[sha] == b"weights"
     commits = [
-        json.loads(body)
-        for path, body in server.requests
-        if path.endswith("/commit")
+        json.loads(body) for path, body in server.requests if path.endswith("/commit")
     ]
     assert [(c["relation"], c["run_id"], c["collection"]) for c in commits] == [
         ("output", run_id, "policy"),
@@ -482,6 +480,7 @@ def test_cli_backfill_parses_legacy_campaign_from_research_config(
     )
     run.finish()
     row = run._db.fetchone("SELECT config FROM runs WHERE id = $1", [run.id])
+    assert row is not None
     config = json.loads(row[0])
     config["_waddle_research"]["campaign"] = "m10-legacy"
     run._db.execute(

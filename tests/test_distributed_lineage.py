@@ -65,9 +65,11 @@ def test_init_observes_dirty_git_tree_without_committing(tmp_path, monkeypatch):
     )
     assert after == before
     conn = duckdb.connect(str(tmp_path / ".waddle" / "waddle.duckdb"))
-    digest = conn.execute(
+    digest_row = conn.execute(
         "SELECT lineage->>'source_patch_sha256' FROM runs"
-    ).fetchone()[0]
+    ).fetchone()
+    assert digest_row is not None
+    digest = digest_row[0]
     assert len(digest) == 64
 
 
@@ -122,6 +124,7 @@ def test_metric_latest_view_dedups_attempts_and_spans_extremes(tmp_path, monkeyp
         "SELECT value, step, value_min, value_max FROM evidence_run_metric_latest"
         " WHERE run_id = 'run-1' AND key = 'loss'"
     ).fetchone()
+    assert row is not None
     assert row == (0.2, 3, 0.2, 9.0)
 
 

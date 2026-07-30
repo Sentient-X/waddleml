@@ -42,7 +42,9 @@ def train(data, epochs, lr):
 
         mse = sum((w * x + b - y) ** 2 for x, y in data) / n
         mae = sum(abs(w * x + b - y) for x, y in data) / n
-        waddle.log({"train/mse": mse, "train/mae": mae, "train/weight": w, "train/bias": b})
+        waddle.log(
+            {"train/mse": mse, "train/mae": mae, "train/weight": w, "train/bias": b}
+        )
 
     return w, b
 
@@ -61,7 +63,13 @@ def main():
     with waddle.init(
         project="linear-regression",
         name=f"lr={args.lr}_epochs={args.epochs}",
-        config={"lr": args.lr, "epochs": args.epochs, "samples": args.samples, "noise": args.noise, "seed": args.seed},
+        config={
+            "lr": args.lr,
+            "epochs": args.epochs,
+            "samples": args.samples,
+            "noise": args.noise,
+            "seed": args.seed,
+        },
         tags={"model": "linear", "task": "regression"},
     ):
         data = generate_data(args.samples, args.noise)

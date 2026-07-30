@@ -100,14 +100,19 @@ class WaddleDB:
         return RepoInfo(rid, name, abs_path, origin_url, default_branch)
 
     def get_repo(self, name: str) -> RepoInfo:
-        row = self.fetchone("SELECT id, name, path, origin_url, default_branch FROM repos WHERE name = $1", [name])
+        row = self.fetchone(
+            "SELECT id, name, path, origin_url, default_branch FROM repos WHERE name = $1",
+            [name],
+        )
         if not row:
             raise KeyError(f"repo not found: {name}")
         return RepoInfo(row[0], row[1], row[2], row[3], row[4] or "main")
 
     # ---- commits ----
 
-    def record_commit(self, repo_id: str, commit_sha: str, repo_path: Optional[str] = None) -> None:
+    def record_commit(
+        self, repo_id: str, commit_sha: str, repo_path: Optional[str] = None
+    ) -> None:
         """Record a commit if not already present. Optionally fetches metadata from git."""
         row = self.fetchone(
             "SELECT 1 FROM commits WHERE repo_id = $1 AND commit_sha = $2",
@@ -120,6 +125,7 @@ class WaddleDB:
         if repo_path:
             try:
                 from ._git import sh
+
                 msg = sh(repo_path, "log", "-1", "--pretty=%s", commit_sha).strip()
                 author = sh(repo_path, "log", "-1", "--pretty=%an", commit_sha).strip()
                 when = sh(repo_path, "log", "-1", "--pretty=%ct", commit_sha).strip()

@@ -49,7 +49,9 @@ def test_report_lifecycle_and_render(
         assert report["version"] == 1
         report_id = report["id"]
 
-        listed = client.get("/api/v1/reports", headers={"x-api-key": "key-a-reader"}).json()
+        listed = client.get(
+            "/api/v1/reports", headers={"x-api-key": "key-a-reader"}
+        ).json()
         assert [(r["id"], r["name"]) for r in listed] == [(report_id, "run-states")]
         # Slug → id resolution for agents.
         by_name = client.get(
@@ -82,12 +84,17 @@ def test_saves_append_versions_and_rename_rides_a_save(
 ) -> None:
     client, _ = rig
     with client:
-        report_id = _create(client, "history", "```sql q\nselect 1 as one\n```\n").json()["id"]
+        report_id = _create(
+            client, "history", "```sql q\nselect 1 as one\n```\n"
+        ).json()["id"]
 
         v2 = client.put(
             f"/api/v1/reports/{report_id}",
             headers={"x-api-key": "key-a-writer"},
-            json={"body": "```sql q\nselect 2 as two\n```\n", "name": "history-renamed"},
+            json={
+                "body": "```sql q\nselect 2 as two\n```\n",
+                "name": "history-renamed",
+            },
         )
         assert v2.status_code == 200, v2.text
         assert v2.json()["version"] == 2
@@ -95,14 +102,16 @@ def test_saves_append_versions_and_rename_rides_a_save(
         assert v2.json()["id"] == report_id  # identity survives the rename
 
         versions = client.get(
-            f"/api/v1/reports/{report_id}/versions", headers={"x-api-key": "key-a-reader"}
+            f"/api/v1/reports/{report_id}/versions",
+            headers={"x-api-key": "key-a-reader"},
         ).json()
         assert [(v["version"], v["name"]) for v in versions] == [
             (2, "history-renamed"),
             (1, "history"),
         ]
         v1 = client.get(
-            f"/api/v1/reports/{report_id}/versions/1", headers={"x-api-key": "key-a-reader"}
+            f"/api/v1/reports/{report_id}/versions/1",
+            headers={"x-api-key": "key-a-reader"},
         ).json()
         assert "select 1 as one" in v1["body"]
 
@@ -126,23 +135,30 @@ def test_name_conflicts_are_409(rig: tuple[TestClient, FakeMetricStore]) -> None
         assert collide.json()["detail"]["code"] == "report_name_taken"
 
 
-def test_save_rejects_uncompilable_bodies(rig: tuple[TestClient, FakeMetricStore]) -> None:
+def test_save_rejects_uncompilable_bodies(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
     client, _ = rig
     with client:
         bad = _create(client, "broken", "```sql a\nselect * from (${a})\n```\n")
         assert bad.status_code == 422
         assert bad.json()["detail"]["code"] == "report_cycle"
         # Nothing was stored.
-        assert client.get(
-            "/api/v1/reports", headers={"x-api-key": "key-a-reader"}
-        ).json() == []
+        assert (
+            client.get("/api/v1/reports", headers={"x-api-key": "key-a-reader"}).json()
+            == []
+        )
 
 
-def test_render_requires_declared_params(rig: tuple[TestClient, FakeMetricStore]) -> None:
+def test_render_requires_declared_params(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
     client, _ = rig
     with client:
         report_id = _create(
-            client, "per-run", "```sql q\nselect * from runs where id = '${params.run_id}'\n```\n"
+            client,
+            "per-run",
+            "```sql q\nselect * from runs where id = '${params.run_id}'\n```\n",
         ).json()["id"]
         response = client.post(
             f"/api/v1/reports/{report_id}/render",
@@ -156,34 +172,49 @@ def test_render_requires_declared_params(rig: tuple[TestClient, FakeMetricStore]
 def test_reports_are_org_isolated(rig: tuple[TestClient, FakeMetricStore]) -> None:
     client, _ = rig
     with client:
-        report_id = _create(client, "mine", "```sql q\nselect 1 as one\n```\n").json()["id"]
+        report_id = _create(client, "mine", "```sql q\nselect 1 as one\n```\n").json()[
+            "id"
+        ]
         # Org B: existence is hidden (404 by id), list and lookup are empty.
-        assert client.get(
-            f"/api/v1/reports/{report_id}", headers={"x-api-key": "key-b-writer"}
-        ).status_code == 404
-        assert client.get(
-            "/api/v1/reports", headers={"x-api-key": "key-b-writer"}
-        ).json() == []
+        assert (
+            client.get(
+                f"/api/v1/reports/{report_id}", headers={"x-api-key": "key-b-writer"}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.get("/api/v1/reports", headers={"x-api-key": "key-b-writer"}).json()
+            == []
+        )
 
 
 def test_reader_cannot_save(rig: tuple[TestClient, FakeMetricStore]) -> None:
     client, _ = rig
     with client:
-        response = _create(client, "nope", "```sql q\nselect 1\n```\n", key="key-a-reader")
+        response = _create(
+            client, "nope", "```sql q\nselect 1\n```\n", key="key-a-reader"
+        )
         assert response.status_code == 403
 
 
-def test_preview_renders_without_saving(rig: tuple[TestClient, FakeMetricStore]) -> None:
+def test_preview_renders_without_saving(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
     client, _ = rig
     with client:
         response = client.post(
             "/api/v1/reports/preview",
             headers={"x-api-key": "key-a-reader"},
-            json={"body": "```sql q\nselect 41 + 1 as answer\n```\n<Value data={q} column=answer />"},
+            json={
+                "body": "```sql q\nselect 41 + 1 as answer\n```\n<Value data={q} column=answer />"
+            },
         )
         assert response.status_code == 200, response.text
         assert response.json()["results"]["q"]["rows"] == [[42]]
-        assert client.get("/api/v1/reports", headers={"x-api-key": "key-a-reader"}).json() == []
+        assert (
+            client.get("/api/v1/reports", headers={"x-api-key": "key-a-reader"}).json()
+            == []
+        )
 
 
 def test_dataset_door_feeds_sql_and_reports(
@@ -205,7 +236,9 @@ def test_dataset_door_feeds_sql_and_reports(
         assert put.status_code == 200, put.text
         assert put.json() == {"dataset": "factory_orders", "rows": 2}
 
-        listed = client.get("/api/v1/datasets", headers={"x-api-key": "key-a-reader"}).json()
+        listed = client.get(
+            "/api/v1/datasets", headers={"x-api-key": "key-a-reader"}
+        ).json()
         assert {d["dataset"] for d in listed} == {"factory_orders"}
 
         # The upload is a first-class view in the SQL sandbox…
@@ -230,9 +263,10 @@ def test_dataset_door_feeds_sql_and_reports(
         assert preview.json()["results"]["caps"]["rows"] == [[2, 200.0]]
 
         # Org B sees neither the dataset nor the view.
-        assert client.get(
-            "/api/v1/datasets", headers={"x-api-key": "key-b-writer"}
-        ).json() == []
+        assert (
+            client.get("/api/v1/datasets", headers={"x-api-key": "key-b-writer"}).json()
+            == []
+        )
         foreign = client.post(
             "/api/v1/query/sql",
             headers={"x-api-key": "key-b-writer"},

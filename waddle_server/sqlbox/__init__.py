@@ -74,7 +74,9 @@ class StagingCache:
         return path
 
     def _prune(self) -> None:
-        blobs = [p for p in self._root.iterdir() if p.is_file() and ".tmp" not in p.name]
+        blobs = [
+            p for p in self._root.iterdir() if p.is_file() and ".tmp" not in p.name
+        ]
         total = sum(p.stat().st_size for p in blobs)
         for path in sorted(blobs, key=lambda p: p.stat().st_mtime):
             if total <= self._max_bytes:
@@ -123,7 +125,9 @@ async def run_queries(
         datasets = await _stage_org_data(conn, store, org_id, scratch, cache)
         spec = json.dumps(
             {
-                "datasets": {name: [str(p) for p in paths] for name, paths in datasets.items()},
+                "datasets": {
+                    name: [str(p) for p in paths] for name, paths in datasets.items()
+                },
                 "scratch": str(scratch),
                 "queries": queries,
                 "max_rows": max_rows,
@@ -146,15 +150,21 @@ async def run_queries(
         except TimeoutError as err:
             child.kill()
             await child.wait()
-            raise SqlSandboxError("timeout", f"query exceeded {WALL_TIMEOUT_S:.0f}s") from err
+            raise SqlSandboxError(
+                "timeout", f"query exceeded {WALL_TIMEOUT_S:.0f}s"
+            ) from err
     if child.returncode != 0:
-        raise SqlSandboxError("crashed", (stderr or b"sandbox died")[-2000:].decode(errors="replace"))
+        raise SqlSandboxError(
+            "crashed", (stderr or b"sandbox died")[-2000:].decode(errors="replace")
+        )
     payload = json.loads(stdout)
     outcomes: dict[str, SqlResult | QueryFailure] = {}
     for name, result in payload["results"].items():
         error = result.get("error")
         if error is not None:
-            outcomes[name] = QueryFailure(kind=str(error["code"]), message=str(error["message"]))
+            outcomes[name] = QueryFailure(
+                kind=str(error["code"]), message=str(error["message"])
+            )
         else:
             outcomes[name] = SqlResult(
                 columns=result["columns"],

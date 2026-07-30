@@ -101,7 +101,11 @@ class ObjectStore:
         try:
             response = self._client.head_object(Bucket=self.bucket, Key=key)
         except ClientError as err:
-            if err.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            if err.response.get("Error", {}).get("Code") in (
+                "404",
+                "NoSuchKey",
+                "NotFound",
+            ):
                 return None
             raise
         return HeadInfo(size_bytes=int(response["ContentLength"]))
@@ -141,7 +145,9 @@ class ObjectStore:
         paginator = self._client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
             for obj in page.get("Contents", []):
-                yield ObjectInfo(key=obj["Key"], etag=str(obj.get("ETag", "")).strip('"'))
+                yield ObjectInfo(
+                    key=obj["Key"], etag=str(obj.get("ETag", "")).strip('"')
+                )
 
     def ensure_bucket(self) -> None:
         """Dev/MinIO convenience; R2 buckets are provisioned out-of-band."""

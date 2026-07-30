@@ -15,12 +15,42 @@ from waddle._sysmetrics import SystemMonitor
 def _init_git_repo(base: Path) -> Path:
     repo_path = base / "repo"
     repo_path.mkdir()
-    subprocess.run(["git", "init"], cwd=repo_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    subprocess.run(["git", "config", "user.email", "waddle@example.com"], cwd=repo_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    subprocess.run(["git", "config", "user.name", "Waddle Tester"], cwd=repo_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(
+        ["git", "init"],
+        cwd=repo_path,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "waddle@example.com"],
+        cwd=repo_path,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Waddle Tester"],
+        cwd=repo_path,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     (repo_path / "train.py").write_text("print('hello')\n", encoding="utf-8")
-    subprocess.run(["git", "add", "."], cwd=repo_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(
+        ["git", "add", "."],
+        cwd=repo_path,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=repo_path,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     return repo_path
 
 
@@ -42,7 +72,7 @@ def test_sysmetrics_with_mock_psutil(tmp_path: Path, monkeypatch: pytest.MonkeyP
     mock_psutil.cpu_percent.return_value = 42.5
     mock_mem = MagicMock()
     mock_mem.percent = 65.0
-    mock_mem.used = 8 * (1024 ** 3)  # 8 GB
+    mock_mem.used = 8 * (1024**3)  # 8 GB
     mock_psutil.virtual_memory.return_value = mock_mem
 
     monitor = SystemMonitor(run, interval=0.1)
@@ -66,7 +96,9 @@ def test_sysmetrics_with_mock_psutil(tmp_path: Path, monkeypatch: pytest.MonkeyP
     waddle.finish()
 
 
-def test_sysmetrics_graceful_without_deps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_sysmetrics_graceful_without_deps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Test that system metrics gracefully degrade without psutil/pynvml."""
     repo_path = _init_git_repo(tmp_path)
     monkeypatch.chdir(repo_path)

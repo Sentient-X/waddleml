@@ -52,11 +52,15 @@ def train(data, epochs, lr):
         w2 -= lr * gw2 / n
         b -= lr * gb / n
 
-        waddle.log({
-            "train/loss": total_loss / n,
-            "train/accuracy": correct / n,
-            "params/w1": w1, "params/w2": w2, "params/bias": b,
-        })
+        waddle.log(
+            {
+                "train/loss": total_loss / n,
+                "train/accuracy": correct / n,
+                "params/w1": w1,
+                "params/w2": w2,
+                "params/bias": b,
+            }
+        )
 
     return w1, w2, b
 
@@ -74,13 +78,22 @@ def main():
     with waddle.init(
         project="classification",
         name=f"perceptron_sep={args.separation}",
-        config={"lr": args.lr, "epochs": args.epochs, "samples_per_class": args.samples_per_class, "separation": args.separation},
+        config={
+            "lr": args.lr,
+            "epochs": args.epochs,
+            "samples_per_class": args.samples_per_class,
+            "separation": args.separation,
+        },
         tags={"model": "perceptron", "task": "binary_classification"},
     ):
         data = generate_clusters(args.samples_per_class, args.separation)
         w1, w2, b = train(data, args.epochs, args.lr)
 
-        correct = sum(1 for x1, x2, y in data if (sigmoid(w1*x1 + w2*x2 + b) >= 0.5) == (y == 1))
+        correct = sum(
+            1
+            for x1, x2, y in data
+            if (sigmoid(w1 * x1 + w2 * x2 + b) >= 0.5) == (y == 1)
+        )
         final_acc = correct / len(data)
         waddle.log({"eval/accuracy": final_acc})
         waddle.log_param("final_accuracy", round(final_acc, 4))

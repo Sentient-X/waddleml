@@ -18,22 +18,33 @@ def test_cross_org_isolation(rig: tuple[TestClient, FakeMetricStore]) -> None:
     with client:
         run_id = uuid4().hex
         _create_run(client, "key-a-writer", run_id)
-        body = _batch_body(batch_id=str(uuid4()), writer_id=str(uuid4()), seq=0, points=3)
+        body = _batch_body(
+            batch_id=str(uuid4()), writer_id=str(uuid4()), seq=0, points=3
+        )
         client.post(
-            f"/api/v1/runs/{run_id}/batches", headers={"x-api-key": "key-a-writer"}, content=body
+            f"/api/v1/runs/{run_id}/batches",
+            headers={"x-api-key": "key-a-writer"},
+            content=body,
         )
 
         # Org B sees nothing of org A: not the run, not the list, not the metrics.
         assert (
-            client.get(f"/api/v1/runs/{run_id}", headers={"x-api-key": "key-b-writer"}).status_code
+            client.get(
+                f"/api/v1/runs/{run_id}", headers={"x-api-key": "key-b-writer"}
+            ).status_code
             == 404
         )
-        assert client.get("/api/v1/runs", headers={"x-api-key": "key-b-writer"}).json() == []
+        assert (
+            client.get("/api/v1/runs", headers={"x-api-key": "key-b-writer"}).json()
+            == []
+        )
         assert (
             client.post(
                 f"/api/v1/runs/{run_id}/batches",
                 headers={"x-api-key": "key-b-writer"},
-                content=_batch_body(batch_id=str(uuid4()), writer_id=str(uuid4()), seq=0, points=1),
+                content=_batch_body(
+                    batch_id=str(uuid4()), writer_id=str(uuid4()), seq=0, points=1
+                ),
             ).status_code
             == 404
         )
@@ -55,7 +66,9 @@ def test_cross_org_isolation(rig: tuple[TestClient, FakeMetricStore]) -> None:
         # Same-project names do not collide across orgs.
         b_run = uuid4().hex
         assert _create_run(client, "key-b-writer", b_run).status_code == 200
-        a_runs = client.get("/api/v1/runs", headers={"x-api-key": "key-a-reader"}).json()
+        a_runs = client.get(
+            "/api/v1/runs", headers={"x-api-key": "key-a-reader"}
+        ).json()
         assert [r["run_id"] for r in a_runs] == [run_id]
 
 

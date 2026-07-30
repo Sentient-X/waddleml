@@ -95,6 +95,7 @@ def test_init_and_log_with_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     run_row = db.fetchone(
         "SELECT project, name, status, commit_sha FROM runs WHERE id = $1", [run.id]
     )
+    assert run_row is not None
     assert run_row[0] == "test-project"
     assert run_row[1] == "run-1"
     assert run_row[2] == "completed"
@@ -103,11 +104,13 @@ def test_init_and_log_with_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     param = db.fetchone(
         "SELECT value FROM params WHERE run_id = $1 AND key = 'lr'", [run.id]
     )
+    assert param is not None
     assert json.loads(param[0]) == 0.01
 
     tag = db.fetchone(
         "SELECT value FROM tags WHERE run_id = $1 AND key = 'model'", [run.id]
     )
+    assert tag is not None
     assert json.loads(tag[0]) == "resnet"
 
     metrics = db.fetchall(
@@ -137,6 +140,7 @@ def test_init_without_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "SELECT project, name, status, repo_id, commit_sha FROM runs WHERE id = $1",
         [run.id],
     )
+    assert run_row is not None
     assert run_row[0] == "no-git"
     assert run_row[1] == "run-nogit"
     assert run_row[2] == "completed"
@@ -146,6 +150,7 @@ def test_init_without_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     metric = db.fetchone(
         "SELECT value FROM metrics WHERE run_id = $1 AND key = 'loss'", [run.id]
     )
+    assert metric is not None
     assert metric[0] == pytest.approx(0.42)
 
 
@@ -161,6 +166,7 @@ def test_context_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path = os.path.join(str(repo_path), ".waddle", "waddle.duckdb")
     db = WaddleDB(db_path)
     row = db.fetchone("SELECT status FROM runs WHERE id = $1", [run_id])
+    assert row is not None
     assert row[0] == "completed"
 
 
@@ -176,6 +182,7 @@ def test_context_manager_on_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     db_path = os.path.join(str(repo_path), ".waddle", "waddle.duckdb")
     db = WaddleDB(db_path)
     row = db.fetchone("SELECT status FROM runs WHERE id = $1", [run_id])
+    assert row is not None
     assert row[0] == "failed"
 
 
@@ -192,6 +199,7 @@ def test_context_manager_without_git(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert _state.get_active_run() is None
     db = run._db
     row = db.fetchone("SELECT status FROM runs WHERE id = $1", [run_id])
+    assert row is not None
     assert row[0] == "completed"
 
 
@@ -210,6 +218,7 @@ def test_log_artifact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "SELECT name, kind, size_bytes, relation FROM artifacts WHERE id = $1",
         [aid],
     )
+    assert row is not None
     assert row == ("model.pt", "model", len(b"model weights"), "output")
 
 
@@ -229,6 +238,7 @@ def test_use_artifact_records_input_edge(
     row = run._db.fetchone(
         "SELECT name, kind, relation, size_bytes FROM artifacts WHERE id = $1", [aid]
     )
+    assert row is not None
     assert row == ("base.safetensors", "model", "input", len(b"base weights"))
 
 
@@ -290,6 +300,7 @@ def test_research_trial_uses_normal_run_and_group(
         (child.id, "m10-5090", "autoresearch"),
     ]
     config = child._db.fetchone("SELECT config FROM runs WHERE id = $1", [child.id])
+    assert config is not None
     research = json.loads(config[0])["_waddle_research"]
     assert research == {
         "goal": "minimize",
@@ -353,7 +364,10 @@ def test_typed_run_metadata_is_durable_and_research_identity_is_unambiguous(
         group_name="libero-finetune",
         system_metrics=False,
     )
-    row = run._db.fetchone("SELECT job_type, group_name FROM runs WHERE id = $1", [run.id])
+    row = run._db.fetchone(
+        "SELECT job_type, group_name FROM runs WHERE id = $1", [run.id]
+    )
+    assert row is not None
     assert row == ("training", "libero-finetune")
     run.finish()
 
@@ -410,9 +424,11 @@ def test_research_proposal_and_outcome_are_durable(
         )
     )
 
-    config_json, outcome_json = run._db.fetchone(
+    research_row = run._db.fetchone(
         "SELECT config, research_outcome FROM runs WHERE id = $1", [run.id]
     )
+    assert research_row is not None
+    config_json, outcome_json = research_row
     proposal = json.loads(config_json)["_waddle_research"]
     outcome = json.loads(outcome_json)
     assert proposal["rationale"].startswith("the trace")
@@ -509,10 +525,12 @@ def test_log_param_and_tag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     p = db.fetchone(
         "SELECT value FROM params WHERE run_id = $1 AND key = 'batch_size'", [run.id]
     )
+    assert p is not None
     assert json.loads(p[0]) == 32
     t = db.fetchone(
         "SELECT value FROM tags WHERE run_id = $1 AND key = 'experiment'", [run.id]
     )
+    assert t is not None
     assert json.loads(t[0]) == "baseline"
 
 
@@ -555,13 +573,16 @@ def test_init_resume_reopens_run_as_new_attempt(
     )
     db = resumed._db
     row = db.fetchone("SELECT status, ended_at FROM runs WHERE id = $1", ["run-1"])
+    assert row is not None
     assert row[0] == "running"
     assert row[1] is None
 
     waddle.log({"loss": 0.5}, step=1)
     waddle.finish()
 
-    assert db.fetchone("SELECT count(*) FROM runs WHERE id = $1", ["run-1"])[0] == 1
+    count_row = db.fetchone("SELECT count(*) FROM runs WHERE id = $1", ["run-1"])
+    assert count_row is not None
+    assert count_row[0] == 1
     attempts = [
         r[0]
         for r in db.fetchall(

@@ -136,7 +136,9 @@ class Run:
         job_type = run_type.value if run_type is not None else None
         if research is not None:
             if group_name is not None and group_name != research.campaign:
-                raise RunTypeError("a research trial's group_name must equal its campaign")
+                raise RunTypeError(
+                    "a research trial's group_name must equal its campaign"
+                )
             research_dict = {
                 "trial_index": research.trial_index,
                 "objective_name": research.objective_name,
@@ -438,7 +440,18 @@ class Run:
         self._db.execute(
             """INSERT INTO artifacts (id, run_id, name, kind, relation, created_at, uri, sha256, size_bytes, inline_bytes)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
-            [aid, self.id, name, kind, relation.value, created, uri, sha_hex, size, blob],
+            [
+                aid,
+                self.id,
+                name,
+                kind,
+                relation.value,
+                created,
+                uri,
+                sha_hex,
+                size,
+                blob,
+            ],
         )
         if self._sync is not None and path and size is not None:
             self._sync.upload_artifact(
