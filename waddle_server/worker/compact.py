@@ -232,7 +232,7 @@ class Compactor:
 
 
 def main() -> None:
-    configure_logging(service="waddle-worker")
+    configure_logging(service="waddle-worker", force=True)
     asyncio.run(Compactor(WaddleSettings()).run_forever())
 
 

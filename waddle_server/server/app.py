@@ -41,10 +41,10 @@ from waddle_server.errors import (
     MissingParamsError,
     QueryLimitError,
     QuotaExceededError,
-    ResearchContractError,
     ReportCompileError,
     ReportNameTakenError,
     ReportNotFoundError,
+    ResearchContractError,
     RunNotFoundError,
     SqlSandboxError,
 )
@@ -83,16 +83,16 @@ from waddle_server.server.schemas import (
     ReportSummaryOut,
     ReportVersionDetailOut,
     ReportVersionOut,
+    ResearchOutcome,
+    ResearchSessionSummaryOut,
+    ResearchSessionTrialOut,
+    ResearchTrial,
     RunDetailOut,
     RunEnvironment,
     RunFacetsOut,
     RunLineageOut,
     RunOut,
     RunRef,
-    ResearchOutcome,
-    ResearchSessionSummaryOut,
-    ResearchSessionTrialOut,
-    ResearchTrial,
     SeriesPointOut,
     SqlQueryIn,
     SqlResultOut,
@@ -125,7 +125,7 @@ def build_app(
     object_store: ObjectStore | None = None,
 ) -> FastAPI:
     cfg = settings or WaddleSettings()
-    configure_logging(service="waddle")
+    configure_logging(service="waddle", force=True)
     pool = db.make_pool(cfg.pg_dsn)
     store = metric_store or ch.MetricStore(cfg)
     blobs = object_store or ObjectStore(cfg)

@@ -25,6 +25,8 @@ from sx_auth.principal import (  # noqa: E402
     OrgRef,
     Principal,
     PrincipalKind,
+    ProjectId,
+    ProjectRef,
 )
 
 from waddle_server.config import WaddleSettings  # noqa: E402
@@ -73,18 +75,42 @@ class StubAuthClient(AuthClient):
         super().__init__(base_url="http://stub", service_key="stub", audience="waddle")
 
     async def introspect_api_key(self, raw: str) -> IntrospectionResult | None:
-        entry = KEYS.get(raw)
-        if entry is None:
-            return None
-        org, role = entry
+        if raw == "key-cross-writer":
+            home_org, project_org, role = ORG_A, ORG_B, "writer"
+        elif raw == "key-multi-writer":
+            home_org, project_org, role = ORG_A, ORG_A, "writer"
+        else:
+            entry = KEYS.get(raw)
+            if entry is None:
+                return None
+            home_org, role = entry
+            project_org = home_org
+        project = ProjectRef(
+            id=ProjectId(UUID(int=project_org.id.int)),
+            slug="waddle-test",
+            org=project_org,
+        )
+        grants = (GrantRecord(project=project, scope="*", role=role),)
+        if raw == "key-multi-writer":
+            grants += (
+                GrantRecord(
+                    project=ProjectRef(
+                        id=ProjectId(UUID(int=0xAA)),
+                        slug="waddle-other",
+                        org=project_org,
+                    ),
+                    scope="*",
+                    role=role,
+                ),
+            )
         return IntrospectionResult(
             principal=Principal(
                 id=uuid4(),
                 kind=PrincipalKind.SERVICE,
-                subject=f"{org.slug}-{role}",
-                display_name=f"{org.slug} {role}",
-                org=org,
-                grants=(GrantRecord(scope="*", role=role),),
+                subject=f"{home_org.slug}-{role}",
+                display_name=f"{home_org.slug} {role}",
+                org=home_org,
+                grants=grants,
             ),
             credential=CredentialInfo(id=uuid4(), kind=CredentialKind.API_KEY),
             cache_ttl_s=30,

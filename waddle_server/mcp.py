@@ -13,7 +13,10 @@ import os
 from typing import Any
 
 import httpx
+import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
+from sx_observability import ObservabilityMiddleware, configure_logging
+
 from waddle_server.model import RunType
 
 mcp = FastMCP(
@@ -334,5 +337,17 @@ async def runs_lineage(run_id: str, ctx: Context | None = None) -> list[dict[str
     return await _call(ctx, "GET", f"/api/v1/runs/{run_id}/lineage")
 
 
+def main() -> None:
+    configure_logging(service="waddle-mcp", force=True)
+    app = mcp.streamable_http_app()
+    app.add_middleware(ObservabilityMiddleware)
+    uvicorn.run(
+        app,
+        host=mcp.settings.host,
+        port=mcp.settings.port,
+        log_config=None,
+    )
+
+
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    main()

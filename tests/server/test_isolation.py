@@ -83,3 +83,27 @@ def test_query_limits(rig: tuple[TestClient, FakeMetricStore]) -> None:
         )
         assert refused.status_code == 422
         assert refused.json()["detail"]["code"] == "query_limit_exceeded"
+
+
+def test_project_owner_drives_tenant_and_multi_project_grants_fail_closed(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
+    client, _ = rig
+    with client:
+        run_id = uuid4().hex
+        assert _create_run(client, "key-cross-writer", run_id).status_code == 200
+        # The identity belongs to org A, but its explicit project belongs to B.
+        assert (
+            client.get(
+                f"/api/v1/runs/{run_id}",
+                headers={"x-api-key": "key-b-writer"},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.get(
+                "/api/v1/runs",
+                headers={"x-api-key": "key-multi-writer"},
+            ).status_code
+            == 403
+        )

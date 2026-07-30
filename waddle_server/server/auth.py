@@ -1,13 +1,14 @@
 """Company isolation + role auth over central introspection.
 
 Every request resolves to a :class:`WaddlePrincipal` whose ``org_id`` is the
-tenancy key stamped on every Postgres and ClickHouse row — always derived here,
-never from the client. Credentials (``Authorization: Bearer``, ``X-API-Key``,
+tenancy key stamped on every Postgres and ClickHouse row — derived from the
+sole project grant's owning organization, never the principal's home org or a
+client field. Credentials (``Authorization: Bearer``, ``X-API-Key``,
 or the platform session cookie ``sx_session``) are introspected against the
 central auth service for the ``waddle`` audience; roles narrow to
 :class:`WaddleRole` and unknown roles are dropped (fail closed). Authorization
-is org-granular (see ``WaddleRole``); the principal's role is the strongest of
-its live grants.
+is organization-global (see ``WaddleRole``); multi-project credentials are
+rejected until storage is project-scoped.
 
 Dev is auth-optional: with ``WADDLE_AUTH_REQUIRED=false`` (default) an
 unauthenticated request resolves to a fixed dev org admin without touching
@@ -35,6 +36,7 @@ class WaddlePrincipal:
     principal_id: UUID | None
     org_id: UUID
     org_slug: str
+    project_id: UUID
     subject: str
     role: WaddleRole
 
@@ -65,6 +67,7 @@ async def resolve_principal(
             principal_id=None,
             org_id=DEV_ORG_ID,
             org_slug=DEV_ORG_SLUG,
+            project_id=UUID(int=0),
             subject="dev-local",
             role=WaddleRole.ADMIN,
         )
@@ -80,8 +83,13 @@ async def resolve_principal(
     if result is None:
         raise HTTPException(401, "unknown or revoked credential")
 
-    # Grants arrive filtered to the 'waddle' audience; keep the strongest role
-    # this app knows and DROP any it does not (fail closed, never widen).
+    # Waddle's current storage is organization-global. Reject multi-project
+    # credentials instead of collapsing project-specific roles, and derive the
+    # tenant from the selected project's owning org (not the identity's home org).
+    project_ids = {grant.project.id for grant in result.principal.grants}
+    if len(project_ids) != 1:
+        raise HTTPException(403, "waddle requires exactly one project grant")
+    project = result.principal.grants[0].project
     best: WaddleRole | None = None
     for grant in result.principal.grants:
         try:
@@ -94,8 +102,9 @@ async def resolve_principal(
         raise HTTPException(403, "no waddle grant on this credential")
     return WaddlePrincipal(
         principal_id=result.principal.id,
-        org_id=result.principal.org.id,
-        org_slug=result.principal.org.slug,
+        org_id=project.org.id,
+        org_slug=project.org.slug,
+        project_id=project.id,
         subject=result.principal.subject,
         role=best,
     )
