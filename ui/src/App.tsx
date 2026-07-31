@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Waypoints } from "lucide-react";
 import { EmptyState } from "@sx/ui";
-import { RedirectToLogin } from "@sx/api-client";
+import { AuthGate } from "@sx/api-client";
 
 import { useMe } from "@/auth";
 import { AppShell } from "@/components/AppShell";
@@ -18,14 +18,8 @@ import { ReportEditorPage } from "@/pages/ReportEditorPage";
 export function App() {
   const me = useMe();
 
-  if (me.isLoading) {
-    return (
-      <div className="grid h-full place-items-center text-sm text-muted-foreground">Loading…</div>
-    );
-  }
-
   if (!me.data) {
-    return <RedirectToLogin />;
+    return <AuthGate workspace="Autonomy Training" query={me} />;
   }
 
   return (
