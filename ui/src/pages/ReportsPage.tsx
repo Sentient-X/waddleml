@@ -1,11 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { FileText, Plus } from "lucide-react";
-import { Button, DataTable, EmptyState, PageHeader, type DataTableColumn } from "@sx/ui";
+import {
+  Button,
+  DataTable,
+  EmptyState,
+  PageHeader,
+  formatDateTime,
+  type DataTableColumn,
+} from "@sx/ui";
 
 import { waddleApi } from "@/api/client";
 import type { ReportSummary } from "@/api/types";
-import { formatDateTime } from "@/lib/format";
 
 export function ReportsPage() {
   const navigate = useNavigate();

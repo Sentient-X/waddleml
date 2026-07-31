@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowLeft, ArrowUp, ExternalLink, FlaskConical, GitBranch } from "lucide-react";
+import { pollWhile } from "@sx/api-client";
 import {
   Badge,
   Button,
@@ -15,14 +16,17 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  formatRunDuration,
+  shortHash,
 } from "@sx/ui";
 
 import { waddleApi } from "@/api/client";
+import type { ResearchSessionTrial, RunDetail } from "@/api/types";
 import { HypothesisTreeMap } from "@/components/research/HypothesisTreeMap";
 import { ResearchListRow } from "@/components/research/ResearchListRow";
 import { ResearchTrajectoryChart } from "@/components/research/ResearchTrajectoryChart";
 import { SessionExperimentTree } from "@/components/research/SessionExperimentTree";
-import { formatScalar, runDuration, shortHash } from "@/lib/format";
+import { formatScalar } from "@/lib/format";
 import {
   objectiveValue,
   researchAnalyses,
@@ -195,8 +199,10 @@ export function ResearchRunPage() {
     queryKey: ["research-session", projectParam, sessionParam],
     queryFn: () => waddleApi.getResearchSession(projectParam, sessionParam),
     enabled: Boolean(projectParam && sessionParam),
-    refetchInterval: (query) =>
-      query.state.data?.some((run) => run.state === "running") ? 5_000 : false,
+    refetchInterval: pollWhile(
+      (trials: ResearchSessionTrial[]) => trials.some((run) => run.state === "running"),
+      5_000,
+    ),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
@@ -238,7 +244,7 @@ export function ResearchRunPage() {
     queryKey: ["run", selectedRunId],
     queryFn: () => waddleApi.getRun(selectedRunId),
     enabled: Boolean(selectedRunId),
-    refetchInterval: (query) => (query.state.data?.state === "running" ? 5_000 : false),
+    refetchInterval: pollWhile((run: RunDetail) => run.state === "running", 5_000),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
@@ -314,7 +320,7 @@ export function ResearchRunPage() {
           <h1 className="truncate text-xl font-semibold tracking-tight">{session.name}</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {session.project} · {session.runs.length} attempts · {metrics.length} goal metrics ·{" "}
-            {runDuration(session.startedAt, session.updatedAt)}
+            {formatRunDuration(session.startedAt, session.updatedAt)}
           </p>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-muted-foreground">

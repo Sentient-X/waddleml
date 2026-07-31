@@ -3,27 +3,13 @@ import uPlot from "uplot";
 import type { AlignedData, Options } from "uplot";
 import "uplot/dist/uPlot.min.css";
 
+import { AXIS_STROKE, GRID_STROKE, PALETTE } from "@/lib/chartTheme";
+
 export interface ChartSeries {
   label: string;
   points: readonly { step: number; value: number }[];
   kind?: "line" | "points" | "step";
 }
-
-/* A small palette that reads on both light and dark canvases (uPlot draws to a
-   canvas, so CSS variables can't reach it — these are fixed, theme-neutral). */
-const PALETTE = [
-  "#2563eb",
-  "#f97316",
-  "#16a34a",
-  "#db2777",
-  "#9333ea",
-  "#0891b2",
-  "#ca8a04",
-  "#dc2626",
-] as const;
-
-const AXIS_STROKE = "#8a8f98";
-const GRID_STROKE = "rgba(128,128,128,0.16)";
 
 /** Align many (step → value) series onto one shared, sorted step axis; missing
  *  steps become null so uPlot draws gaps rather than fake straight lines. */

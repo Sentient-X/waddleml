@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Waypoints } from "lucide-react";
+import { pollWhile } from "@sx/api-client";
 import {
   Button,
   DataTable,
@@ -14,12 +15,14 @@ import {
   SelectTrigger,
   SelectValue,
   StatusDot,
+  formatDateTime,
+  formatRunDuration,
   type DataTableColumn,
 } from "@sx/ui";
 
 import { waddleApi } from "@/api/client";
 import type { Run, RunState, RunType } from "@/api/types";
-import { formatDateTime, runDuration, runStateTone } from "@/lib/format";
+import { runStateTone } from "@/lib/format";
 
 const STATES: readonly RunState[] = ["running", "completed", "failed", "aborted"];
 const ALL = "all";
@@ -62,8 +65,10 @@ export function RunsPage() {
         limit: PAGE_SIZE + 1,
         offset: page * PAGE_SIZE,
       }),
-    refetchInterval: (request) =>
-      request.state.data?.some((run) => run.state === "running") ? 5_000 : false,
+    refetchInterval: pollWhile(
+      (runs: Run[]) => runs.some((run) => run.state === "running"),
+      5_000,
+    ),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
@@ -121,7 +126,7 @@ export function RunsPage() {
       mono: true,
       sort: (run) =>
         new Date(run.finished_at ?? Date.now()).getTime() - new Date(run.started_at).getTime(),
-      cell: (run) => runDuration(run.started_at, run.finished_at),
+      cell: (run) => formatRunDuration(run.started_at, run.finished_at),
     },
   ];
 

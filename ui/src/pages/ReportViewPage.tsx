@@ -9,7 +9,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, FileText, Pencil, Play, RefreshCw, Trash2 } from "lucide-react";
 import { Button, EmptyState, Input, PageHeader } from "@sx/ui";
 
-import { waddleApi, WaddleApiError } from "@/api/client";
+import { ApiError } from "@sx/api-client";
+
+import { waddleApi } from "@/api/client";
 import type { RenderBlock, RenderReport } from "@/api/types";
 import { BlockRenderer } from "@/components/report/BlockRenderer";
 import { reportInputNames } from "@/components/report/registry";
@@ -43,7 +45,7 @@ export function ReportViewPage() {
   const report = reportQuery.data;
   const requiredParams = rendered?.required_params ?? report?.required_params ?? [];
 
-  const renderMutation = useMutation<RenderReport, WaddleApiError, Record<string, string>>({
+  const renderMutation = useMutation<RenderReport, ApiError, Record<string, string>>({
     mutationFn: (params) => waddleApi.renderReport(id, params),
     onSuccess: (data) => {
       setRendered(data);
@@ -51,7 +53,7 @@ export function ReportViewPage() {
     },
   });
 
-  const deleteMutation = useMutation<null, WaddleApiError, void>({
+  const deleteMutation = useMutation<void, ApiError, void>({
     mutationFn: () => waddleApi.deleteReport(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["reports"] });

@@ -1,3 +1,5 @@
+import { formatDateTime } from "@sx/ui";
+
 import type { ColumnType } from "@/api/types";
 
 export function alignForType(type: ColumnType | undefined): "left" | "right" {
@@ -34,8 +36,9 @@ export function formatByType(value: unknown, type: ColumnType | undefined): stri
   }
   if (type === "boolean") return value ? "true" : "false";
   if (type === "date") {
+    // Unparseable cells render raw — a date column can carry a free-text value.
     const date = new Date(String(value));
-    return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+    return Number.isNaN(date.getTime()) ? String(value) : formatDateTime(date.toISOString());
   }
   return typeof value === "string" ? value : JSON.stringify(value);
 }

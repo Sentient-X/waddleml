@@ -1,11 +1,10 @@
-/* The waddle console's fetch core. Every call hits the backend under /api
-   (Vite proxies to :8400 in dev; the backend serves the built SPA in prod).
-   The session rides the cookie, so requests use credentials: "include".
+/* The waddle console's endpoint set. The fetch core is `@sx/api-client`'s
+   shared `request` (it prefixes /api, carries the cookie session, and narrows
+   FastAPI's `detail` — string, typed {code, message}, or pydantic array — to an
+   `ApiError` with `.status` and an optional machine `.code`). Every endpoint
+   below is a one-liner over it. */
 
-   The backend's stable error envelope is FastAPI's `detail`, carrying either a
-   typed {code, message} (SqlSandboxError, quota, limits…), a plain string, or
-   pydantic's validation array. WaddleApiError narrows all three to a message
-   plus an optional machine `code` so callers (the SQL page) can show both. */
+import { body, request } from "@sx/api-client";
 
 import type {
   ArtifactVersion,
@@ -30,77 +29,8 @@ import type {
   RunType,
 } from "./types";
 
-export class WaddleApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public code: string | null = null,
-  ) {
-    super(message);
-    this.name = "WaddleApiError";
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function extractError(status: number, statusText: string, bodyText: string): WaddleApiError {
-  if (bodyText) {
-    try {
-      const body: unknown = JSON.parse(bodyText);
-      if (isRecord(body) && "detail" in body) {
-        const detail = body.detail;
-        if (isRecord(detail) && typeof detail.message === "string") {
-          const code = typeof detail.code === "string" ? detail.code : null;
-          return new WaddleApiError(status, detail.message, code);
-        }
-        if (typeof detail === "string") return new WaddleApiError(status, detail);
-        return new WaddleApiError(status, JSON.stringify(detail));
-      }
-    } catch {
-      return new WaddleApiError(status, bodyText);
-    }
-    return new WaddleApiError(status, bodyText);
-  }
-  return new WaddleApiError(status, statusText || `Request failed (${status})`);
-}
-
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    credentials: "include",
-    cache: "no-store",
-    headers: { Accept: "application/json", ...init?.headers },
-  });
-  const bodyText = await response.text();
-  if (!response.ok) throw extractError(response.status, response.statusText, bodyText);
-  return (bodyText ? JSON.parse(bodyText) : null) as T;
-}
-
-function getJson<T>(path: string): Promise<T> {
-  return requestJson<T>(path);
-}
-
-function postJson<T>(path: string, body: unknown): Promise<T> {
-  return requestJson<T>(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-function putJson<T>(path: string, body: unknown): Promise<T> {
-  return requestJson<T>(path, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-function del(path: string): Promise<null> {
-  return requestJson<null>(path, { method: "DELETE" });
-}
+const post = (data: unknown): RequestInit => ({ method: "POST", ...body(data) });
+const put = (data: unknown): RequestInit => ({ method: "PUT", ...body(data) });
 
 export interface RunFilter {
   project?: string;
@@ -114,12 +44,12 @@ export interface RunFilter {
 
 export const waddleApi = {
   listResearchSessions: (limit = 200): Promise<ResearchSessionSummary[]> =>
-    getJson<ResearchSessionSummary[]>(`/v1/research/sessions?limit=${limit}`),
+    request<ResearchSessionSummary[]>(`/v1/research/sessions?limit=${limit}`),
   getResearchSession: (
     project: string,
     sessionName: string,
   ): Promise<ResearchSessionTrial[]> =>
-    getJson<ResearchSessionTrial[]>(
+    request<ResearchSessionTrial[]>(
       `/v1/research/sessions/${encodeURIComponent(project)}/${encodeURIComponent(sessionName)}`,
     ),
   listRuns: (filter: RunFilter = {}): Promise<Run[]> => {
@@ -132,49 +62,57 @@ export const waddleApi = {
     if (filter.limit) params.set("limit", String(filter.limit));
     if (filter.offset) params.set("offset", String(filter.offset));
     const qs = params.toString();
-    return getJson<Run[]>(`/v1/runs${qs ? `?${qs}` : ""}`);
+    return request<Run[]>(`/v1/runs${qs ? `?${qs}` : ""}`);
   },
-  listRunFacets: (): Promise<RunFacets> => getJson<RunFacets>("/v1/runs/facets"),
-  getRun: (runId: string): Promise<RunDetail> => getJson<RunDetail>(`/v1/runs/${runId}`),
-  listProjects: (): Promise<Project[]> => getJson<Project[]>("/v1/projects"),
+  listRunFacets: (): Promise<RunFacets> => request<RunFacets>("/v1/runs/facets"),
+  getRun: (runId: string): Promise<RunDetail> => request<RunDetail>(`/v1/runs/${runId}`),
+  listProjects: (): Promise<Project[]> => request<Project[]>("/v1/projects"),
   queryMetrics: (query: MetricsQuery): Promise<MetricSeries[]> =>
-    postJson<MetricSeries[]>("/v1/query/metrics", query),
+    request<MetricSeries[]>("/v1/query/metrics", post(query)),
   queryLatest: (query: MetricsQuery): Promise<LatestMetric[]> =>
-    postJson<LatestMetric[]>("/v1/query/latest", query),
+    request<LatestMetric[]>("/v1/query/latest", post(query)),
   runLogs: (runId: string, limit = 500): Promise<LogLine[]> =>
-    getJson<LogLine[]>(`/v1/runs/${runId}/logs?limit=${limit}`),
+    request<LogLine[]>(`/v1/runs/${runId}/logs?limit=${limit}`),
   runLineage: (runId: string): Promise<RunLineage[]> =>
-    getJson<RunLineage[]>(`/v1/runs/${runId}/lineage`),
+    request<RunLineage[]>(`/v1/runs/${runId}/lineage`),
   getArtifact: (artifactId: string): Promise<ArtifactVersion> =>
-    getJson<ArtifactVersion>(`/v1/artifacts/${artifactId}`),
+    request<ArtifactVersion>(`/v1/artifacts/${artifactId}`),
 
   // Open datasets door — producer snapshots that become sandbox/report views.
-  listDatasets: (): Promise<DatasetInfo[]> => getJson<DatasetInfo[]>("/v1/datasets"),
+  listDatasets: (): Promise<DatasetInfo[]> => request<DatasetInfo[]>("/v1/datasets"),
 
   // Reports-as-code. Reports are addressed by uuid `id`; `name` is a renameable
   // per-org slug (`listReports(name)` resolves a slug to its summary).
   listReports: (name?: string): Promise<ReportSummary[]> =>
-    getJson<ReportSummary[]>(`/v1/reports${name ? `?name=${encodeURIComponent(name)}` : ""}`),
-  getReport: (id: string): Promise<Report> => getJson<Report>(`/v1/reports/${id}`),
-  createReport: (name: string, body: string): Promise<Report> =>
-    postJson<Report>("/v1/reports", { name, body }),
-  updateReport: (id: string, body: string, name?: string): Promise<Report> =>
-    putJson<Report>(`/v1/reports/${id}`, name ? { body, name } : { body }),
-  deleteReport: (id: string): Promise<null> => del(`/v1/reports/${id}`),
+    request<ReportSummary[]>(`/v1/reports${name ? `?name=${encodeURIComponent(name)}` : ""}`),
+  getReport: (id: string): Promise<Report> => request<Report>(`/v1/reports/${id}`),
+  createReport: (name: string, reportBody: string): Promise<Report> =>
+    request<Report>("/v1/reports", post({ name, body: reportBody })),
+  updateReport: (id: string, reportBody: string, name?: string): Promise<Report> =>
+    request<Report>(
+      `/v1/reports/${id}`,
+      put(name ? { body: reportBody, name } : { body: reportBody }),
+    ),
+  // 204 No Content — the shared core resolves to undefined.
+  deleteReport: (id: string): Promise<void> =>
+    request<void>(`/v1/reports/${id}`, { method: "DELETE" }),
   listReportVersions: (id: string): Promise<ReportVersion[]> =>
-    getJson<ReportVersion[]>(`/v1/reports/${id}/versions`),
+    request<ReportVersion[]>(`/v1/reports/${id}/versions`),
   getReportVersion: (id: string, version: number): Promise<ReportVersionDetail> =>
-    getJson<ReportVersionDetail>(`/v1/reports/${id}/versions/${version}`),
+    request<ReportVersionDetail>(`/v1/reports/${id}/versions/${version}`),
   renderReport: (
     id: string,
     params: Record<string, string> = {},
     maxRows = 1000,
   ): Promise<RenderReport> =>
-    postJson<RenderReport>(`/v1/reports/${id}/render`, { params, max_rows: maxRows }),
+    request<RenderReport>(`/v1/reports/${id}/render`, post({ params, max_rows: maxRows })),
   previewReport: (
-    body: string,
+    reportBody: string,
     params: Record<string, string> = {},
     maxRows = 1000,
   ): Promise<RenderReport> =>
-    postJson<RenderReport>("/v1/reports/preview", { body, params, max_rows: maxRows }),
+    request<RenderReport>(
+      "/v1/reports/preview",
+      post({ body: reportBody, params, max_rows: maxRows }),
+    ),
 };

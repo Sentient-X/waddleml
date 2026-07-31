@@ -12,6 +12,7 @@ import {
   FileDown,
   Search,
 } from "lucide-react";
+import { pollWhile } from "@sx/api-client";
 import {
   Badge,
   Button,
@@ -24,12 +25,16 @@ import {
   TabsList,
   TabsTrigger,
   cn,
+  formatDateTime,
+  formatRunDuration,
+  shortHash,
 } from "@sx/ui";
 
 import { MetricPanel } from "@/components/MetricPanel";
+import { ButtonGroup } from "@/components/report/inputs";
 import { waddleApi } from "@/api/client";
 import type { ArtifactVersion, LogLine, MetricSeries, RunDetail, RunLineage } from "@/api/types";
-import { formatDateTime, formatScalar, runDuration, runStateTone, shortHash } from "@/lib/format";
+import { formatScalar, runStateTone } from "@/lib/format";
 
 /* ── config tree (the W&B metadata-tree pattern: nested keys, collapsible
       subtrees, search across full key paths) ──────────────────────────── */
@@ -187,7 +192,7 @@ function OverviewTab({ run }: { run: RunDetail }) {
           <FactRow label="State" value={run.state} />
           <FactRow label="Started" value={formatDateTime(run.started_at)} />
           <FactRow label="Finished" value={run.finished_at ? formatDateTime(run.finished_at) : null} />
-          <FactRow label="Duration" value={runDuration(run.started_at, run.finished_at)} />
+          <FactRow label="Duration" value={formatRunDuration(run.started_at, run.finished_at)} />
           <FactRow label="Run id" value={run.run_id} />
           <FactRow label="Group" value={run.group_name} />
           <FactRow label="Job type" value={run.job_type} />
@@ -318,20 +323,21 @@ function ChartSection({
 
 /* ── logs: searchable, level-filterable tail ────────────────────────────── */
 
-const LOG_LEVELS = ["debug", "info", "warning", "error"] as const;
+const ALL_LEVELS = "all";
+const LEVEL_OPTIONS = [ALL_LEVELS, "debug", "info", "warning", "error"].join(",");
 
 const LEVEL_CLASS: Record<string, string> = {
   warning: "text-warning",
   error: "text-destructive",
 };
 
-function LogsPane({ lines, live }: { lines: LogLine[]; live: boolean }) {
+function LogsPane({ lines, polling }: { lines: LogLine[]; polling: boolean }) {
   const [query, setQuery] = useState("");
-  const [level, setLevel] = useState<string | null>(null);
+  const [level, setLevel] = useState(ALL_LEVELS);
   const needle = query.trim().toLowerCase();
   const visible = lines.filter(
     (l) =>
-      (level === null || l.level === level) &&
+      (level === ALL_LEVELS || l.level === level) &&
       (needle === "" || l.message.toLowerCase().includes(needle)),
   );
   return (
@@ -346,27 +352,16 @@ function LogsPane({ lines, live }: { lines: LogLine[]; live: boolean }) {
             className="h-8 w-72 pl-7 text-xs"
           />
         </div>
-        <div className="inline-flex rounded-md border border-input p-0.5">
-          {[null, ...LOG_LEVELS].map((lv) => (
-            <button
-              key={lv ?? "all"}
-              type="button"
-              onClick={() => setLevel(lv)}
-              className={cn(
-                "rounded px-2 py-0.5 text-xs capitalize transition-colors",
-                level === lv
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              )}
-            >
-              {lv ?? "all"}
-            </button>
-          ))}
-        </div>
+        <ButtonGroup
+          props={{ name: "level", title: "level", options: LEVEL_OPTIONS }}
+          params={{ level }}
+          onParamChange={(_, value) => setLevel(value)}
+        />
         <span className="text-[11px] text-muted-foreground">
           {visible.length} of {lines.length} lines
         </span>
-        {live ? <StatusDot tone="live" label="streaming" /> : null}
+        {/* The console polls; it holds no stream. Say what it does. */}
+        {polling ? <StatusDot tone="ok" label="polling · 5s" /> : null}
       </div>
       <div className="h-[32rem] overflow-auto rounded-lg border bg-muted/30 p-3 font-mono text-[11px] leading-relaxed">
         {visible.length === 0 ? (
@@ -495,7 +490,7 @@ export function RunDetailPage() {
   const runQuery = useQuery({
     queryKey: ["run", runId],
     queryFn: () => waddleApi.getRun(runId),
-    refetchInterval: (query) => (query.state.data?.state === "running" ? 5000 : false),
+    refetchInterval: pollWhile((detail: RunDetail) => detail.state === "running", 5000),
   });
   const running = runQuery.data?.state === "running";
 
@@ -556,7 +551,7 @@ export function RunDetailPage() {
             run ? (
               <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-xs">
                 <span>{run.project}</span>
-                <span>· {runDuration(run.started_at, run.finished_at)}</span>
+                <span>· {formatRunDuration(run.started_at, run.finished_at)}</span>
                 <span>· {run.run_id.slice(0, 16)}</span>
                 {run.commit_sha ? <span>· {shortHash(run.commit_sha, 10)}</span> : null}
               </span>
@@ -607,7 +602,7 @@ export function RunDetailPage() {
           {logsQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading logs…</p>
           ) : (
-            <LogsPane lines={logsQuery.data ?? []} live={running} />
+            <LogsPane lines={logsQuery.data ?? []} polling={running} />
           )}
         </TabsContent>
 

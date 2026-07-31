@@ -20,7 +20,9 @@ import {
   PageHeader,
 } from "@sx/ui";
 
-import { waddleApi, WaddleApiError } from "@/api/client";
+import { ApiError } from "@sx/api-client";
+
+import { waddleApi } from "@/api/client";
 import type { RenderReport } from "@/api/types";
 import { REPORT_DRAFT_KEY } from "@/components/MetricPanel";
 import { BlockRenderer } from "@/components/report/BlockRenderer";
@@ -105,9 +107,9 @@ export function ReportEditorPage({ isNew = false }: { isNew?: boolean }) {
   }, []);
   const [params, setParams] = useState<Record<string, string>>({});
   const [rendered, setRendered] = useState<RenderReport | null>(null);
-  const [previewError, setPreviewError] = useState<WaddleApiError | null>(null);
+  const [previewError, setPreviewError] = useState<ApiError | null>(null);
   const [previewing, setPreviewing] = useState(false);
-  const [saveError, setSaveError] = useState<WaddleApiError | null>(null);
+  const [saveError, setSaveError] = useState<ApiError | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [viewingVersion, setViewingVersion] = useState<number | null>(null);
@@ -154,7 +156,7 @@ export function ReportEditorPage({ isNew = false }: { isNew?: boolean }) {
       setPreviewError(null);
     } catch (e) {
       if (seq !== previewSeq.current) return;
-      setPreviewError(e as WaddleApiError);
+      setPreviewError(e as ApiError);
     } finally {
       if (seq === previewSeq.current) setPreviewing(false);
     }
@@ -192,7 +194,7 @@ export function ReportEditorPage({ isNew = false }: { isNew?: boolean }) {
         setSavedNote(`v${saved.version} saved`);
       }
     } catch (e) {
-      setSaveError(e as WaddleApiError);
+      setSaveError(e as ApiError);
     } finally {
       setSaving(false);
     }
@@ -207,7 +209,7 @@ export function ReportEditorPage({ isNew = false }: { isNew?: boolean }) {
       setViewingVersion(version);
       setSavedNote(null);
     } catch (e) {
-      setSaveError(e as WaddleApiError);
+      setSaveError(e as ApiError);
     }
   }
 

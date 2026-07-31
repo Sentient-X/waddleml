@@ -1,17 +1,19 @@
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FlaskConical, GitBranch } from "lucide-react";
+import { pollWhile } from "@sx/api-client";
 import {
   DataTable,
   EmptyState,
   PageHeader,
   StatusDot,
+  formatDateTime,
+  formatRunDuration,
   type DataTableColumn,
 } from "@sx/ui";
 
 import { waddleApi } from "@/api/client";
 import type { ResearchSessionSummary } from "@/api/types";
-import { formatDateTime, runDuration } from "@/lib/format";
 import { researchSessionPath } from "@/lib/research";
 
 export function ResearchPage() {
@@ -19,8 +21,11 @@ export function ResearchPage() {
   const sessionsQuery = useQuery({
     queryKey: ["research-sessions"],
     queryFn: () => waddleApi.listResearchSessions(),
-    refetchInterval: (query) =>
-      query.state.data?.some((session) => session.running_count > 0) ? 15_000 : false,
+    refetchInterval: pollWhile(
+      (sessions: ResearchSessionSummary[]) =>
+        sessions.some((session) => session.running_count > 0),
+      15_000,
+    ),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
@@ -66,7 +71,7 @@ export function ResearchPage() {
       mono: true,
       sort: (session) =>
         new Date(session.updated_at).getTime() - new Date(session.started_at).getTime(),
-      cell: (session) => runDuration(session.started_at, session.updated_at),
+      cell: (session) => formatRunDuration(session.started_at, session.updated_at),
     },
   ];
 

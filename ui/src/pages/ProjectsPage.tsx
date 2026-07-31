@@ -1,10 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { Table2 } from "lucide-react";
-import { DataTable, EmptyState, PageHeader, type DataTableColumn } from "@sx/ui";
+import {
+  DataTable,
+  EmptyState,
+  PageHeader,
+  formatDateTime,
+  type DataTableColumn,
+} from "@sx/ui";
 
 import { waddleApi } from "@/api/client";
 import type { Project } from "@/api/types";
-import { formatDateTime } from "@/lib/format";
 
 export function ProjectsPage() {
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => waddleApi.listProjects() });

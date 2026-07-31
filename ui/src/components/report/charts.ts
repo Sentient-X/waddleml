@@ -8,6 +8,7 @@
 import type { EChartsOption } from "echarts";
 
 import type { SqlResult } from "@/api/types";
+import { AXIS_STROKE, GRID_STROKE, PALETTE } from "@/lib/chartTheme";
 
 export type ReportChartKind =
   | "line"
@@ -26,19 +27,6 @@ export interface ChartReference {
   value: unknown;
   label?: string;
 }
-
-/* The report palette — byte-identical to the old XYChart PALETTE so existing
-   reports keep their colors. */
-const PALETTE = [
-  "#2563eb",
-  "#f97316",
-  "#16a34a",
-  "#db2777",
-  "#9333ea",
-  "#0891b2",
-  "#ca8a04",
-  "#dc2626",
-] as const;
 
 /* ── Dark-aware theme, resolved once from the live CSS vars ─────────────────
    The console themes with HSL custom properties (`--muted-foreground` etc.);
@@ -72,9 +60,9 @@ function resolveCssColor(expr: string, fallback: string): string {
 export function chartTheme(): ChartTheme {
   if (cachedTheme) return cachedTheme;
   cachedTheme = {
-    axis: resolveCssColor("hsl(var(--muted-foreground))", "#8a8f98"),
-    grid: "rgba(128,128,128,0.16)",
-    label: resolveCssColor("hsl(var(--muted-foreground))", "#8a8f98"),
+    axis: resolveCssColor("hsl(var(--muted-foreground))", AXIS_STROKE),
+    grid: GRID_STROKE,
+    label: resolveCssColor("hsl(var(--muted-foreground))", AXIS_STROKE),
     ref: resolveCssColor("hsl(var(--border))", "#94a3b8"),
     tooltipBg: resolveCssColor("hsl(var(--popover))", "#1e293b"),
     tooltipBorder: resolveCssColor("hsl(var(--border))", "#334155"),
