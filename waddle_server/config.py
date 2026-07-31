@@ -35,6 +35,12 @@ class WaddleSettings(BaseSettings):
 
     # Central auth service (sx_authd): identity is introspected, never stored here.
     auth_url: str = "http://127.0.0.1:8300"
+    # Where a BROWSER reaches sx_authd — not the same address this process uses.
+    # The login view sets the session cookie host-scoped to the origin that
+    # served it, and a browser treats 127.0.0.1 and localhost as different hosts,
+    # so the internal address yields a cookie the console can never read.
+    # Prod: internal service DNS above, public ingress here.
+    auth_public_url: str = "http://localhost:8300"
     auth_service_key: str = "sxk_waddle_introspect_dev"
     # Require a credential on every request (401 otherwise). The default is ON so
     # that a deployment which forgets to set this locks down rather than serving

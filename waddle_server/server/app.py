@@ -182,7 +182,7 @@ def build_app(
         # back to the API instead of the workspace they came from.
         origin = request.headers.get("origin") or str(request.base_url).rstrip("/")
         return AuthMethodsOut(
-            login_url=f"{cfg.auth_url}/login?next={quote(origin, safe='')}"
+            login_url=f"{cfg.auth_public_url}/login?next={quote(origin, safe='')}"
         )
 
     @app.get("/api/auth/me", response_model=CurrentUserOut)
