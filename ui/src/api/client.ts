@@ -8,6 +8,7 @@ import { body, request } from "@sx/api-client";
 
 import type {
   ArtifactVersion,
+  CurrentUser,
   DatasetInfo,
   LatestMetric,
   LogLine,
@@ -43,6 +44,8 @@ export interface RunFilter {
 }
 
 export const waddleApi = {
+  me: (): Promise<CurrentUser> => request<CurrentUser>("/auth/me"),
+  logout: (): Promise<void> => request<void>("/auth/logout", { method: "POST" }),
   listResearchSessions: (limit = 200): Promise<ResearchSessionSummary[]> =>
     request<ResearchSessionSummary[]>(`/v1/research/sessions?limit=${limit}`),
   getResearchSession: (

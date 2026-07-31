@@ -1,7 +1,16 @@
 import type { ReactNode } from "react";
 import { FileText, FlaskConical, GitCompare, Table2, Waypoints } from "lucide-react";
 import { NavLink } from "react-router-dom";
-import { PlatformShell, ThemeToggle, platformNavItemClass, platformUrlsFromEnv } from "@sx/ui";
+import {
+  PlatformAccount,
+  PlatformShell,
+  ThemeToggle,
+  platformNavItemClass,
+  platformUrlsFromEnv,
+} from "@sx/ui";
+
+import { useLogout } from "@/auth";
+import type { CurrentUser } from "@/api/types";
 
 const NAV = [
   { to: "/", label: "Runs", icon: Waypoints, end: true },
@@ -12,9 +21,11 @@ const NAV = [
 ] as const;
 
 /* The console's chrome is the platform shell (workspace launcher + nav + the
-   account slot). No org badge: the backend exposes no /api/me, so the console
-   has nothing truthful to claim about who or which org is signed in. */
-export function AppShell({ children }: { children: ReactNode }) {
+   account slot). The org is worth showing: it is the tenancy key stamped on
+   every row, so it answers "whose runs am I looking at" — not decoration. */
+export function AppShell({ user, children }: { user: CurrentUser; children: ReactNode }) {
+  const logout = useLogout();
+
   return (
     <PlatformShell
       activeSurface="autonomy-training"
@@ -30,7 +41,18 @@ export function AppShell({ children }: { children: ReactNode }) {
           {item.label}
         </NavLink>
       ))}
-      account={<ThemeToggle storageKey="waddle-theme" />}
+      account={
+        <div className="flex items-center gap-1">
+          <ThemeToggle storageKey="waddle-theme" />
+          <PlatformAccount
+            name={user.subject}
+            detail={user.org_slug}
+            badges={[{ label: user.role, variant: "secondary" }]}
+            onSignOut={() => logout.mutate()}
+            signingOut={logout.isPending}
+          />
+        </div>
+      }
     >
       <div className="mx-auto w-full max-w-[1400px] p-4 sm:p-6">{children}</div>
     </PlatformShell>

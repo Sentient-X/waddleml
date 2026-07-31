@@ -18,6 +18,7 @@ from waddle_server.model import (
     ResearchGoal,
     RunState,
     RunType,
+    WaddleRole,
 )
 
 RUN_ID_PATTERN = r"^[a-f0-9]{32}$"
@@ -78,6 +79,22 @@ class ResearchOutcome(BaseModel):
 
 class HealthOut(BaseModel):
     ok: bool
+
+
+class AuthMethodsOut(BaseModel):
+    """Where an unauthenticated console sends the operator. The console renders
+    no login form: credentials, throttling, and SSO all live in ``sx_authd``."""
+
+    login_url: str
+
+
+class CurrentUserOut(BaseModel):
+    """Who the request resolved to. The org is the tenancy key stamped on every
+    row, so showing it is the console's honest answer to "whose data is this"."""
+
+    subject: str
+    org_slug: str
+    role: WaddleRole
 
 
 class RunEnvironment(BaseModel):

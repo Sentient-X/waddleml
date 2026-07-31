@@ -137,6 +137,20 @@
         "title": "ArtifactVersionOut",
         "type": "object"
       },
+      "AuthMethodsOut": {
+        "description": "Where an unauthenticated console sends the operator. The console renders\nno login form: credentials, throttling, and SSO all live in ``sx_authd``.",
+        "properties": {
+          "login_url": {
+            "title": "Login Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "login_url"
+        ],
+        "title": "AuthMethodsOut",
+        "type": "object"
+      },
       "BatchAck": {
         "properties": {
           "batch_id": {
@@ -375,6 +389,29 @@
           "files"
         ],
         "title": "CreateUploadSessionIn",
+        "type": "object"
+      },
+      "CurrentUserOut": {
+        "description": "Who the request resolved to. The org is the tenancy key stamped on every\nrow, so showing it is the console's honest answer to \"whose data is this\".",
+        "properties": {
+          "org_slug": {
+            "title": "Org Slug",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WaddleRole"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "org_slug",
+          "role"
+        ],
+        "title": "CurrentUserOut",
         "type": "object"
       },
       "DatasetColumnIn": {
@@ -2313,6 +2350,16 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WaddleRole": {
+        "description": "The waddle audience roles (sx_authd migration 0003). Authorization is\norg-granular: a role applies to the whole org's tracking data \u2014 scoped\ngrants are deliberately not consulted here (no per-run ACLs exist).",
+        "enum": [
+          "reader",
+          "writer",
+          "admin"
+        ],
+        "title": "WaddleRole",
+        "type": "string"
+      },
       "WorkerIn": {
         "additionalProperties": false,
         "properties": {
@@ -2406,6 +2453,61 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/auth/logout": {
+      "post": {
+        "description": "End the platform session centrally, then drop it from this process's\nintrospection cache so a revoked token cannot outlive its TTL here.",
+        "operationId": "logout_api_auth_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout"
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "operationId": "current_user_api_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentUserOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Current User"
+      }
+    },
+    "/api/auth/methods": {
+      "get": {
+        "operationId": "auth_methods_api_auth_methods_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthMethodsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Auth Methods"
+      }
+    },
     "/api/healthz": {
       "get": {
         "operationId": "healthz_api_healthz_get",

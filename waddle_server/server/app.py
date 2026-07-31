@@ -16,13 +16,15 @@ import hashlib
 import math
 import tempfile
 from collections.abc import AsyncGenerator, AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path as FsPath
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 import duckdb
+import httpx
 import pydantic
 from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.responses import FileResponse
@@ -30,6 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg import AsyncConnection
 from psycopg import errors as pg_errors
 from sx_auth.client import AuthClient
+from sx_auth.credentials import SESSION_COOKIE
 from sx_observability import ObservabilityMiddleware, configure_logging, get_logger
 
 from waddle_server import reports, sqlbox
@@ -58,12 +61,14 @@ from waddle_server.server.schemas import (
     ArtifactFileOut,
     ArtifactRelation,
     ArtifactVersionOut,
+    AuthMethodsOut,
     BatchAck,
     BatchIn,
     CommitArtifactIn,
     CreateReportIn,
     CreateRunIn,
     CreateUploadSessionIn,
+    CurrentUserOut,
     DatasetInfoOut,
     DatasetOut,
     ErrorOut,
@@ -163,6 +168,40 @@ def build_app(
 
     @app.get("/api/healthz", response_model=HealthOut)
     async def healthz() -> HealthOut:
+        return HealthOut(ok=True)
+
+    # -- Auth ---------------------------------------------------------------
+    # The console holds no credential of its own. It asks who it is, and when
+    # the answer is "nobody" it sends the operator to the platform's ONE hosted
+    # login view — the same door every other workspace uses.
+
+    @app.get("/api/auth/methods", response_model=AuthMethodsOut)
+    async def auth_methods(request: Request) -> AuthMethodsOut:
+        # The console's origin, not this API's: a browser omits Origin on
+        # same-origin GETs, and answering with our own would send the operator
+        # back to the API instead of the workspace they came from.
+        origin = request.headers.get("origin") or str(request.base_url).rstrip("/")
+        return AuthMethodsOut(
+            login_url=f"{cfg.auth_url}/login?next={quote(origin, safe='')}"
+        )
+
+    @app.get("/api/auth/me", response_model=CurrentUserOut)
+    async def current_user(pr: WaddlePrincipal = Depends(principal)) -> CurrentUserOut:
+        return CurrentUserOut(subject=pr.subject, org_slug=pr.org_slug, role=pr.role)
+
+    @app.post("/api/auth/logout")
+    async def logout(request: Request, response: Response) -> HealthOut:
+        """End the platform session centrally, then drop it from this process's
+        introspection cache so a revoked token cannot outlive its TTL here."""
+        token = request.cookies.get(SESSION_COOKIE)
+        if token:
+            with suppress(httpx.HTTPError):
+                await client.http.post(
+                    f"{cfg.auth_url}/api/auth/logout",
+                    headers={"Cookie": f"{SESSION_COOKIE}={token}"},
+                )
+            client.forget(token)
+            response.delete_cookie(SESSION_COOKIE)
         return HealthOut(ok=True)
 
     def _run_config(row: repo.RunRow) -> tuple[dict[str, object], ResearchTrial | None]:

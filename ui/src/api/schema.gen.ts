@@ -4,6 +4,61 @@
  */
 
 export interface paths {
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description End the platform session centrally, then drop it from this process's
+         *     introspection cache so a revoked token cannot outlive its TTL here.
+         */
+        post: operations["logout_api_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current User */
+        get: operations["current_user_api_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Auth Methods */
+        get: operations["auth_methods_api_auth_methods_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/healthz": {
         parameters: {
             query?: never;
@@ -535,6 +590,15 @@ export interface components {
             /** Version */
             version: number;
         };
+        /**
+         * AuthMethodsOut
+         * @description Where an unauthenticated console sends the operator. The console renders
+         *     no login form: credentials, throttling, and SSO all live in ``sx_authd``.
+         */
+        AuthMethodsOut: {
+            /** Login Url */
+            login_url: string;
+        };
         /** BatchAck */
         BatchAck: {
             /**
@@ -619,6 +683,18 @@ export interface components {
         CreateUploadSessionIn: {
             /** Files */
             files: components["schemas"]["UploadFileIn"][];
+        };
+        /**
+         * CurrentUserOut
+         * @description Who the request resolved to. The org is the tenancy key stamped on every
+         *     row, so showing it is the console's honest answer to "whose data is this".
+         */
+        CurrentUserOut: {
+            /** Org Slug */
+            org_slug: string;
+            role: components["schemas"]["WaddleRole"];
+            /** Subject */
+            subject: string;
         };
         /** DatasetColumnIn */
         DatasetColumnIn: {
@@ -1266,6 +1342,14 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * WaddleRole
+         * @description The waddle audience roles (sx_authd migration 0003). Authorization is
+         *     org-granular: a role applies to the whole org's tracking data — scoped
+         *     grants are deliberately not consulted here (no per-run ACLs exist).
+         * @enum {string}
+         */
+        WaddleRole: "reader" | "writer" | "admin";
         /** WorkerIn */
         WorkerIn: {
             /** Attempt */
@@ -1311,6 +1395,66 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    logout_api_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthOut"];
+                };
+            };
+        };
+    };
+    current_user_api_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentUserOut"];
+                };
+            };
+        };
+    };
+    auth_methods_api_auth_methods_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthMethodsOut"];
+                };
+            };
+        };
+    };
     healthz_api_healthz_get: {
         parameters: {
             query?: never;

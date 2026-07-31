@@ -54,6 +54,12 @@ export type ReportVersionDetail = schemas["ReportVersionDetailOut"];
 // and report views; surfaced in the editor's autocomplete as extra view names.
 export type DatasetInfo = schemas["DatasetInfoOut"];
 
+// Identity. The console holds no credential of its own — it asks who the cookie
+// resolves to, and sends the operator to the platform login view when nobody.
+export type CurrentUser = schemas["CurrentUserOut"];
+export type AuthMethods = schemas["AuthMethodsOut"];
+export type WaddleRole = schemas["WaddleRole"];
+
 export type RunLineage = schemas["RunLineageOut"];
 export type ArtifactVersion = schemas["ArtifactVersionOut"];
 export type ArtifactFile = schemas["ArtifactFileOut"];

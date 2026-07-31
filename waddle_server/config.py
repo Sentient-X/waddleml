@@ -36,9 +36,12 @@ class WaddleSettings(BaseSettings):
     # Central auth service (sx_authd): identity is introspected, never stored here.
     auth_url: str = "http://127.0.0.1:8300"
     auth_service_key: str = "sxk_waddle_introspect_dev"
-    # Prod: require a credential on every request (401 otherwise). Dev default off:
-    # unauthenticated requests resolve to the dev org admin without touching sx_authd.
-    auth_required: bool = False
+    # Require a credential on every request (401 otherwise). The default is ON so
+    # that a deployment which forgets to set this locks down rather than serving
+    # every org's runs to anyone; dev opts OUT explicitly (see Procfile.dev),
+    # which resolves an unauthenticated request to the dev org admin without
+    # touching sx_authd.
+    auth_required: bool = True
 
     # Ingest guardrails (org_limits rows override per org).
     ingest_rpm: int = 600

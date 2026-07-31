@@ -10,8 +10,9 @@ central auth service for the ``waddle`` audience; roles narrow to
 is organization-global (see ``WaddleRole``); multi-project credentials are
 rejected until storage is project-scoped.
 
-Dev is auth-optional: with ``WADDLE_AUTH_REQUIRED=false`` (default) an
-unauthenticated request resolves to a fixed dev org admin without touching
+Auth is required by default, so a deployment that configures nothing locks down.
+Dev opts out explicitly (``WADDLE_AUTH_REQUIRED=false`` in Procfile.dev): an
+unauthenticated request then resolves to a fixed dev org admin without touching
 sx_authd, so ``make dev`` never depends on the auth service being up.
 """
 
@@ -22,13 +23,12 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request
 from sx_auth.client import AuthClient, AuthUnavailableError
+from sx_auth.credentials import present_credential
 
 from waddle_server.model import WaddleRole, role_at_least
 
 DEV_ORG_ID = UUID(int=0)
 DEV_ORG_SLUG = "dev-local"
-
-SESSION_COOKIE = "sx_session"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,26 +41,11 @@ class WaddlePrincipal:
     role: WaddleRole
 
 
-def _present_credential(request: Request) -> tuple[str, bool] | None:
-    """The presented credential and whether it is a session token. An empty
-    header value counts as absent (never introspect the empty string)."""
-    auth = request.headers.get("authorization")
-    if auth and auth.lower().startswith("bearer ") and auth[7:].strip():
-        return auth[7:].strip(), False
-    key = request.headers.get("x-api-key")
-    if key:
-        return key, False
-    session = request.cookies.get(SESSION_COOKIE)
-    if session:
-        return session, True
-    return None
-
-
 async def resolve_principal(
     request: Request, client: AuthClient, *, auth_required: bool
 ) -> WaddlePrincipal:
-    presented = _present_credential(request)
-    if presented is None:
+    credential = present_credential(request)
+    if credential is None:
         if auth_required:
             raise HTTPException(401, "missing credential")
         return WaddlePrincipal(
@@ -71,13 +56,8 @@ async def resolve_principal(
             subject="dev-local",
             role=WaddleRole.ADMIN,
         )
-    raw, is_session = presented
     try:
-        result = (
-            await client.introspect_session(raw)
-            if is_session
-            else await client.introspect_api_key(raw)
-        )
+        result = await client.introspect(credential)
     except AuthUnavailableError as err:
         raise HTTPException(503, "auth service unavailable") from err
     if result is None:
