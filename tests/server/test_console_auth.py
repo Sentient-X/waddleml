@@ -21,7 +21,9 @@ from .conftest import FakeMetricStore, requires_dev_postgres
 
 
 @requires_dev_postgres
-def test_the_session_cookie_is_a_credential(rig: tuple[TestClient, FakeMetricStore]) -> None:
+def test_the_session_cookie_is_a_credential(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
     """The whole point: a browser presents no header, only this cookie."""
     client, _ = rig
     with client:
@@ -61,7 +63,9 @@ def test_methods_points_at_the_hosted_login_view_carrying_the_console_origin(
 ) -> None:
     client, _ = rig
     with client:
-        reply = client.get("/api/auth/methods", headers={"origin": "http://localhost:5179"})
+        reply = client.get(
+            "/api/auth/methods", headers={"origin": "http://localhost:5179"}
+        )
         assert reply.status_code == 200
         login_url = reply.json()["login_url"]
         assert "/login?next=" in login_url
@@ -69,7 +73,9 @@ def test_methods_points_at_the_hosted_login_view_carrying_the_console_origin(
 
 
 @requires_dev_postgres
-def test_logout_clears_the_platform_cookie(rig: tuple[TestClient, FakeMetricStore]) -> None:
+def test_logout_clears_the_platform_cookie(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
     """Ending the central session is best effort against a stub that has no
     logout route; clearing the cookie here is not — a shared machine must not
     keep a signed-in tab."""
