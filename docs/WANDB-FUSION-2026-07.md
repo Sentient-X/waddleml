@@ -80,7 +80,7 @@
 | `log(commit=False)` accumulation, step-forward-only law | per-row spool + decimation views; resume attempts | conflicts | waddle | omit — accumulation is an artifact of wandb's history-row wire format; the spool records facts, views shape them |
 | resume `allow/must/never/auto`, `fork_from`, `resume_from` (rewind) | `resume=True` + attempt numbers (immutable earlier attempts) | target simpler and stronger for its consumer (train) | waddle | keep target |
 | `wandb.alert`, `mark_preempting` | none | missing | waddle | omit — no notification substrate; an unwired alert API is fiction (glued rule 8) |
-| Media types (Image/Table/Histogram/…) | Rerun `.rrd` via `sx-telemetry`; artifacts for blobs | conflicts | platform | omit — the platform's rich-media substrate is Rerun |
+| Media types (Image/Table/Histogram/…) | Rerun `.rrd` via `sx-episodes`; artifacts for blobs | conflicts | platform | omit — the platform's rich-media substrate is Rerun |
 | Filestream batching (15 s / size-capped, retry) | `SyncEngine` (1 s flush, persisted outbox, byte-identical replay) | same (target stronger: durable spool) | waddle | keep target |
 | Offline `.wandb` log + `wandb sync` | DuckDB spool + `waddle sync` | same (target queryable) | waddle | keep target |
 | Terminal run-URL header/footer | none | missing | waddle | omit here — separate diff if wanted (one problem per diff) |
