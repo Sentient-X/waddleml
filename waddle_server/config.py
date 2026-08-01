@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sx_platform import AUTH, AUTH_PUBLIC
+from sx_platform import AUTH, AUTH_PUBLIC, TELEMETRY_INGEST
 
 
 class WaddleSettings(BaseSettings):
@@ -43,7 +43,9 @@ class WaddleSettings(BaseSettings):
     # served it, and a browser treats 127.0.0.1 and localhost as different hosts,
     # so the internal address yields a cookie the console can never read.
     # Prod: internal service DNS above, public ingress here.
-    auth_public_url: str = Field(default=AUTH_PUBLIC.dev_url, validation_alias=AUTH_PUBLIC.env_var)
+    auth_public_url: str = Field(
+        default=AUTH_PUBLIC.dev_url, validation_alias=AUTH_PUBLIC.env_var
+    )
     auth_service_key: str = "sxk_waddle_introspect_dev"
     # Require a credential on every request (401 otherwise). The default is ON so
     # that a deployment which forgets to set this locks down rather than serving
@@ -53,7 +55,7 @@ class WaddleSettings(BaseSettings):
     auth_required: bool = True
 
     # Ingest guardrails (org_limits rows override per org).
-    ingest_rpm: int = 600
+    ingest_rpm: int = TELEMETRY_INGEST.requests_per_minute
     max_points_per_batch: int = 5000
     max_batch_bytes: int = 8 * 1024 * 1024
 

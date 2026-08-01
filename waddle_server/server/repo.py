@@ -463,6 +463,35 @@ async def finish_run(
         return await cur.fetchone()
 
 
+async def batch_replayed(
+    conn: AsyncConnection[Any],
+    org_id: UUID,
+    *,
+    batch_id: UUID,
+    run_id: str,
+    writer_id: UUID,
+    payload_sha256: str,
+) -> bool:
+    """Whether this exact batch admission already completed.
+
+    A reused id with different content or ownership is a conflict. This read-only
+    check lets a successful replay bypass rate and point quotas without claiming a
+    new ledger row before ClickHouse has acknowledged the payload.
+    """
+    stored = await (
+        await conn.execute(
+            "SELECT run_id, writer_id, payload_sha256 FROM run_batches"
+            " WHERE org_id = %s AND batch_id = %s",
+            (org_id, batch_id),
+        )
+    ).fetchone()
+    if stored is None:
+        return False
+    if stored[0] != run_id or stored[1] != writer_id or stored[2] != payload_sha256:
+        raise BatchDigestMismatchError(str(batch_id))
+    return True
+
+
 async def record_batch(
     conn: AsyncConnection[Any],
     org_id: UUID,
@@ -498,16 +527,16 @@ async def record_batch(
     ).fetchone()
     if row is not None:
         return False
-    stored = await (
-        await conn.execute(
-            "SELECT payload_sha256 FROM run_batches WHERE org_id = %s AND batch_id = %s",
-            (org_id, batch_id),
-        )
-    ).fetchone()
-    assert stored is not None
-    if stored[0] != payload_sha256:
-        raise BatchDigestMismatchError(str(batch_id))
-    return True
+    replayed = await batch_replayed(
+        conn,
+        org_id,
+        batch_id=batch_id,
+        run_id=run_id,
+        writer_id=writer_id,
+        payload_sha256=payload_sha256,
+    )
+    assert replayed
+    return replayed
 
 
 async def last_sequence_end(

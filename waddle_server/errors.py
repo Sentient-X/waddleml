@@ -50,9 +50,10 @@ class BatchLimitError(WaddleServerError):
 class QuotaExceededError(WaddleServerError):
     code = "quota_exceeded"
 
-    def __init__(self, org_slug: str, detail: str) -> None:
+    def __init__(self, org_slug: str, detail: str, retry_after_s: int) -> None:
         super().__init__(f"org {org_slug!r}: {detail}")
         self.org_slug = org_slug
+        self.retry_after_s = retry_after_s
 
 
 class QueryLimitError(WaddleServerError):

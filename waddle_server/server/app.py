@@ -33,7 +33,9 @@ from psycopg import AsyncConnection
 from psycopg import errors as pg_errors
 from sx_auth.client import AuthClient
 from sx_auth.credentials import SESSION_COOKIE
+from sx_auth.guard import RequestMeter, enforce_request_limit
 from sx_observability import ObservabilityMiddleware, configure_logging, get_logger
+from sx_platform import PUBLIC_MUTATION, PUBLIC_READ
 
 from waddle_server import reports, sqlbox
 from waddle_server.config import WaddleSettings
@@ -126,8 +128,20 @@ RESEARCH_CONFIG_KEY = "_waddle_research"
 RESEARCH_JOB_TYPE = RunType.AUTORESEARCH
 
 
-def _error(status: int, exc: Exception, code: str) -> HTTPException:
-    return HTTPException(status, ErrorOut(code=code, message=str(exc)).model_dump())
+def _error(
+    status: int,
+    exc: Exception,
+    code: str,
+    *,
+    retry_after_s: int | None = None,
+) -> HTTPException:
+    return HTTPException(
+        status,
+        ErrorOut(code=code, message=str(exc)).model_dump(),
+        headers=(
+            {"Retry-After": str(retry_after_s)} if retry_after_s is not None else None
+        ),
+    )
 
 
 def build_app(
@@ -165,13 +179,22 @@ def build_app(
 
     app = FastAPI(title="waddle", version="0.1.0", lifespan=lifespan)
     app.add_middleware(ObservabilityMiddleware)
+    read_meter = RequestMeter(PUBLIC_READ)
+    mutation_meter = RequestMeter(PUBLIC_MUTATION)
 
     async def conn() -> AsyncIterator[AsyncConnection[Any]]:
         async with pool.connection() as c:
             yield c
 
-    async def principal(request: Request) -> WaddlePrincipal:
+    async def resolved_principal(request: Request) -> WaddlePrincipal:
         return await resolve_principal(request, client, auth_required=cfg.auth_required)
+
+    async def principal(request: Request) -> WaddlePrincipal:
+        resolved = await resolved_principal(request)
+        if resolved.principal_id is not None:
+            meter = read_meter if request.method in {"GET", "HEAD"} else mutation_meter
+            enforce_request_limit(meter, resolved.subject)
+        return resolved
 
     @app.get("/api/healthz", response_model=HealthOut)
     async def healthz() -> HealthOut:
@@ -629,7 +652,7 @@ def build_app(
         run_id: str,
         request: Request,
         c: AsyncConnection[Any] = Depends(conn),
-        pr: WaddlePrincipal = Depends(principal),
+        pr: WaddlePrincipal = Depends(resolved_principal),
     ) -> BatchAck:
         require_role(pr, WaddleRole.WRITER)
         raw = await request.body()
@@ -653,6 +676,19 @@ def build_app(
             raise HTTPException(422, err.errors(include_url=False)) from err
 
         run = await _run_or_404(c, pr, run_id)
+        try:
+            if await repo.batch_replayed(
+                c,
+                pr.org_id,
+                batch_id=body.batch_id,
+                run_id=run_id,
+                writer_id=body.writer_id,
+                payload_sha256=digest,
+            ):
+                return BatchAck(batch_id=body.batch_id, replayed=True, warnings=[])
+        except BatchDigestMismatchError as err:
+            raise _error(409, err, err.code) from err
+
         limits = await repo.org_limits(c, pr.org_id)
         max_points = (
             limits.max_points_per_batch
@@ -673,7 +709,7 @@ def build_app(
         try:
             quotas.check_rpm(pr.org_id, pr.org_slug, rpm)
         except QuotaExceededError as err:
-            raise _error(429, err, err.code) from err
+            raise _error(429, err, err.code, retry_after_s=err.retry_after_s) from err
 
         # ClickHouse first: a ledger-commit failure after this leaves rows that a
         # client retry re-inserts byte-identically — the dedup window drops them.

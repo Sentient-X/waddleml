@@ -5,23 +5,34 @@ absent row = settings defaults."""
 from __future__ import annotations
 
 import time
+from collections import defaultdict, deque
+from math import ceil
+from threading import Lock
 from uuid import UUID
 
 from waddle_server.errors import QuotaExceededError
 
-_windows: dict[UUID, tuple[int, int]] = {}  # org -> (minute, count)
+_windows: dict[UUID, deque[float]] = defaultdict(deque)
+_windows_lock = Lock()
 
 
 def check_rpm(org_id: UUID, org_slug: str, limit: int) -> None:
-    minute = int(time.time() // 60)
-    window_minute, count = _windows.get(org_id, (minute, 0))
-    if window_minute != minute:
-        count = 0
-    if count >= limit:
-        raise QuotaExceededError(org_slug, f"ingest rate limit of {limit}/min exceeded")
-    _windows[org_id] = (minute, count + 1)
+    now = time.monotonic()
+    with _windows_lock:
+        window = _windows[org_id]
+        while window and now - window[0] >= 60:
+            window.popleft()
+        if len(window) >= limit:
+            retry_after_s = max(1, ceil(60 - (now - window[0])))
+            raise QuotaExceededError(
+                org_slug,
+                f"ingest rate limit of {limit}/min exceeded",
+                retry_after_s,
+            )
+        window.append(now)
 
 
 def reset() -> None:
     """Test hook."""
-    _windows.clear()
+    with _windows_lock:
+        _windows.clear()
