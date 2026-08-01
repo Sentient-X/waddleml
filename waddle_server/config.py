@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sx_platform import AUTH, AUTH_PUBLIC
 
 
 class WaddleSettings(BaseSettings):
@@ -34,13 +36,14 @@ class WaddleSettings(BaseSettings):
     upload_session_ttl_s: int = 3600
 
     # Central auth service (sx_authd): identity is introspected, never stored here.
-    auth_url: str = "http://127.0.0.1:8300"
+    # The address binds to the platform-canonical SX_AUTH_URL (sx-platform registry).
+    auth_url: str = Field(default=AUTH.dev_url, validation_alias=AUTH.env_var)
     # Where a BROWSER reaches sx_authd — not the same address this process uses.
     # The login view sets the session cookie host-scoped to the origin that
     # served it, and a browser treats 127.0.0.1 and localhost as different hosts,
     # so the internal address yields a cookie the console can never read.
     # Prod: internal service DNS above, public ingress here.
-    auth_public_url: str = "http://localhost:8300"
+    auth_public_url: str = Field(default=AUTH_PUBLIC.dev_url, validation_alias=AUTH_PUBLIC.env_var)
     auth_service_key: str = "sxk_waddle_introspect_dev"
     # Require a credential on every request (401 otherwise). The default is ON so
     # that a deployment which forgets to set this locks down rather than serving

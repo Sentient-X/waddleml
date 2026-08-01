@@ -32,6 +32,7 @@ SERVER_ALLOWED = frozenset(
         "mcp",
         "sx_auth",
         "sx_observability",
+        "sx_platform",
         "waddle_server",
     }
 )

@@ -57,11 +57,13 @@ server = [
     "mcp>=1.0",
     "sx-auth",
     "sx-observability",
+    "sx-platform",
 ]
 
 [tool.uv.sources]
 sx-auth = { workspace = true }
 sx-observability = { workspace = true }
+sx-platform = { workspace = true }
 
 [project.scripts]
 waddle = "waddle.cli:main"

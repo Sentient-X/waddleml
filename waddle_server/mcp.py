@@ -16,6 +16,7 @@ import httpx
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
 from sx_observability import ObservabilityMiddleware, configure_logging
+from sx_platform import WADDLE, WADDLE_MCP
 
 from waddle_server.model import RunType
 
@@ -25,10 +26,10 @@ mcp = FastMCP(
         "The Sentient-X experiment-tracking platform: training runs, live metrics, "
         "logs, and comparisons, scoped to your organization's data."
     ),
-    port=int(os.environ.get("WADDLE_MCP_PORT", "8410")),
+    port=int(os.environ.get("WADDLE_MCP_PORT", str(WADDLE_MCP.dev_port))),
 )
 
-_API_URL = os.environ.get("WADDLE_API_URL", "http://127.0.0.1:8400")
+_API_URL = WADDLE.url()
 
 
 class WaddleToolError(Exception):
