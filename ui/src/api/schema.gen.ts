@@ -1009,8 +1009,21 @@ export interface components {
             /** Next Step */
             next_step?: string | null;
         };
-        /** ResearchSessionSummaryOut */
+        /**
+         * ResearchSessionSummaryOut
+         * @description One session's compact state, including the rollup of its most recent
+         *     trial — the campaign question ("what did the last round decide, and at what
+         *     score?") answered without opening the session.
+         */
         ResearchSessionSummaryOut: {
+            last_decision: components["schemas"]["ResearchDecision"] | null;
+            last_goal: components["schemas"]["ResearchGoal"];
+            /** Last Objective Name */
+            last_objective_name: string;
+            /** Last Objective Value */
+            last_objective_value: number | null;
+            /** Last Trial Index */
+            last_trial_index: number;
             /** Phase Count */
             phase_count: number;
             /** Project */

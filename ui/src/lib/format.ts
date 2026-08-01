@@ -4,7 +4,7 @@
 
 import type { StatusTone } from "@sx/ui";
 
-import type { RunState } from "@/api/types";
+import type { ResearchDecision, RunState } from "@/api/types";
 
 /** Any logged config/summary value, rendered for a metadata tree: exponential
  *  at the extremes, six significant digits in the readable middle. */
@@ -26,5 +26,14 @@ export function runStateTone(state: RunState): StatusTone {
   if (state === "running") return "live";
   if (state === "completed") return "ok";
   if (state === "failed") return "error";
+  return "idle";
+}
+
+/** A controller-authored verdict, toned. `null` is "no outcome recorded" — a
+ *  running or legacy trial — not a neutral result. */
+export function researchDecisionTone(decision: ResearchDecision | null): StatusTone {
+  if (decision === "keep" || decision === "baseline") return "ok";
+  if (decision === "fail") return "error";
+  if (decision === "discard" || decision === "inconclusive") return "warn";
   return "idle";
 }

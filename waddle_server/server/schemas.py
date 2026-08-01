@@ -256,11 +256,24 @@ class FinishRunIn(BaseModel):
 
 
 class ResearchSessionSummaryOut(BaseModel):
+    """One session's compact state, including the rollup of its most recent
+    trial — the campaign question ("what did the last round decide, and at what
+    score?") answered without opening the session."""
+
     project: str
     session_name: str
     phase_count: int
     trial_count: int
     running_count: int
+    last_trial_index: int
+    last_objective_name: str
+    last_goal: ResearchGoal
+    last_decision: (
+        ResearchDecision | None
+    )  # none-ok: running and legacy trials record no outcome
+    last_objective_value: (
+        float | None
+    )  # none-ok: the latest trial may have logged no score
     started_at: datetime
     updated_at: datetime
 

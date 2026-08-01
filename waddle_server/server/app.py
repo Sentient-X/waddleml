@@ -51,7 +51,14 @@ from waddle_server.errors import (
     RunNotFoundError,
     SqlSandboxError,
 )
-from waddle_server.model import ColumnType, RunState, RunType, WaddleRole
+from waddle_server.model import (
+    ColumnType,
+    ResearchDecision,
+    ResearchGoal,
+    RunState,
+    RunType,
+    WaddleRole,
+)
 from waddle_server.server import artifacts, ch, db, quotas, repo
 from waddle_server.server.auth import WaddlePrincipal, require_role, resolve_principal
 from waddle_server.server.schemas import (
@@ -502,6 +509,15 @@ def build_app(
                 phase_count=row.phase_count,
                 trial_count=row.trial_count,
                 running_count=row.running_count,
+                last_trial_index=row.last_trial_index,
+                last_objective_name=row.last_objective_name,
+                last_goal=ResearchGoal(row.last_goal),
+                last_decision=(
+                    ResearchDecision(row.last_decision)
+                    if row.last_decision is not None
+                    else None
+                ),
+                last_objective_value=row.last_objective_value,
                 started_at=row.started_at,
                 updated_at=row.updated_at,
             )

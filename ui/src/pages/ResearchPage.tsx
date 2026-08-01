@@ -14,7 +14,8 @@ import {
 
 import { waddleApi } from "@/api/client";
 import type { ResearchSessionSummary } from "@/api/types";
-import { researchSessionPath } from "@/lib/research";
+import { formatScalar, researchDecisionTone } from "@/lib/format";
+import { researchRecentlyActive, researchSessionPath } from "@/lib/research";
 
 export function ResearchPage() {
   const navigate = useNavigate();
@@ -23,7 +24,10 @@ export function ResearchPage() {
     queryFn: () => waddleApi.listResearchSessions(),
     refetchInterval: pollWhile(
       (sessions: ResearchSessionSummary[]) =>
-        sessions.some((session) => session.running_count > 0),
+        sessions.some(
+          (session) =>
+            session.running_count > 0 || researchRecentlyActive(session.updated_at),
+        ),
       15_000,
     ),
     refetchIntervalInBackground: false,
@@ -52,6 +56,28 @@ export function ResearchPage() {
       sort: (session) => session.trial_count,
       cell: (session) =>
         `${session.trial_count} trials · ${session.phase_count} phases${session.running_count > 0 ? ` · ${session.running_count} live` : ""}`,
+    },
+    {
+      key: "latest",
+      header: "Latest round",
+      sort: (session) => session.last_decision ?? "",
+      cell: (session) => (
+        <div className="flex min-w-0 items-center gap-2">
+          <StatusDot tone={researchDecisionTone(session.last_decision)} />
+          <div className="min-w-0">
+            <div className="truncate">
+              {session.last_decision ?? "no outcome recorded"}
+              <span className="text-muted-foreground"> · #{session.last_trial_index}</span>
+            </div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground">
+              {session.last_objective_name} ={" "}
+              {session.last_objective_value === null
+                ? "—"
+                : formatScalar(session.last_objective_value)}
+            </div>
+          </div>
+        </div>
+      ),
     },
     {
       key: "updated",
@@ -89,7 +115,7 @@ export function ResearchPage() {
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Research"
-        description="Optimization sessions. Open one to inspect its trajectory and decisions."
+        description="Optimization sessions — an agent's auto-research campaign is one session, one round per trial. Open one to inspect its trajectory and decisions."
       />
       <DataTable
         columns={columns}
@@ -102,12 +128,13 @@ export function ResearchPage() {
           <EmptyState
             icon={<GitBranch />}
             title="No research runs yet"
-            hint="Start an autoresearch trial; its session appears after sync."
+            hint="Start an autoresearch trial or an agent campaign; its session appears after sync."
           />
         }
       />
       <p className="text-[10px] text-muted-foreground">
-        Active sessions refresh every 15 seconds; completed sessions refresh on focus.
+        Sessions with a live trial or activity in the last 10 minutes refresh every 15
+        seconds; settled sessions refresh on focus.
       </p>
     </div>
   );

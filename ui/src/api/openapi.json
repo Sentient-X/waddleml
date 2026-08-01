@@ -1258,7 +1258,40 @@
         "type": "object"
       },
       "ResearchSessionSummaryOut": {
+        "description": "One session's compact state, including the rollup of its most recent\ntrial \u2014 the campaign question (\"what did the last round decide, and at what\nscore?\") answered without opening the session.",
         "properties": {
+          "last_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_goal": {
+            "$ref": "#/components/schemas/ResearchGoal"
+          },
+          "last_objective_name": {
+            "title": "Last Objective Name",
+            "type": "string"
+          },
+          "last_objective_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Objective Value"
+          },
+          "last_trial_index": {
+            "title": "Last Trial Index",
+            "type": "integer"
+          },
           "phase_count": {
             "title": "Phase Count",
             "type": "integer"
@@ -1296,6 +1329,11 @@
           "phase_count",
           "trial_count",
           "running_count",
+          "last_trial_index",
+          "last_objective_name",
+          "last_goal",
+          "last_decision",
+          "last_objective_value",
           "started_at",
           "updated_at"
         ],

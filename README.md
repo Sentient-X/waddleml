@@ -75,9 +75,13 @@ Two capabilities ride the same org-Parquet substrate the SQL sandbox jails:
   supply joins training outcomes in one report.
 - **Research runs** (`/research`): one long optimization session contains campaign phases, and
   each phase contains a branchable candidate tree beside candidate scores and a stepped
-  best-so-far curve. Evaluation trials may carry a typed `subject_run_id` edge to the candidate
-  they evaluate, including across campaign phases in the same session. Agents read the same typed
-  records through `waddle.research.session`; run-type filters answer a separate question.
+  best-so-far curve. An agent's auto-research campaign is exactly one such session — one round
+  per trial — so the session list doubles as the campaign list: each row rolls up its most
+  recently active trial (round index, controller verdict, objective path and score) beside the
+  trial and phase counts. Evaluation trials may carry a typed `subject_run_id` edge to the
+  candidate they evaluate, including across campaign phases in the same session. Agents read the
+  same typed records through `waddle.research.sessions`/`waddle.research.session`; run-type
+  filters answer a separate question.
 
 ## Quick Start
 

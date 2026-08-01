@@ -61,10 +61,11 @@ def _create_research_run(
     session_name: str | None = "overnight-sm120",
     campaign: str = "m10-5090",
     subject_run_id: str | None = None,
+    key: str = "key-a-writer",
 ):
     return client.post(
         "/api/v1/runs",
-        headers={"x-api-key": "key-a-writer"},
+        headers={"x-api-key": key},
         json={
             "run_id": run_id,
             "project": "edge-inference",
@@ -396,6 +397,11 @@ def test_research_sessions_are_compact_and_outcomes_are_immutable(
                 "phase_count": 1,
                 "trial_count": 1,
                 "running_count": 0,
+                "last_trial_index": 0,
+                "last_objective_name": "latency/p99_ms",
+                "last_goal": "minimize",
+                "last_decision": "baseline",
+                "last_objective_value": 25.0,
                 "started_at": "2026-07-19T00:00:00Z",
                 "updated_at": done.json()["finished_at"],
             }
@@ -432,6 +438,103 @@ def test_research_sessions_are_compact_and_outcomes_are_immutable(
         )
         assert conflict.status_code == 422
         assert conflict.json()["detail"]["code"] == "invalid_research_trial"
+
+
+def test_research_session_summary_rolls_up_the_latest_trial_per_org(
+    rig: tuple[TestClient, FakeMetricStore],
+) -> None:
+    """The campaign list reads one row per session: how many rounds ran, what the
+    most recently active one decided, and at what score — org-jailed."""
+    client, _ = rig
+    with client:
+        first, second = uuid4().hex, uuid4().hex
+        assert _create_research_run(client, first, trial_index=0).status_code == 200
+        assert (
+            client.post(
+                f"/api/v1/runs/{first}/finish",
+                headers={"x-api-key": "key-a-writer"},
+                json={
+                    "state": "completed",
+                    "summary": {"latency/p99_ms": 25.0},
+                    "research_outcome": {
+                        "decision": "baseline",
+                        "evidence": "native p99 is 25 ms",
+                        "conclusion": "reference point",
+                    },
+                },
+            ).status_code
+            == 200
+        )
+        assert (
+            _create_research_run(
+                client, second, trial_index=1, parent_run_id=first
+            ).status_code
+            == 200
+        )
+        assert (
+            client.post(
+                f"/api/v1/runs/{second}/finish",
+                headers={"x-api-key": "key-a-writer"},
+                json={
+                    "state": "completed",
+                    "summary": {"latency/p99_ms": 21.5},
+                    "research_outcome": {
+                        "decision": "keep",
+                        "evidence": "p99 improved 14%",
+                        "conclusion": "static buffers removed launch overhead",
+                    },
+                },
+            ).status_code
+            == 200
+        )
+
+        # A second, still-running session: no outcome and no score yet, and it
+        # must not bleed its rollup into the finished one.
+        live = uuid4().hex
+        assert (
+            _create_research_run(
+                client,
+                live,
+                trial_index=4,
+                session_name="nightly-gate",
+                campaign="gate-sweep",
+            ).status_code
+            == 200
+        )
+
+        # Another org's identically named session stays invisible.
+        assert (
+            _create_research_run(
+                client, uuid4().hex, trial_index=0, key="key-b-writer"
+            ).status_code
+            == 200
+        )
+
+        sessions = client.get(
+            "/api/v1/research/sessions", headers={"x-api-key": "key-a-reader"}
+        ).json()
+        rollups = {session["session_name"]: session for session in sessions}
+        assert set(rollups) == {"overnight-sm120", "nightly-gate"}
+        finished = rollups["overnight-sm120"]
+        assert finished["trial_count"] == 2
+        assert finished["running_count"] == 0
+        assert finished["last_trial_index"] == 1
+        assert finished["last_decision"] == "keep"
+        assert finished["last_objective_value"] == 21.5
+        assert finished["last_objective_name"] == "latency/p99_ms"
+        assert finished["last_goal"] == "minimize"
+        running = rollups["nightly-gate"]
+        assert running["running_count"] == 1
+        assert running["last_trial_index"] == 4
+        assert running["last_decision"] is None
+        assert running["last_objective_value"] is None
+
+        other_org = client.get(
+            "/api/v1/research/sessions", headers={"x-api-key": "key-b-writer"}
+        ).json()
+        assert [session["session_name"] for session in other_org] == ["overnight-sm120"]
+        assert other_org[0]["trial_count"] == 1
+        assert other_org[0]["last_decision"] is None
 
 
 def test_research_contract_supports_cross_phase_lineage_and_rejects_foreign_links(

@@ -76,6 +76,11 @@ class ResearchSessionRow:
     phase_count: int
     trial_count: int
     running_count: int
+    last_trial_index: int
+    last_objective_name: str
+    last_goal: str
+    last_decision: str | None  # none-ok: running/legacy trials record no outcome
+    last_objective_value: float | None  # none-ok: the trial may have no score yet
     started_at: datetime
     updated_at: datetime
 
@@ -327,22 +332,66 @@ async def list_research_sessions(
     async with conn.cursor(row_factory=class_row(ResearchSessionRow)) as cur:
         await cur.execute(
             """
-            SELECT p.name AS project_name,
-                   COALESCE(r.config -> '_waddle_research' ->> 'session_name', p.name)
-                       AS session_name,
-                   count(DISTINCT (
+            WITH trial AS (
+                SELECT p.name AS project_name,
+                       COALESCE(
+                           r.config -> '_waddle_research' ->> 'session_name', p.name
+                       ) AS session_name,
                        r.group_name,
-                       r.config -> '_waddle_research' ->> 'objective_name',
-                       r.config -> '_waddle_research' ->> 'goal'
+                       r.state,
+                       r.id,
+                       r.created_at,
+                       r.started_at,
+                       COALESCE(r.heartbeat_at, r.finished_at, r.started_at)
+                           AS activity_at,
+                       r.config -> '_waddle_research' ->> 'objective_name'
+                           AS objective_name,
+                       r.config -> '_waddle_research' ->> 'goal' AS goal,
+                       (r.config -> '_waddle_research' ->> 'trial_index')::integer
+                           AS trial_index,
+                       r.research_outcome ->> 'decision' AS decision,
+                       CASE
+                           WHEN jsonb_typeof(
+                               r.summary
+                               -> (r.config -> '_waddle_research' ->> 'objective_name')
+                           ) = 'number'
+                           THEN (
+                               r.summary
+                               -> (r.config -> '_waddle_research' ->> 'objective_name')
+                           )::double precision
+                       END AS objective_value
+                FROM runs r JOIN projects p ON p.id = r.project_id
+                WHERE r.org_id = %s AND r.config ? '_waddle_research'
+            ),
+            latest AS (
+                SELECT DISTINCT ON (project_name, session_name)
+                       project_name, session_name, trial_index, objective_name,
+                       goal, decision, objective_value
+                FROM trial
+                ORDER BY project_name, session_name, activity_at DESC,
+                         trial_index DESC, created_at DESC, id DESC
+            )
+            SELECT t.project_name,
+                   t.session_name,
+                   count(DISTINCT (
+                       t.group_name, t.objective_name, t.goal
                    ))::integer AS phase_count,
                    count(*)::integer AS trial_count,
-                   count(*) FILTER (WHERE r.state = 'running')::integer AS running_count,
-                   min(r.started_at) AS started_at,
-                   max(COALESCE(r.heartbeat_at, r.finished_at, r.started_at)) AS updated_at
-            FROM runs r JOIN projects p ON p.id = r.project_id
-            WHERE r.org_id = %s AND r.config ? '_waddle_research'
-            GROUP BY p.name,
-                     COALESCE(r.config -> '_waddle_research' ->> 'session_name', p.name)
+                   count(*) FILTER (WHERE t.state = 'running')::integer
+                       AS running_count,
+                   l.trial_index AS last_trial_index,
+                   l.objective_name AS last_objective_name,
+                   l.goal AS last_goal,
+                   l.decision AS last_decision,
+                   l.objective_value AS last_objective_value,
+                   min(t.started_at) AS started_at,
+                   max(t.activity_at) AS updated_at
+            FROM trial t
+            JOIN latest l
+              ON l.project_name = t.project_name
+             AND l.session_name = t.session_name
+            GROUP BY t.project_name, t.session_name, l.trial_index,
+                     l.objective_name, l.goal, l.decision, l.objective_value
             ORDER BY updated_at DESC
             LIMIT %s
             """,

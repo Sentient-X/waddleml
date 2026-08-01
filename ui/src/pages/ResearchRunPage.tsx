@@ -34,6 +34,7 @@ import {
   researchMetricKey,
   researchMetricTree,
   researchMetrics,
+  researchRecentlyActive,
   researchSessionFrom,
   researchVerdictLabel,
   type ResearchMetric,
@@ -200,7 +201,12 @@ export function ResearchRunPage() {
     queryFn: () => waddleApi.getResearchSession(projectParam, sessionParam),
     enabled: Boolean(projectParam && sessionParam),
     refetchInterval: pollWhile(
-      (trials: ResearchSessionTrial[]) => trials.some((run) => run.state === "running"),
+      (trials: ResearchSessionTrial[]) =>
+        trials.some(
+          (run) =>
+            run.state === "running" ||
+            researchRecentlyActive(run.heartbeat_at ?? run.finished_at ?? run.started_at),
+        ),
       5_000,
     ),
     refetchIntervalInBackground: false,
@@ -575,7 +581,7 @@ export function ResearchRunPage() {
       </Tabs>
 
       <p className="text-[10px] text-muted-foreground">
-        Live sessions refresh every 5 seconds; completed sessions refresh on focus. Full run data loads only for the selected attempt.
+        Sessions with a live trial or activity in the last 10 minutes refresh every 5 seconds; settled sessions refresh on focus. Full run data loads only for the selected attempt.
       </p>
     </div>
   );

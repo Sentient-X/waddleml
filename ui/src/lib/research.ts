@@ -88,6 +88,16 @@ export function researchVerdictLabel(analysis: ResearchAnalysis): string {
   return analysis.verdict;
 }
 
+/** An agentic campaign publishes each round as an already-finished run, so
+ *  `running_count` is 0 even while the loop is mid-flight. Recent activity is
+ *  the honest liveness signal for polling: a session touched inside this window
+ *  is still being written to. */
+const ACTIVE_WINDOW_MS = 10 * 60_000;
+
+export function researchRecentlyActive(updatedAt: string): boolean {
+  return Date.now() - new Date(updatedAt).getTime() < ACTIVE_WINDOW_MS;
+}
+
 export function researchSessionKey(project: string, name: string): string {
   return JSON.stringify([project, name]);
 }
