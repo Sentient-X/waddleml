@@ -46,6 +46,10 @@ class RunTypeError(ValueError):
     """A run type, group, or research identity is contradictory."""
 
 
+class ArtifactContentError(ValueError):
+    """An artifact was recorded with no content, or with two sources of it."""
+
+
 class ResearchTrialError(ValueError):
     """A research trial record violates Waddle's campaign contract."""
 

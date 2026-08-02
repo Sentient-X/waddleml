@@ -138,7 +138,9 @@ class SyncEngine:
                 db.execute(stmt)
         self._conn = db.cursor()  # own transaction scope; guarded by _mutex
         self._mutex = threading.Lock()
-        self._artifacts: List[Tuple[str, str, str, str, int, ArtifactRelation]] = []
+        self._artifacts: List[
+            Tuple[str, Optional[str], str, str, int, ArtifactRelation, Optional[bytes]]
+        ] = []
         self._artifacts_lock = threading.Lock()
         self._writer_id = self._load_writer_id()
         self._run_registered = False
@@ -171,15 +173,22 @@ class SyncEngine:
     def upload_artifact(
         self,
         name: str,
-        path: str,
+        path: Optional[str],
         kind: str,
         sha256: str,
         size_bytes: int,
         relation: ArtifactRelation,
+        content: Optional[bytes] = None,
     ) -> None:
-        """Queue one file artifact for background upload (never raises)."""
+        """Queue one artifact for background upload (never raises).
+
+        Exactly one of ``path``/``content`` is set by the caller; content-backed
+        artifacts carry their bytes here because they have no file to reread.
+        """
         with self._artifacts_lock:
-            self._artifacts.append((name, path, kind, sha256, size_bytes, relation))
+            self._artifacts.append(
+                (name, path, kind, sha256, size_bytes, relation, content)
+            )
         self._wake.set()
 
     # ---- Run-facing API (never raises) ----
@@ -305,19 +314,20 @@ class SyncEngine:
             with self._artifacts_lock:
                 if not self._artifacts:
                     return
-                name, path, kind, sha256, size_bytes, relation = self._artifacts[0]
-            self._upload_one_artifact(name, path, kind, sha256, size_bytes, relation)
+                queued = self._artifacts[0]
+            self._upload_one_artifact(*queued)
             with self._artifacts_lock:
                 self._artifacts.pop(0)
 
     def _upload_one_artifact(
         self,
         name: str,
-        path: str,
+        path: Optional[str],
         kind: str,
         sha256: str,
         size_bytes: int,
         relation: ArtifactRelation,
+        content: Optional[bytes],
     ) -> None:
         session = self._request_json(
             "POST",
@@ -326,7 +336,7 @@ class SyncEngine:
                 {
                     "files": [
                         {
-                            "logical_path": os.path.basename(path),
+                            "logical_path": os.path.basename(path) if path else name,
                             "sha256": sha256,
                             "size_bytes": size_bytes,
                         }
@@ -338,8 +348,7 @@ class SyncEngine:
         )
         target = session["targets"][0]
         if target["url"] is not None:  # None = org already holds this blob
-            with open(path, "rb") as blob:
-                data = blob.read()
+            data = content if content is not None else _read_file(str(path))
             put = urllib.request.Request(target["url"], data=data, method="PUT")
             with urllib.request.urlopen(put, timeout=300):
                 pass
@@ -602,6 +611,11 @@ class SyncEngine:
         )
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.loads(response.read())
+
+
+def _read_file(path: str) -> bytes:
+    with open(path, "rb") as blob:
+        return blob.read()
 
 
 def _iso(ts: float) -> str:

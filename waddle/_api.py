@@ -195,16 +195,25 @@ def log_line(message: str, level: str = "info", source: str = "") -> None:
 
 
 def log_artifact(
-    name: str, path: Optional[str] = None, kind: str = "file", inline: bool = False
+    name: str,
+    path: Optional[str] = None,
+    kind: str = "file",
+    inline: bool = False,
+    content: Optional[bytes] = None,
 ) -> str:
     run = _state.require_active_run()
-    return run.log_artifact(name, path, kind, inline)
+    return run.log_artifact(name, path, kind, inline, content)
 
 
-def use_artifact(name: str, path: str, kind: str = "file") -> str:
+def use_artifact(
+    name: str,
+    path: Optional[str] = None,
+    kind: str = "file",
+    content: Optional[bytes] = None,
+) -> str:
     """Record an artifact the active run consumed (an input lineage edge)."""
     run = _state.require_active_run()
-    return run.use_artifact(name, path, kind)
+    return run.use_artifact(name, path, kind, content)
 
 
 def finish(research_outcome: Optional[ResearchOutcome] = None) -> None:

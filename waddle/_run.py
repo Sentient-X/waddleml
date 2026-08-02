@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 from ._db import WaddleDB
 from ._sync import SyncConfig, SyncEngine
 from ._types import (
+    ArtifactContentError,
     ArtifactRelation,
     ResearchOutcome,
     ResearchTrial,
@@ -397,20 +398,32 @@ class Run:
         path: Optional[str] = None,
         kind: str = "file",
         inline: bool = False,
+        content: Optional[bytes] = None,
     ) -> str:
         """Record one artifact this run produced (an output lineage edge)."""
-        return self._record_artifact(name, path, kind, inline, ArtifactRelation.OUTPUT)
+        return self._record_artifact(
+            name, path, kind, inline, ArtifactRelation.OUTPUT, content
+        )
 
-    def use_artifact(self, name: str, path: str, kind: str = "file") -> str:
+    def use_artifact(
+        self,
+        name: str,
+        path: Optional[str] = None,
+        kind: str = "file",
+        content: Optional[bytes] = None,
+    ) -> str:
         """Record one artifact this run consumed (an input lineage edge).
 
-        Same content addressing as ``log_artifact``: the file is hashed, and on
-        the platform the edge attaches to the artifact version that already
-        holds this content — consuming never mints a new version or claims
-        provenance.
+        Same content addressing as ``log_artifact``: the content is hashed, and
+        on the platform the edge attaches to the artifact version that already
+        holds it — consuming never mints a new version or claims provenance.
+        Pass ``content`` for a governed document that lives elsewhere (a corpus
+        manifest, a checkpoint bundle descriptor) rather than as a local file:
+        its sha256 is the join key, so two runs consuming the same bytes land on
+        one version.
         """
         return self._record_artifact(
-            name, path, kind, inline=False, relation=ArtifactRelation.INPUT
+            name, path, kind, False, ArtifactRelation.INPUT, content
         )
 
     def _record_artifact(
@@ -420,23 +433,25 @@ class Run:
         kind: str,
         inline: bool,
         relation: ArtifactRelation,
+        content: Optional[bytes],
     ) -> str:
-        aid = uuid.uuid4().hex
-        created = time.time()
-        uri = None
-        blob = None
-        sha_hex = None
-        size = None
-        if path:
-            uri = os.path.abspath(path)
-            with open(path, "rb") as f:
-                data = f.read()
-            sha_hex = hashlib.sha256(data).hexdigest()
-            size = len(data)
-            if inline:
-                blob = data
+        # Content identity is the whole point of an artifact edge, so an
+        # artifact with no bytes is rejected rather than recorded against the
+        # digest of the empty string, where every such artifact would collide.
+        if (path is None) == (content is None):
+            raise ArtifactContentError(
+                f"artifact {name!r} needs exactly one of path or content"
+            )
+        if content is None:
+            uri: Optional[str] = os.path.abspath(str(path))
+            with open(str(path), "rb") as handle:
+                data = handle.read()
         else:
-            sha_hex = hashlib.sha256(b"").hexdigest()
+            uri = None
+            data = content
+        sha_hex = hashlib.sha256(data).hexdigest()
+        size = len(data)
+        aid = uuid.uuid4().hex
         self._db.execute(
             """INSERT INTO artifacts (id, run_id, name, kind, relation, created_at, uri, sha256, size_bytes, inline_bytes)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
@@ -446,17 +461,15 @@ class Run:
                 name,
                 kind,
                 relation.value,
-                created,
+                time.time(),
                 uri,
                 sha_hex,
                 size,
-                blob,
+                data if inline or content is not None else None,
             ],
         )
-        if self._sync is not None and path and size is not None:
-            self._sync.upload_artifact(
-                name, os.path.abspath(path), kind, sha_hex, size, relation
-            )
+        if self._sync is not None:
+            self._sync.upload_artifact(name, uri, kind, sha_hex, size, relation, content)
         return aid
 
     # ---- lifecycle ----

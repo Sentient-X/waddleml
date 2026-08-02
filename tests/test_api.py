@@ -1,5 +1,6 @@
 """Tests for the wandb-style Python API (waddle.init / waddle.log / waddle.finish)."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -240,6 +241,86 @@ def test_use_artifact_records_input_edge(
     )
     assert row is not None
     assert row == ("base.safetensors", "model", "input", len(b"base weights"))
+
+
+def test_use_artifact_accepts_content_without_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A governed document that lives elsewhere joins on its own sha256.
+
+    The corpus a training run consumes is registered in the catalog, not on the
+    training node's disk. Its canonical bytes are the join key, so two runs
+    consuming the same corpus must record the same digest.
+    """
+    no_git = tmp_path / "nogit"
+    no_git.mkdir()
+    monkeypatch.chdir(no_git)
+    manifest = b'{"name":"pilot","schema_version":2}'
+
+    run = waddle.init(project="art", system_metrics=False)
+    aid = waddle.use_artifact("corpora.pilot", kind="dataset", content=manifest)
+    waddle.finish()
+
+    row = run._db.fetchone(
+        "SELECT name, kind, relation, size_bytes, sha256, uri FROM artifacts WHERE id = $1",
+        [aid],
+    )
+    assert row is not None
+    assert row == (
+        "corpora.pilot",
+        "dataset",
+        "input",
+        len(manifest),
+        hashlib.sha256(manifest).hexdigest(),
+        None,
+    )
+
+
+def test_artifact_without_content_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """An artifact with no bytes has no content identity, so it is not an artifact.
+
+    Recording one against sha256(b"") would silently collide every such edge on
+    the empty digest — the one thing content addressing must not do.
+    """
+    no_git = tmp_path / "nogit"
+    no_git.mkdir()
+    monkeypatch.chdir(no_git)
+    waddle.init(project="art", system_metrics=False)
+    try:
+        with pytest.raises(waddle.ArtifactContentError):
+            waddle.log_artifact("nothing")
+        with pytest.raises(waddle.ArtifactContentError):
+            waddle.use_artifact("both", path="x", content=b"y")
+    finally:
+        waddle.finish()
+
+
+def test_file_and_content_artifacts_agree_on_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """One content identity, two ways to supply it — the digests must match."""
+    no_git = tmp_path / "nogit"
+    no_git.mkdir()
+    monkeypatch.chdir(no_git)
+    payload = b"identical bytes"
+    on_disk = no_git / "doc.json"
+    on_disk.write_bytes(payload)
+
+    run = waddle.init(project="art", system_metrics=False)
+    from_file = waddle.use_artifact("doc", str(on_disk))
+    from_memory = waddle.use_artifact("doc", content=payload)
+    waddle.finish()
+
+    rows = [
+        run._db.fetchone("SELECT sha256 FROM artifacts WHERE id = $1", [aid])
+        for aid in (from_file, from_memory)
+    ]
+    assert all(row is not None for row in rows)
+    assert {row[0] for row in rows if row is not None} == {
+        hashlib.sha256(payload).hexdigest()
+    }
 
 
 def test_log_without_init_raises():

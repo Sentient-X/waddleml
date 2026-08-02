@@ -14,6 +14,7 @@ from ._run import Run
 from ._db import WaddleDB
 from ._state import NoActiveRunError
 from ._types import (
+    ArtifactContentError,
     ArtifactRelation,
     ResearchDecision,
     ResearchGoal,
@@ -38,6 +39,7 @@ __all__ = [
     "WaddleDB",
     "NoActiveRunError",
     "WorkerInfo",
+    "ArtifactContentError",
     "ArtifactRelation",
     "ResearchGoal",
     "ResearchDecision",
