@@ -21,6 +21,9 @@ class WaddleSettings(BaseSettings):
     ch_user: str = "waddle"
     ch_password: str = "waddle"
     ch_database: str = "waddle"
+    # Production supplies {shard}/{replica} macros and a Keeper quorum.
+    # Development deliberately uses ordinary MergeTree on its one local node.
+    ch_replicated: bool = False
     # Raw point/log retention; the Parquet layer on R2 outlives ClickHouse TTLs.
     ch_metric_ttl_days: int = 180
     ch_log_ttl_days: int = 90
@@ -31,7 +34,7 @@ class WaddleSettings(BaseSettings):
     s3_secret_key: str = "dev12345"
     bucket: str = "sx-waddle"
     presign_ttl_s: int = 600
-    # Dev/MinIO only: create the bucket at startup (R2 is provisioned out-of-band).
+    # Dev/MinIO deployment job only (R2 is provisioned out-of-band).
     ensure_bucket: bool = False
     upload_session_ttl_s: int = 3600
 

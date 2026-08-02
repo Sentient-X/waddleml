@@ -17,7 +17,7 @@ import urllib.error  # noqa: E402
 import urllib.request  # noqa: E402
 
 from waddle_server.config import WaddleSettings  # noqa: E402
-from waddle_server.server.ch import MetricStore  # noqa: E402
+from waddle_server.server.ch import MetricStore, deploy_schema  # noqa: E402
 
 
 def _dev_clickhouse_available() -> bool:
@@ -68,7 +68,9 @@ def _row(
 
 
 async def _exercise() -> None:
-    store = MetricStore(WaddleSettings())
+    settings = WaddleSettings()
+    await deploy_schema(settings)
+    store = MetricStore(settings)
     await store.open()
     try:
         run_id = uuid4().hex

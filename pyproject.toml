@@ -67,6 +67,7 @@ sx-platform = { workspace = true }
 
 [project.scripts]
 waddle = "waddle.cli:main"
+waddle-server-deploy = "waddle_server.deploy:main"
 
 [project.urls]
 Homepage = "https://github.com/Sentient-X/waddleml"

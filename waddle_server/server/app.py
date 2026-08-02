@@ -165,11 +165,6 @@ def build_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
-        applied = db.migrate(cfg.pg_dsn)
-        if applied:
-            log.info("migrations applied", extra={"files": applied})
-        if cfg.ensure_bucket:
-            blobs.ensure_bucket()
         await store.open()
         await pool.open()
         yield

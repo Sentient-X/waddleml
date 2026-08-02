@@ -30,7 +30,7 @@ import psycopg
 from sx_observability import configure_logging, get_logger
 
 from waddle_server.config import WaddleSettings
-from waddle_server.server import artifacts, ch, db
+from waddle_server.server import artifacts, ch
 from waddle_server.server.storage import ObjectStore, parquet_key, write_parquet
 
 log = get_logger(__name__)
@@ -213,9 +213,6 @@ class Compactor:
                 )
 
     async def run_forever(self) -> None:
-        db.migrate(self._cfg.pg_dsn)
-        if self._cfg.ensure_bucket:
-            self._store.ensure_bucket()
         await self._ch.open()
         log.info("waddle compactor up", extra={"interval_s": SWEEP_INTERVAL_S})
         try:

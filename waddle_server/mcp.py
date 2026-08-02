@@ -15,6 +15,9 @@ from typing import Any
 import httpx
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse
+from starlette.types import ASGIApp
 from sx_observability import ObservabilityMiddleware, configure_logging
 from sx_platform import WADDLE, WADDLE_MCP
 
@@ -338,12 +341,21 @@ async def runs_lineage(run_id: str, ctx: Context | None = None) -> list[dict[str
     return await _call(ctx, "GET", f"/api/v1/runs/{run_id}/lineage")
 
 
+async def healthz(_: Request) -> PlainTextResponse:
+    return PlainTextResponse("ok")
+
+
+def build_app() -> ASGIApp:
+    app = mcp.streamable_http_app()
+    app.add_route("/healthz", healthz, methods=["GET"])
+    app.add_middleware(ObservabilityMiddleware)
+    return app
+
+
 def main() -> None:
     configure_logging(service="waddle-mcp", force=True)
-    app = mcp.streamable_http_app()
-    app.add_middleware(ObservabilityMiddleware)
     uvicorn.run(
-        app,
+        build_app(),
         host=mcp.settings.host,
         port=mcp.settings.port,
         log_config=None,

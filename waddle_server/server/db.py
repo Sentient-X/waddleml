@@ -10,6 +10,7 @@ import psycopg
 from psycopg_pool import AsyncConnectionPool
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
+MIGRATION_LOCK = "waddle-server-migrations-v1"
 
 
 def make_pool(dsn: str) -> AsyncConnectionPool:
@@ -32,28 +33,35 @@ def migrate(dsn: str) -> list[str]:
     applied: list[str] = []
     with connect(dsn) as conn:
         conn.autocommit = True
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS schema_migrations (
-                filename   text PRIMARY KEY,
-                applied_at timestamptz NOT NULL DEFAULT now()
-            )
-            """
-        )
-        done = {
-            row[0]
-            for row in conn.execute("SELECT filename FROM schema_migrations").fetchall()
-        }
-        for path in sorted(_migration_files()):
-            if path.name in done:
-                continue
-            sql = path.read_text()
-            with conn.transaction():
-                conn.execute(sql)  # type: ignore[arg-type]  # migrations are trusted files
-                conn.execute(
-                    "INSERT INTO schema_migrations (filename) VALUES (%s)", (path.name,)
+        conn.execute("SELECT pg_advisory_lock(hashtext(%s))", (MIGRATION_LOCK,))
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    filename   text PRIMARY KEY,
+                    applied_at timestamptz NOT NULL DEFAULT now()
                 )
-            applied.append(path.name)
+                """
+            )
+            done = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT filename FROM schema_migrations"
+                ).fetchall()
+            }
+            for path in sorted(_migration_files()):
+                if path.name in done:
+                    continue
+                sql = path.read_text()
+                with conn.transaction():
+                    conn.execute(sql.encode("utf-8"))
+                    conn.execute(
+                        "INSERT INTO schema_migrations (filename) VALUES (%s)",
+                        (path.name,),
+                    )
+                applied.append(path.name)
+        finally:
+            conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (MIGRATION_LOCK,))
     return applied
 
 

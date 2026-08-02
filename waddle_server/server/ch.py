@@ -79,9 +79,11 @@ async def _open_client(
     )
 
 
-_DDL = [
-    """
-    CREATE TABLE IF NOT EXISTS metric_points (
+_TABLES = (
+    (
+        "metric_points",
+        """
+    CREATE TABLE IF NOT EXISTS metric_points {on_cluster} (
         org_id          UUID,
         project_id      UUID,
         run_id          String,
@@ -96,14 +98,17 @@ _DDL = [
         batch_id        UUID,
         sequence_number UInt64
     )
-    ENGINE = MergeTree
+    ENGINE = {engine}
     PARTITION BY toYYYYMM(ts)
     ORDER BY (org_id, project_id, run_id, metric_name, step, ts)
     TTL toDateTime(ts) + INTERVAL {metric_ttl_days} DAY
-    SETTINGS non_replicated_deduplication_window = 1000
+    SETTINGS {deduplication_setting} = 1000
     """,
-    """
-    CREATE TABLE IF NOT EXISTS log_events (
+    ),
+    (
+        "log_events",
+        """
+    CREATE TABLE IF NOT EXISTS log_events {on_cluster} (
         org_id          UUID,
         project_id      UUID,
         run_id          String,
@@ -115,13 +120,14 @@ _DDL = [
         batch_id        UUID,
         sequence_number UInt64
     )
-    ENGINE = MergeTree
+    ENGINE = {engine}
     PARTITION BY toYYYYMM(ts)
     ORDER BY (org_id, project_id, run_id, ts)
     TTL toDateTime(ts) + INTERVAL {log_ttl_days} DAY
-    SETTINGS non_replicated_deduplication_window = 1000
+    SETTINGS {deduplication_setting} = 1000
     """,
-]
+    ),
+)
 
 _METRIC_COLUMNS = [
     "org_id",
@@ -186,6 +192,39 @@ class LogLine:
     message: str
 
 
+async def deploy_schema(cfg: WaddleSettings) -> None:
+    """Create ClickHouse tables only from the explicit deployment boundary."""
+    client = await _open_client(
+        dsn=cfg.ch_url,
+        username=cfg.ch_user,
+        password=cfg.ch_password,
+        database=cfg.ch_database,
+    )
+    try:
+        for table, ddl in _TABLES:
+            engine = (
+                f"ReplicatedMergeTree('/clickhouse/tables/{{shard}}/"
+                f"{{database}}/{table}', '{{replica}}')"
+                if cfg.ch_replicated
+                else "MergeTree"
+            )
+            await client.command(
+                ddl.format(
+                    engine=engine,
+                    on_cluster="ON CLUSTER sx_waddle" if cfg.ch_replicated else "",
+                    deduplication_setting=(
+                        "replicated_deduplication_window"
+                        if cfg.ch_replicated
+                        else "non_replicated_deduplication_window"
+                    ),
+                    metric_ttl_days=cfg.ch_metric_ttl_days,
+                    log_ttl_days=cfg.ch_log_ttl_days,
+                )
+            )
+    finally:
+        await client.close()
+
+
 class MetricStore:
     """One async ClickHouse client per process, opened by the app lifespan."""
 
@@ -206,13 +245,6 @@ class MetricStore:
             password=self._cfg.ch_password,
             database=self._cfg.ch_database,
         )
-        for ddl in _DDL:
-            await self._client.command(
-                ddl.format(
-                    metric_ttl_days=self._cfg.ch_metric_ttl_days,
-                    log_ttl_days=self._cfg.ch_log_ttl_days,
-                )
-            )
 
     async def close(self) -> None:
         if self._client is not None:
