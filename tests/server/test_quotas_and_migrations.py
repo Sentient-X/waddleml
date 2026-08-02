@@ -7,7 +7,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from waddle_server.config import WaddleSettings
-from waddle_server.server import db, quotas
+from waddle_server.server import db
 from waddle_server.server.app import build_app
 
 from .conftest import FakeMetricStore, StubAuthClient, requires_dev_postgres
@@ -17,7 +17,7 @@ pytestmark = requires_dev_postgres
 
 
 def test_rpm_quota_trips(fresh_db: str) -> None:
-    quotas.reset()
+    db.migrate(fresh_db)
     app = build_app(
         settings=WaddleSettings(pg_dsn=fresh_db, auth_required=True, ingest_rpm=2),
         auth_client=StubAuthClient(),
@@ -36,11 +36,11 @@ def test_rpm_quota_trips(fresh_db: str) -> None:
             )
             assert response.status_code == expected
         assert response.json()["detail"]["code"] == "quota_exceeded"
-        assert response.headers["Retry-After"] == "60"
+        assert 1 <= int(response.headers["Retry-After"]) <= 60
 
 
 def test_idempotent_replay_does_not_consume_ingest_quota(fresh_db: str) -> None:
-    quotas.reset()
+    db.migrate(fresh_db)
     app = build_app(
         settings=WaddleSettings(pg_dsn=fresh_db, auth_required=True, ingest_rpm=1),
         auth_client=StubAuthClient(),

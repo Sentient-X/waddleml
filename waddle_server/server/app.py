@@ -702,7 +702,7 @@ def build_app(
             else cfg.ingest_rpm
         )
         try:
-            quotas.check_rpm(pr.org_id, pr.org_slug, rpm)
+            await quotas.check_rpm(c, pr.org_id, pr.org_slug, rpm)
         except QuotaExceededError as err:
             raise _error(429, err, err.code, retry_after_s=err.retry_after_s) from err
 

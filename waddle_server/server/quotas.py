@@ -1,38 +1,59 @@
-"""Per-org ingest metering: a fixed-window requests-per-minute counter,
-in-process (the factory ratelimit shape). Overrides come from ``org_limits``;
-absent row = settings defaults."""
+"""Atomic Postgres-owned ingest metering shared by every API replica."""
 
 from __future__ import annotations
 
-import time
-from collections import defaultdict, deque
-from math import ceil
-from threading import Lock
+from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
-from waddle_server.errors import QuotaExceededError
+from psycopg import AsyncConnection
+from psycopg.rows import class_row
 
-_windows: dict[UUID, deque[float]] = defaultdict(deque)
-_windows_lock = Lock()
+from waddle_server.errors import QuotaConfigurationError, QuotaExceededError
 
 
-def check_rpm(org_id: UUID, org_slug: str, limit: int) -> None:
-    now = time.monotonic()
-    with _windows_lock:
-        window = _windows[org_id]
-        while window and now - window[0] >= 60:
-            window.popleft()
-        if len(window) >= limit:
-            retry_after_s = max(1, ceil(60 - (now - window[0])))
-            raise QuotaExceededError(
-                org_slug,
-                f"ingest rate limit of {limit}/min exceeded",
-                retry_after_s,
+@dataclass(frozen=True, slots=True)
+class RateDecision:
+    admitted: bool
+    retry_after_s: int
+
+
+async def check_rpm(
+    conn: AsyncConnection[Any],
+    org_id: UUID,
+    org_slug: str,
+    limit: int,
+) -> None:
+    if limit < 1:
+        raise QuotaConfigurationError("ingest_rpm must be positive")
+    async with conn.cursor(row_factory=class_row(RateDecision)) as cursor:
+        decision = await (
+            await cursor.execute(
+                """
+                WITH attempted AS (
+                    INSERT INTO ingest_rate_windows (org_id, window_start, request_count)
+                    VALUES (%s, date_trunc('minute', now()), 1)
+                    ON CONFLICT (org_id, window_start) DO UPDATE
+                    SET request_count = ingest_rate_windows.request_count + 1
+                    WHERE ingest_rate_windows.request_count < %s
+                    RETURNING request_count
+                )
+                SELECT EXISTS(SELECT 1 FROM attempted) AS admitted,
+                       GREATEST(
+                           1,
+                           CEIL(EXTRACT(EPOCH FROM (
+                               date_trunc('minute', now()) + interval '1 minute' - now()
+                           )))::integer
+                       ) AS retry_after_s
+                """,
+                (org_id, limit),
             )
-        window.append(now)
-
-
-def reset() -> None:
-    """Test hook."""
-    with _windows_lock:
-        _windows.clear()
+        ).fetchone()
+    if decision is None:
+        raise QuotaConfigurationError("rate counter returned no decision")
+    if not decision.admitted:
+        raise QuotaExceededError(
+            org_slug,
+            f"ingest rate limit of {limit}/min exceeded",
+            decision.retry_after_s,
+        )

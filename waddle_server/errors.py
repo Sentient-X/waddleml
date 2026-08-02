@@ -56,6 +56,13 @@ class QuotaExceededError(WaddleServerError):
         self.retry_after_s = retry_after_s
 
 
+class QuotaConfigurationError(WaddleServerError):
+    code = "quota_configuration_error"
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+
+
 class QueryLimitError(WaddleServerError):
     code = "query_limit_exceeded"
 
