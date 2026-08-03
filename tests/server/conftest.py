@@ -30,7 +30,7 @@ from sx_auth.principal import (  # noqa: E402
 )
 
 from waddle_server.config import WaddleSettings  # noqa: E402
-from waddle_server.server import db  # noqa: E402
+from waddle_server.server.db import MIGRATIONS  # noqa: E402
 from waddle_server.server.app import build_app  # noqa: E402
 from waddle_server.server.ch import (  # noqa: E402
     LatestMetric,
@@ -300,7 +300,7 @@ def blobs() -> FakeObjectStore:
 
 @pytest.fixture()
 def rig(fresh_db: str, blobs: FakeObjectStore) -> tuple[TestClient, FakeMetricStore]:
-    db.migrate(fresh_db)
+    MIGRATIONS.apply(fresh_db)
     store = FakeMetricStore()
     app = build_app(
         settings=WaddleSettings(pg_dsn=fresh_db, auth_required=True),

@@ -7,7 +7,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from waddle_server.config import WaddleSettings
-from waddle_server.server import db
+from waddle_server.server.db import MIGRATIONS
 from waddle_server.server.app import build_app
 
 from .conftest import FakeMetricStore, StubAuthClient, requires_dev_postgres
@@ -17,7 +17,7 @@ pytestmark = requires_dev_postgres
 
 
 def test_rpm_quota_trips(fresh_db: str) -> None:
-    db.migrate(fresh_db)
+    MIGRATIONS.apply(fresh_db)
     app = build_app(
         settings=WaddleSettings(pg_dsn=fresh_db, auth_required=True, ingest_rpm=2),
         auth_client=StubAuthClient(),
@@ -40,7 +40,7 @@ def test_rpm_quota_trips(fresh_db: str) -> None:
 
 
 def test_idempotent_replay_does_not_consume_ingest_quota(fresh_db: str) -> None:
-    db.migrate(fresh_db)
+    MIGRATIONS.apply(fresh_db)
     app = build_app(
         settings=WaddleSettings(pg_dsn=fresh_db, auth_required=True, ingest_rpm=1),
         auth_client=StubAuthClient(),
@@ -75,6 +75,6 @@ def test_idempotent_replay_does_not_consume_ingest_quota(fresh_db: str) -> None:
 
 
 def test_migrations_idempotent(fresh_db: str) -> None:
-    first = db.migrate(fresh_db)
+    first = MIGRATIONS.apply(fresh_db)
     assert "0001_init.sql" in first
-    assert db.migrate(fresh_db) == []
+    assert MIGRATIONS.apply(fresh_db) == []

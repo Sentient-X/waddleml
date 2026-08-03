@@ -27,8 +27,6 @@ import duckdb
 import httpx
 import pydantic
 from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from psycopg import AsyncConnection
 from psycopg import errors as pg_errors
 from sx_auth.client import AuthClient
@@ -61,7 +59,9 @@ from waddle_server.model import (
     RunType,
     WaddleRole,
 )
-from waddle_server.server import artifacts, ch, db, quotas, repo
+from waddle_server.server import artifacts, ch, quotas, repo
+from sx_service import make_pool
+from sx_service.spa import mount_spa
 from waddle_server.server.auth import WaddlePrincipal, require_role, resolve_principal
 from waddle_server.server.schemas import (
     DATASET_NAME_PATTERN,
@@ -152,7 +152,7 @@ def build_app(
 ) -> FastAPI:
     cfg = settings or WaddleSettings()
     configure_logging(service="waddle", force=True)
-    pool = db.make_pool(cfg.pg_dsn)
+    pool = make_pool(cfg.pg_dsn)
     store = metric_store or ch.MetricStore(cfg)
     blobs = object_store or ObjectStore(cfg)
     client = auth_client or AuthClient(
@@ -1407,7 +1407,7 @@ def build_app(
             for row in rows
         ]
 
-    _mount_spa(app, cfg)
+    mount_spa(app, cfg.ui_dist)
     return app
 
 
@@ -1418,15 +1418,4 @@ def _uuid_or_404(value: str) -> UUID:
         raise HTTPException(404, "no such resource") from err
 
 
-def _mount_spa(app: FastAPI, cfg: WaddleSettings) -> None:
-    dist = cfg.ui_dist
-    if dist is None or not dist.is_dir():
-        return
-    app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
-    @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str) -> FileResponse:
-        candidate = dist / path
-        if path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(dist / "index.html")

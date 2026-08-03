@@ -33,6 +33,7 @@ SERVER_ALLOWED = frozenset(
         "sx_auth",
         "sx_observability",
         "sx_platform",
+        "sx_service",
         "waddle_server",
     }
 )
