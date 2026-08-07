@@ -511,13 +511,11 @@
       "HealthOut": {
         "properties": {
           "ok": {
+            "default": true,
             "title": "Ok",
             "type": "boolean"
           }
         },
-        "required": [
-          "ok"
-        ],
         "title": "HealthOut",
         "type": "object"
       },

@@ -733,7 +733,10 @@ export interface components {
         };
         /** HealthOut */
         HealthOut: {
-            /** Ok */
+            /**
+             * Ok
+             * @default true
+             */
             ok: boolean;
         };
         /** LatestMetricOut */

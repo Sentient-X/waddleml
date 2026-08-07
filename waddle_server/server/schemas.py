@@ -77,10 +77,6 @@ class ResearchOutcome(BaseModel):
     )
 
 
-class HealthOut(BaseModel):
-    ok: bool
-
-
 class AuthMethodsOut(BaseModel):
     """Where an unauthenticated console sends the operator. The console renders
     no login form: credentials, throttling, and SSO all live in ``sx_authd``."""

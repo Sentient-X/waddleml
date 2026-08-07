@@ -1,5 +1,5 @@
 # pyright: reportUnusedFunction=false
-# (route handlers and the SPA fallback are registered via FastAPI decorators)
+# (route handlers are registered via FastAPI decorators)
 """The waddle platform control plane (:8400).
 
 Ingest path: batch validate → org check → rpm quota → ClickHouse insert
@@ -7,6 +7,11 @@ Ingest path: batch validate → org check → rpm quota → ClickHouse insert
 decision) → heartbeat + summary merge. The response commits only after both
 stores acknowledged. Query paths read ClickHouse (series/latest/logs) or
 Postgres (runs/projects) — always org-filtered from the introspected principal.
+
+Built through the sx-service shell: create_app owns logging,
+ObservabilityMiddleware, GET /api/healthz (the deployment probe's path), and the
+console mount — last, so a hard reload of /runs/<id> serves the app shell
+without shadowing /api/*.
 """
 
 from __future__ import annotations
@@ -26,14 +31,25 @@ from uuid import UUID
 import duckdb
 import httpx
 import pydantic
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+)
 from psycopg import AsyncConnection
 from psycopg import errors as pg_errors
 from sx_auth.client import AuthClient
 from sx_auth.credentials import SESSION_COOKIE
 from sx_auth.guard import RequestMeter, enforce_request_limit
-from sx_service.logging import ObservabilityMiddleware, configure_logging, get_logger
-from sx_service.registry import PUBLIC_MUTATION, PUBLIC_READ
+from sx_service.app import HealthOut, create_app
+from sx_service.db import make_pool
+from sx_service.logging import get_logger
+from sx_service.registry import PUBLIC_MUTATION, PUBLIC_READ, WADDLE
 
 from waddle_server import reports, sqlbox
 from waddle_server.config import WaddleSettings
@@ -60,8 +76,6 @@ from waddle_server.model import (
     WaddleRole,
 )
 from waddle_server.server import artifacts, ch, quotas, repo
-from sx_service.db import make_pool
-from sx_service.spa import mount_spa
 from waddle_server.server.auth import WaddlePrincipal, require_role, resolve_principal
 from waddle_server.server.schemas import (
     DATASET_NAME_PATTERN,
@@ -82,7 +96,6 @@ from waddle_server.server.schemas import (
     DatasetOut,
     ErrorOut,
     FinishRunIn,
-    HealthOut,
     LatestMetricOut,
     LogLineOut,
     MetricSeriesOut,
@@ -151,7 +164,6 @@ def build_app(
     object_store: ObjectStore | None = None,
 ) -> FastAPI:
     cfg = settings or WaddleSettings()
-    configure_logging(service="waddle", force=True)
     pool = make_pool(cfg.pg_dsn)
     store = metric_store or ch.MetricStore(cfg)
     blobs = object_store or ObjectStore(cfg)
@@ -172,8 +184,7 @@ def build_app(
         await store.close()
         await client.http.aclose()
 
-    app = FastAPI(title="waddle", version="0.1.0", lifespan=lifespan)
-    app.add_middleware(ObservabilityMiddleware)
+    routes = APIRouter()
     read_meter = RequestMeter(PUBLIC_READ)
     mutation_meter = RequestMeter(PUBLIC_MUTATION)
 
@@ -191,16 +202,12 @@ def build_app(
             enforce_request_limit(meter, resolved.subject)
         return resolved
 
-    @app.get("/api/healthz", response_model=HealthOut)
-    async def healthz() -> HealthOut:
-        return HealthOut(ok=True)
-
     # -- Auth ---------------------------------------------------------------
     # The console holds no credential of its own. It asks who it is, and when
     # the answer is "nobody" it sends the operator to the platform's ONE hosted
     # login view — the same door every other workspace uses.
 
-    @app.get("/api/auth/methods", response_model=AuthMethodsOut)
+    @routes.get("/api/auth/methods", response_model=AuthMethodsOut)
     async def auth_methods(request: Request) -> AuthMethodsOut:
         # The console's origin, not this API's: a browser omits Origin on
         # same-origin GETs, and answering with our own would send the operator
@@ -210,11 +217,11 @@ def build_app(
             login_url=f"{cfg.auth_public_url}/login?next={quote(origin, safe='')}"
         )
 
-    @app.get("/api/auth/me", response_model=CurrentUserOut)
+    @routes.get("/api/auth/me", response_model=CurrentUserOut)
     async def current_user(pr: WaddlePrincipal = Depends(principal)) -> CurrentUserOut:
         return CurrentUserOut(subject=pr.subject, org_slug=pr.org_slug, role=pr.role)
 
-    @app.post("/api/auth/logout")
+    @routes.post("/api/auth/logout")
     async def logout(request: Request, response: Response) -> HealthOut:
         """End the platform session centrally, then drop it from this process's
         introspection cache so a revoked token cannot outlive its TTL here."""
@@ -227,7 +234,7 @@ def build_app(
                 )
             client.forget(token)
             response.delete_cookie(SESSION_COOKIE)
-        return HealthOut(ok=True)
+        return HealthOut()
 
     def _run_config(row: repo.RunRow) -> tuple[dict[str, object], ResearchTrial | None]:
         config = dict(row.config)
@@ -293,7 +300,7 @@ def build_app(
 
     # ── runs ─────────────────────────────────────────────────────────────────
 
-    @app.post("/api/v1/runs", response_model=RunRef)
+    @routes.post("/api/v1/runs", response_model=RunRef)
     async def create_run(
         body: CreateRunIn,
         c: AsyncConnection[Any] = Depends(conn),
@@ -449,7 +456,7 @@ def build_app(
             url=f"/runs/{body.run_id}",
         )
 
-    @app.get("/api/v1/runs", response_model=list[RunOut])
+    @routes.get("/api/v1/runs", response_model=list[RunOut])
     async def list_runs(
         project: str | None = None,
         state: RunState | None = None,
@@ -475,7 +482,7 @@ def build_app(
         )
         return [_run_out(r) for r in rows]
 
-    @app.get("/api/v1/runs/facets", response_model=RunFacetsOut)
+    @routes.get("/api/v1/runs/facets", response_model=RunFacetsOut)
     async def list_run_facets(
         c: AsyncConnection[Any] = Depends(conn),
         pr: WaddlePrincipal = Depends(principal),
@@ -486,7 +493,7 @@ def build_app(
             run_types=list(facets.run_types), groups=list(facets.groups)
         )
 
-    @app.get("/api/v1/runs/{run_id}", response_model=RunDetailOut)
+    @routes.get("/api/v1/runs/{run_id}", response_model=RunDetailOut)
     async def get_run(
         run_id: str,
         c: AsyncConnection[Any] = Depends(conn),
@@ -510,7 +517,7 @@ def build_app(
             ],
         )
 
-    @app.get(
+    @routes.get(
         "/api/v1/research/sessions", response_model=list[ResearchSessionSummaryOut]
     )
     async def list_research_sessions(
@@ -542,7 +549,7 @@ def build_app(
             for row in rows
         ]
 
-    @app.get(
+    @routes.get(
         "/api/v1/research/sessions/{project}/{session_name}",
         response_model=list[ResearchSessionTrialOut],
     )
@@ -594,7 +601,7 @@ def build_app(
             )
         return trials
 
-    @app.post("/api/v1/runs/{run_id}/finish", response_model=RunOut)
+    @routes.post("/api/v1/runs/{run_id}/finish", response_model=RunOut)
     async def finish_run(
         run_id: str,
         body: FinishRunIn,
@@ -631,7 +638,7 @@ def build_app(
         assert row is not None
         return _run_out(row)
 
-    @app.get("/api/v1/projects", response_model=list[ProjectOut])
+    @routes.get("/api/v1/projects", response_model=list[ProjectOut])
     async def list_projects(
         c: AsyncConnection[Any] = Depends(conn),
         pr: WaddlePrincipal = Depends(principal),
@@ -642,7 +649,7 @@ def build_app(
 
     # ── ingest ───────────────────────────────────────────────────────────────
 
-    @app.post("/api/v1/runs/{run_id}/batches", response_model=BatchAck)
+    @routes.post("/api/v1/runs/{run_id}/batches", response_model=BatchAck)
     async def ingest_batch(
         run_id: str,
         request: Request,
@@ -781,7 +788,7 @@ def build_app(
 
     # ── queries ──────────────────────────────────────────────────────────────
 
-    @app.post("/api/v1/query/metrics", response_model=list[MetricSeriesOut])
+    @routes.post("/api/v1/query/metrics", response_model=list[MetricSeriesOut])
     async def query_metrics(
         body: MetricsQueryIn,
         c: AsyncConnection[Any] = Depends(conn),
@@ -825,7 +832,7 @@ def build_app(
             for (run_id, metric, rank), pts in sorted(series.items())
         ]
 
-    @app.post("/api/v1/query/latest", response_model=list[LatestMetricOut])
+    @routes.post("/api/v1/query/latest", response_model=list[LatestMetricOut])
     async def query_latest(
         body: MetricsQueryIn,
         pr: WaddlePrincipal = Depends(principal),
@@ -852,7 +859,7 @@ def build_app(
             for r in rows
         ]
 
-    @app.get("/api/v1/runs/{run_id}/logs", response_model=list[LogLineOut])
+    @routes.get("/api/v1/runs/{run_id}/logs", response_model=list[LogLineOut])
     async def run_logs(
         run_id: str,
         after_ts: datetime | None = None,
@@ -872,7 +879,7 @@ def build_app(
             for line in lines
         ]
 
-    @app.post("/api/v1/query/sql", response_model=SqlResultOut)
+    @routes.post("/api/v1/query/sql", response_model=SqlResultOut)
     async def query_sql(
         body: SqlQueryIn,
         c: AsyncConnection[Any] = Depends(conn),
@@ -990,7 +997,7 @@ def build_app(
             updated_at=r.updated_at,
         )
 
-    @app.get("/api/v1/reports", response_model=list[ReportSummaryOut])
+    @routes.get("/api/v1/reports", response_model=list[ReportSummaryOut])
     async def list_reports(
         name: str | None = Query(default=None, pattern=REPORT_NAME_PATTERN),
         c: AsyncConnection[Any] = Depends(conn),
@@ -1002,7 +1009,7 @@ def build_app(
             _summary_out(r) for r in await repo.list_reports(c, pr.org_id, name=name)
         ]
 
-    @app.post("/api/v1/reports", response_model=ReportOut, status_code=201)
+    @routes.post("/api/v1/reports", response_model=ReportOut, status_code=201)
     async def create_report(
         body: CreateReportIn,
         c: AsyncConnection[Any] = Depends(conn),
@@ -1035,7 +1042,7 @@ def build_app(
             raise _error(404, ReportNotFoundError(report_id), ReportNotFoundError.code)
         return row
 
-    @app.get("/api/v1/reports/{report_id}", response_model=ReportOut)
+    @routes.get("/api/v1/reports/{report_id}", response_model=ReportOut)
     async def get_report(
         report_id: str,
         c: AsyncConnection[Any] = Depends(conn),
@@ -1045,7 +1052,7 @@ def build_app(
         row = await _report_or_404(c, pr, report_id)
         return _report_out(row, _compile_or_422(row.body))
 
-    @app.put("/api/v1/reports/{report_id}", response_model=ReportOut)
+    @routes.put("/api/v1/reports/{report_id}", response_model=ReportOut)
     async def update_report(
         report_id: str,
         body: UpdateReportIn,
@@ -1076,7 +1083,7 @@ def build_app(
         assert row is not None  # existence checked above, same transaction
         return _report_out(row, compiled)
 
-    @app.delete("/api/v1/reports/{report_id}", status_code=204)
+    @routes.delete("/api/v1/reports/{report_id}", status_code=204)
     async def delete_report(
         report_id: str,
         c: AsyncConnection[Any] = Depends(conn),
@@ -1086,7 +1093,7 @@ def build_app(
         if not await repo.delete_report(c, pr.org_id, _uuid_or_404(report_id)):
             raise _error(404, ReportNotFoundError(report_id), ReportNotFoundError.code)
 
-    @app.get(
+    @routes.get(
         "/api/v1/reports/{report_id}/versions", response_model=list[ReportVersionOut]
     )
     async def list_report_versions(
@@ -1106,7 +1113,7 @@ def build_app(
             for v in await repo.list_report_versions(c, pr.org_id, row.id)
         ]
 
-    @app.get(
+    @routes.get(
         "/api/v1/reports/{report_id}/versions/{version}",
         response_model=ReportVersionDetailOut,
     )
@@ -1133,7 +1140,7 @@ def build_app(
             body=got.body,
         )
 
-    @app.post("/api/v1/reports/preview", response_model=RenderReportOut)
+    @routes.post("/api/v1/reports/preview", response_model=RenderReportOut)
     async def preview_report(
         body: PreviewReportIn,
         c: AsyncConnection[Any] = Depends(conn),
@@ -1146,7 +1153,7 @@ def build_app(
             c, pr, compiled, name=None, params=body.params, max_rows=body.max_rows
         )
 
-    @app.post("/api/v1/reports/{report_id}/render", response_model=RenderReportOut)
+    @routes.post("/api/v1/reports/{report_id}/render", response_model=RenderReportOut)
     async def render_report(
         report_id: str,
         body: RenderReportIn,
@@ -1169,7 +1176,7 @@ def build_app(
         ColumnType.DATE: "TIMESTAMP",
     }
 
-    @app.put("/api/v1/datasets/{dataset}", response_model=DatasetOut)
+    @routes.put("/api/v1/datasets/{dataset}", response_model=DatasetOut)
     async def put_dataset(
         body: PutDatasetIn,
         dataset: str = Path(pattern=DATASET_NAME_PATTERN),
@@ -1207,7 +1214,7 @@ def build_app(
             blobs.put_file_replace(dest, parquet_key(pr.org_id, dataset, "snapshot"))
         return DatasetOut(dataset=dataset, rows=len(body.rows))
 
-    @app.get("/api/v1/datasets", response_model=list[DatasetInfoOut])
+    @routes.get("/api/v1/datasets", response_model=list[DatasetInfoOut])
     async def list_datasets(
         pr: WaddlePrincipal = Depends(principal),
     ) -> list[DatasetInfoOut]:
@@ -1221,7 +1228,7 @@ def build_app(
 
     # ── artifacts ────────────────────────────────────────────────────────────
 
-    @app.post("/api/v1/artifacts/upload-sessions", response_model=UploadSessionOut)
+    @routes.post("/api/v1/artifacts/upload-sessions", response_model=UploadSessionOut)
     async def create_upload_session(
         body: CreateUploadSessionIn,
         c: AsyncConnection[Any] = Depends(conn),
@@ -1276,7 +1283,7 @@ def build_app(
             ],
         )
 
-    @app.post(
+    @routes.post(
         "/api/v1/artifacts/upload-sessions/{session_id}/commit",
         response_model=ArtifactVersionOut,
         status_code=201,
@@ -1362,7 +1369,7 @@ def build_app(
             response.status_code = 200
         return _version_out(pr, got[0], got[1])
 
-    @app.get("/api/v1/artifacts/{artifact_id}", response_model=ArtifactVersionOut)
+    @routes.get("/api/v1/artifacts/{artifact_id}", response_model=ArtifactVersionOut)
     async def get_artifact(
         artifact_id: str,
         c: AsyncConnection[Any] = Depends(conn),
@@ -1374,7 +1381,7 @@ def build_app(
             raise HTTPException(404, "no such artifact")
         return _version_out(pr, got[0], got[1])
 
-    @app.post("/api/v1/artifacts/{artifact_id}/aliases", status_code=204)
+    @routes.post("/api/v1/artifacts/{artifact_id}/aliases", status_code=204)
     async def set_artifact_alias(
         artifact_id: str,
         body: AliasIn,
@@ -1387,7 +1394,7 @@ def build_app(
             raise HTTPException(404, "no such artifact")
         await artifacts.set_alias(c, got[0].collection_id, body.alias, got[0].id)
 
-    @app.get("/api/v1/runs/{run_id}/lineage", response_model=list[RunLineageOut])
+    @routes.get("/api/v1/runs/{run_id}/lineage", response_model=list[RunLineageOut])
     async def get_run_lineage(
         run_id: str,
         c: AsyncConnection[Any] = Depends(conn),
@@ -1407,8 +1414,13 @@ def build_app(
             for row in rows
         ]
 
-    mount_spa(app, cfg.ui_dist)
-    return app
+    return create_app(
+        WADDLE,
+        version="0.1.0",
+        routes=routes,
+        lifespan=lifespan,
+        spa_dist=cfg.ui_dist,
+    )
 
 
 def _uuid_or_404(value: str) -> UUID:
@@ -1416,6 +1428,3 @@ def _uuid_or_404(value: str) -> UUID:
         return UUID(value)
     except ValueError as err:
         raise HTTPException(404, "no such resource") from err
-
-
-

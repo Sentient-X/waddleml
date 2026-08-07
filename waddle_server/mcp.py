@@ -5,6 +5,13 @@ Run as its own process (the storefront precedent): ``python -m waddle_server.mcp
 ``X-API-Key`` (env ``WADDLE_API_KEY`` fallback for stdio clients) by calling the
 waddle API itself — the MCP process holds no database access of its own, so the
 API's org isolation and role checks apply verbatim.
+
+This door is a FastMCP ASGI app, not a FastAPI router, so ``sx_service.app``'s
+``create_app`` cannot build it — logging and ``ObservabilityMiddleware`` are
+wired here, as at every MCP door. What it does take from the kit is the health
+contract: :data:`~sx_service.app.HEALTH_PATH` and :class:`HealthOut`, so a probe
+that finds ``/api/healthz`` here finds the same path and the same body it finds
+at the API beside it.
 """
 
 from __future__ import annotations
@@ -16,8 +23,9 @@ import httpx
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp
+from sx_service.app import HEALTH_PATH, HealthOut
 from sx_service.logging import ObservabilityMiddleware, configure_logging
 from sx_service.registry import WADDLE, WADDLE_MCP
 
@@ -341,13 +349,13 @@ async def runs_lineage(run_id: str, ctx: Context | None = None) -> list[dict[str
     return await _call(ctx, "GET", f"/api/v1/runs/{run_id}/lineage")
 
 
-async def healthz(_: Request) -> PlainTextResponse:
-    return PlainTextResponse("ok")
+async def healthz(_: Request) -> JSONResponse:
+    return JSONResponse(HealthOut().model_dump())
 
 
 def build_app() -> ASGIApp:
     app = mcp.streamable_http_app()
-    app.add_route("/healthz", healthz, methods=["GET"])
+    app.add_route(HEALTH_PATH, healthz, methods=["GET"])
     app.add_middleware(ObservabilityMiddleware)
     return app
 
