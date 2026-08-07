@@ -27,7 +27,7 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
-from sx_observability import configure_logging, get_logger
+from sx_service.logging import configure_logging, get_logger
 
 from waddle_server.config import WaddleSettings
 from waddle_server.server import artifacts, ch

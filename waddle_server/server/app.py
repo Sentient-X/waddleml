@@ -32,8 +32,8 @@ from psycopg import errors as pg_errors
 from sx_auth.client import AuthClient
 from sx_auth.credentials import SESSION_COOKIE
 from sx_auth.guard import RequestMeter, enforce_request_limit
-from sx_observability import ObservabilityMiddleware, configure_logging, get_logger
-from sx_platform import PUBLIC_MUTATION, PUBLIC_READ
+from sx_service.logging import ObservabilityMiddleware, configure_logging, get_logger
+from sx_service.registry import PUBLIC_MUTATION, PUBLIC_READ
 
 from waddle_server import reports, sqlbox
 from waddle_server.config import WaddleSettings
@@ -60,7 +60,7 @@ from waddle_server.model import (
     WaddleRole,
 )
 from waddle_server.server import artifacts, ch, quotas, repo
-from sx_service import make_pool
+from sx_service.db import make_pool
 from sx_service.spa import mount_spa
 from waddle_server.server.auth import WaddlePrincipal, require_role, resolve_principal
 from waddle_server.server.schemas import (

@@ -4,7 +4,7 @@ Two packages ride this repo (see pyproject): the SDK (``waddle/``) must stay
 importable on any py3.9+ training node — stdlib + duckdb, with psutil/pynvml
 only ever imported behind runtime guards; the platform server
 (``waddle_server/``) carries the glued backend budget (fastapi/psycopg/
-clickhouse-connect/boto3/duckdb/mcp/httpx + sx-auth/sx-observability).
+clickhouse-connect/boto3/duckdb/mcp/httpx + sx-auth/sx-service).
 """
 
 import ast
@@ -31,8 +31,6 @@ SERVER_ALLOWED = frozenset(
         "httpx",
         "mcp",
         "sx_auth",
-        "sx_observability",
-        "sx_platform",
         "sx_service",
         "waddle_server",
     }

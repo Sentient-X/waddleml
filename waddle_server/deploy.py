@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from sx_observability import configure_logging, get_logger
+from sx_service.logging import configure_logging, get_logger
 
 from .config import WaddleSettings
 from .server.db import MIGRATIONS

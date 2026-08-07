@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sx_platform import AUTH, AUTH_PUBLIC, TELEMETRY_INGEST
+from sx_service.registry import AUTH, AUTH_PUBLIC, TELEMETRY_INGEST
 
 
 class WaddleSettings(BaseSettings):
@@ -39,7 +39,7 @@ class WaddleSettings(BaseSettings):
     upload_session_ttl_s: int = 3600
 
     # Central auth service (sx_authd): identity is introspected, never stored here.
-    # The address binds to the platform-canonical SX_AUTH_URL (sx-platform registry).
+    # The address binds to the platform-canonical SX_AUTH_URL (sx-service registry).
     auth_url: str = Field(default=AUTH.dev_url, validation_alias=AUTH.env_var)
     # Where a BROWSER reaches sx_authd — not the same address this process uses.
     # The login view sets the session cookie host-scoped to the origin that

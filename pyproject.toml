@@ -56,15 +56,11 @@ server = [
     "httpx>=0.27",
     "mcp>=1.0",
     "sx-auth",
-    "sx-observability",
-    "sx-platform",
-    "sx-service[door]",
+    "sx-service[door,db]",
 ]
 
 [tool.uv.sources]
 sx-auth = { workspace = true }
-sx-observability = { workspace = true }
-sx-platform = { workspace = true }
 sx-service = { workspace = true }
 
 [project.scripts]

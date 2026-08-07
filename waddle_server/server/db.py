@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sx_service import SqlMigrations
+from sx_service.db import SqlMigrations
 
 MIGRATIONS = SqlMigrations(
     ledger="schema_migrations",

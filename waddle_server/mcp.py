@@ -18,8 +18,8 @@ from mcp.server.fastmcp import Context, FastMCP
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp
-from sx_observability import ObservabilityMiddleware, configure_logging
-from sx_platform import WADDLE, WADDLE_MCP
+from sx_service.logging import ObservabilityMiddleware, configure_logging
+from sx_service.registry import WADDLE, WADDLE_MCP
 
 from waddle_server.model import RunType
 
