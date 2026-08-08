@@ -7,7 +7,9 @@ import waddle
 
 with waddle.init(project="my-project", config={"lr": 0.01, "epochs": 100}):
     for epoch in range(100):
-        loss = train_one_epoch()
+        # Replace these deterministic examples with measurements from your trainer.
+        loss = 1.0 / (epoch + 1)
+        accuracy = epoch / 100
         waddle.log({"loss": loss, "acc": accuracy})
 ```
 
@@ -105,10 +107,10 @@ with waddle.init(
     tags={"model": "resnet18"},
 ):
     for epoch in range(50):
-        loss, acc = train_epoch()
+        # Replace these deterministic examples with measurements from your trainer.
+        loss = 1.0 / (epoch + 1)
+        acc = epoch / 50
         waddle.log({"loss": loss, "acc": acc})
-
-    waddle.log_artifact("model.pt", "checkpoints/best.pt", kind="model")
 ```
 
 ### 3. View results
@@ -167,8 +169,8 @@ run = waddle.init(
         parent_run_id="4f3c9e4d4c864d73bf86917e9bc11ba0",
     ),
 )
-result = run_frozen_evaluator()
-waddle.log(result.metrics, step=7)
+metrics = {"latency/p99_ms": 17.4, "quality/max_action_error": 0.0}
+waddle.log(metrics, step=7)
 run.finish(
     research_outcome=ResearchOutcome(
         decision=ResearchDecision.KEEP,
@@ -210,9 +212,12 @@ API rejects missing targets, self-links, and cross-project or cross-session link
 Log a dictionary of metrics. Step auto-increments if omitted.
 
 ```python
-waddle.log({"loss": 0.5, "acc": 0.9})        # step 0
-waddle.log({"loss": 0.3, "acc": 0.95})       # step 1
-waddle.log({"loss": 0.1}, step=100)           # explicit step
+import waddle
+
+with waddle.init(project="logging-example"):
+    waddle.log({"loss": 0.5, "acc": 0.9})   # step 0
+    waddle.log({"loss": 0.3, "acc": 0.95})  # step 1
+    waddle.log({"loss": 0.1}, step=100)       # explicit step
 ```
 
 ### `waddle.log_param(key, value)` / `waddle.log_tag(key, value)`
@@ -233,9 +238,16 @@ one lineage graph, readable via `GET /api/v1/runs/{id}/lineage` and the `waddle.
 MCP tool.
 
 ```python
-waddle.use_artifact("pi05-base", "checkpoints/pi05_base.safetensors", kind="model")
-...train...
-waddle.log_artifact("pi05-lap", "checkpoints/pi05_lap.safetensors", kind="model")
+from pathlib import Path
+
+import waddle
+
+
+def record_model_lineage(base_checkpoint: Path, trained_checkpoint: Path) -> None:
+    with waddle.init(project="pi05-training"):
+        waddle.use_artifact("pi05-base", str(base_checkpoint), kind="model")
+        # Train and write trained_checkpoint before recording the output edge.
+        waddle.log_artifact("pi05-lap", str(trained_checkpoint), kind="model")
 ```
 
 ### `waddle.finish()`
