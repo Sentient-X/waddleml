@@ -469,7 +469,9 @@ class Run:
             ],
         )
         if self._sync is not None:
-            self._sync.upload_artifact(name, uri, kind, sha_hex, size, relation, content)
+            self._sync.upload_artifact(
+                name, uri, kind, sha_hex, size, relation, content
+            )
         return aid
 
     # ---- lifecycle ----
