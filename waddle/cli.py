@@ -151,7 +151,7 @@ def cmd_sync(a: argparse.Namespace) -> int:
     config = SyncConfig.from_env()
     if config is None:
         print(
-            "WADDLE_API_URL must be set (plus WADDLE_API_KEY outside the "
+            "WADDLE_API_URL must be set (plus SX_API_KEY outside the "
             "auth-optional dev server).",
             file=sys.stderr,
         )

@@ -289,7 +289,7 @@ def test_captured_logging_reaches_the_server(tmp_path, server, monkeypatch):
     import logging
 
     monkeypatch.setenv("WADDLE_API_URL", server.url)
-    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    monkeypatch.setenv("SX_API_KEY", "k")
     run = waddle.init(
         project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
     )
@@ -318,7 +318,7 @@ def test_captured_logging_reaches_the_server(tmp_path, server, monkeypatch):
 
 def test_environment_registers_with_the_run(tmp_path, server, monkeypatch):
     monkeypatch.setenv("WADDLE_API_URL", server.url)
-    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    monkeypatch.setenv("SX_API_KEY", "k")
     run = waddle.init(
         project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
     )
@@ -331,7 +331,7 @@ def test_environment_registers_with_the_run(tmp_path, server, monkeypatch):
 
 def test_no_env_means_no_engine(tmp_path, monkeypatch):
     monkeypatch.delenv("WADDLE_API_URL", raising=False)
-    monkeypatch.delenv("WADDLE_API_KEY", raising=False)
+    monkeypatch.delenv("SX_API_KEY", raising=False)
     run = waddle.init(
         project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
     )
@@ -341,7 +341,7 @@ def test_no_env_means_no_engine(tmp_path, monkeypatch):
 
 def test_env_wires_engine_and_finish_reports_state(tmp_path, server, monkeypatch):
     monkeypatch.setenv("WADDLE_API_URL", server.url)
-    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    monkeypatch.setenv("SX_API_KEY", "k")
     run = waddle.init(
         project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
     )
@@ -360,7 +360,7 @@ def test_env_wires_engine_and_finish_reports_state(tmp_path, server, monkeypatch
 
 def test_research_contract_is_registered_with_hosted_run(tmp_path, server, monkeypatch):
     monkeypatch.setenv("WADDLE_API_URL", server.url)
-    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    monkeypatch.setenv("SX_API_KEY", "k")
     run = waddle.init(
         project="edge-inference",
         db_path=str(tmp_path / "w.duckdb"),
@@ -410,7 +410,7 @@ def test_url_alone_activates_keyless_sync(tmp_path, server, monkeypatch):
     # Dev convenience: against an auth-optional dev server no key is needed —
     # the engine sends NO authorization header (empty is never introspected).
     monkeypatch.setenv("WADDLE_API_URL", server.url)
-    monkeypatch.delenv("WADDLE_API_KEY", raising=False)
+    monkeypatch.delenv("SX_API_KEY", raising=False)
     run = waddle.init(
         project="p", db_path=str(tmp_path / "w.duckdb"), system_metrics=False
     )
@@ -441,7 +441,7 @@ def test_cli_backfill_preserves_research_contract(tmp_path, server, monkeypatch)
     run.finish()
 
     monkeypatch.setenv("WADDLE_API_URL", server.url)
-    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    monkeypatch.setenv("SX_API_KEY", "k")
     assert cmd_sync(Namespace(db=str(db_path), run=run.id)) == 0
 
     created = json.loads(server.requests[0][1])
@@ -488,7 +488,7 @@ def test_cli_backfill_parses_legacy_campaign_from_research_config(
     )
 
     monkeypatch.setenv("WADDLE_API_URL", server.url)
-    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    monkeypatch.setenv("SX_API_KEY", "k")
     assert cmd_sync(Namespace(db=str(db_path), run=run.id)) == 0
 
     created = json.loads(server.requests[0][1])
@@ -535,7 +535,7 @@ def test_cli_backfill_registers_research_parents_before_children(
     parent.finish()
 
     monkeypatch.setenv("WADDLE_API_URL", server.url)
-    monkeypatch.setenv("WADDLE_API_KEY", "k")
+    monkeypatch.setenv("SX_API_KEY", "k")
     assert cmd_sync(Namespace(db=str(db_path), run=None)) == 0
 
     registered = [

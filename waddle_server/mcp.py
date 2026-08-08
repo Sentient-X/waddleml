@@ -2,7 +2,7 @@
 
 Run as its own process (the storefront precedent): ``python -m waddle_server.mcp``
 (streamable HTTP on :8410 by default). Every tool authenticates the caller's
-``X-API-Key`` (env ``WADDLE_API_KEY`` fallback for stdio clients) by calling the
+``X-API-Key`` (env ``SX_API_KEY`` fallback for stdio clients) by calling the
 waddle API itself — the MCP process holds no database access of its own, so the
 API's org isolation and role checks apply verbatim.
 
@@ -55,7 +55,7 @@ def _raw_key(ctx: Context | None) -> str | None:  # type: ignore[type-arg]
             request = None
         if request is not None:
             return request.headers.get("x-api-key")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    return os.environ.get("WADDLE_API_KEY")
+    return os.environ.get("SX_API_KEY")
 
 
 async def _call(

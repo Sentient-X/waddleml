@@ -89,7 +89,7 @@ class SyncConfig:
             return None
         return SyncConfig(
             api_url=url.rstrip("/"),
-            api_key=os.environ.get("WADDLE_API_KEY", ""),
+            api_key=os.environ.get("SX_API_KEY", ""),
             project_override=os.environ.get("WADDLE_PROJECT") or None,
         )
 

@@ -95,7 +95,7 @@ def init(
     With resume=True an existing run_id is reopened as a new attempt instead of
     failing on the duplicate id (use when continuing from a checkpoint).
 
-    Platform sync is on by default whenever WADDLE_API_URL and WADDLE_API_KEY
+    Platform sync is on by default whenever WADDLE_API_URL and SX_API_KEY
     are set in the environment (sync=False opts out); without them the run is
     purely local, exactly as before.
     """

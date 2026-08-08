@@ -32,7 +32,7 @@ waddle ls        # terminal
 - **DuckDB storage** — fast, single-file database in `.waddle/waddle.duckdb`. No server process needed.
 - **System metrics** — optional background thread captures CPU, memory, and GPU utilization.
 - **SQL-native analysis views** — the `evidence_*` DuckDB views (`waddle/_schema.py`) turn a spool DB into chart-ready SQL: decimated metric streams, resume seams, live progress/ETA, per-run KPIs. Agents (the glued `waddle-dashboard` skill) and ad-hoc SQL read these, never the raw tables.
-- **Hosted platform sync (optional)** — set `WADDLE_API_URL` (plus `WADDLE_API_KEY`
+- **Hosted platform sync (optional)** — set `WADDLE_API_URL` (plus `SX_API_KEY`
   outside the auth-optional dev server) and every
   run also streams to the Sentient-X waddle platform: the local DuckDB is the durable
   spool, a background thread uploads idempotent batches (at-least-once wire,

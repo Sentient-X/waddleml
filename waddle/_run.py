@@ -249,7 +249,7 @@ class Run:
         if system_metrics:
             self._start_sysmetrics()
 
-        # Platform sync: on when WADDLE_API_URL/WADDLE_API_KEY are set (sync=None)
+        # Platform sync: on when WADDLE_API_URL/SX_API_KEY are set (sync=None)
         # or forced by sync=True; the engine is offline-first and never raises
         # into training. sync=False keeps a credentialed node local-only.
         self._sync: Any = None
