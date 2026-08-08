@@ -5,7 +5,8 @@ auth path."""
 
 from __future__ import annotations
 
-from datetime import datetime
+import hashlib
+from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid4
 
@@ -29,6 +30,8 @@ from sx_auth.principal import (  # noqa: E402
     ProjectRef,
 )
 
+from sx_service.buckets import ObjectRef  # noqa: E402
+from sx_service.storage import ObjectHead, ObjectInfo, ObjectStore  # noqa: E402
 from waddle_server.config import WaddleSettings  # noqa: E402
 from waddle_server.server.db import MIGRATIONS  # noqa: E402
 from waddle_server.server.app import build_app  # noqa: E402
@@ -38,7 +41,6 @@ from waddle_server.server.ch import (  # noqa: E402
     MetricStore,
     SeriesPoint,
 )
-from waddle_server.server.storage import HeadInfo, ObjectStore  # noqa: E402
 
 ADMIN_DSN = "postgresql://sxd:sxd@127.0.0.1:5433/postgres"
 TEST_DB = "waddle_test"
@@ -248,41 +250,40 @@ class FakeObjectStore(ObjectStore):
     """In-memory blob store: presigned URLs become dict writes the test seeds."""
 
     def __init__(self) -> None:  # deliberately no boto3 client
-        self._settings = WaddleSettings()
+        self._config = WaddleSettings().object_store
         self.objects: dict[str, bytes] = {}
 
-    def head(self, key: str) -> HeadInfo | None:
-        blob = self.objects.get(key)
-        return None if blob is None else HeadInfo(size_bytes=len(blob))
+    def head(self, ref: ObjectRef) -> ObjectHead | None:
+        blob = self.objects.get(ref.key)
+        return None if blob is None else ObjectHead(len(blob), _etag(blob), "")
 
-    def presign_get(self, key: str) -> str:
-        return f"https://fake/{key}"
+    def presign_get(self, ref: ObjectRef) -> str:
+        return f"https://fake/{ref.key}"
 
     def presign_put(self, key: str) -> str:
         return f"https://fake-put/{key}"
 
-    def get_bytes(self, key: str) -> bytes:
-        return self.objects[key]
+    def get_bytes(self, ref: ObjectRef) -> bytes:
+        return self.objects[ref.key]
 
     def put_file_replace(self, path, key: str) -> None:
         self.objects[key] = path.read_bytes()
 
-    def list_keys(self, prefix: str):
-        return (key for key in sorted(self.objects) if key.startswith(prefix))
-
     def list_objects(self, prefix: str):
-        from hashlib import sha256
-
-        from waddle_server.server.storage import ObjectInfo
-
         for key in sorted(self.objects):
             if key.startswith(prefix):
                 yield ObjectInfo(
-                    key=key, etag=sha256(self.objects[key]).hexdigest()[:16]
+                    ref=self.ref(key),
+                    etag=_etag(self.objects[key]),
+                    last_modified=datetime.now(tz=UTC),
                 )
 
     def ensure_bucket(self) -> None:
         pass
+
+
+def _etag(blob: bytes) -> str:
+    return hashlib.sha256(blob).hexdigest()[:16]
 
 
 @pytest.fixture()

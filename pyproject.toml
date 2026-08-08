@@ -52,15 +52,18 @@ server = [
     "pydantic-settings>=2.2",
     "psycopg[binary,pool]>=3.1",
     "clickhouse-connect>=0.7",
-    "boto3>=1.34",
     "httpx>=0.27",
     "mcp>=1.0",
     "sx-auth",
-    "sx-service[door,db]",
+    # The object store, its bucket registry, and the `Secret` its credential is.
+    # boto3 rides `sx-service[storage]`; no waddle module imports it directly.
+    "sx-contracts",
+    "sx-service[door,db,storage]",
 ]
 
 [tool.uv.sources]
 sx-auth = { workspace = true }
+sx-contracts = { workspace = true }
 sx-service = { workspace = true }
 
 [project.scripts]

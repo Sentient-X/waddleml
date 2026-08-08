@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 
 from sx_service.logging import configure_logging, get_logger
+from sx_service.storage import ObjectStore
 
 from .config import WaddleSettings
 from .server.db import MIGRATIONS
 from .server.ch import deploy_schema
-from .server.storage import ObjectStore
 
 log = get_logger(__name__)
 
@@ -23,7 +23,7 @@ def main() -> None:
     asyncio.run(deploy_schema(settings))
     log.info("clickhouse_schema_reconciled", replicated=settings.ch_replicated)
     if settings.ensure_bucket:
-        ObjectStore(settings).ensure_bucket()
+        ObjectStore(settings.object_store).ensure_bucket()
         log.info("development_bucket_reconciled", bucket=settings.bucket)
 
 

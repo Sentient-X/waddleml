@@ -31,12 +31,13 @@ from uuid import UUID
 
 from psycopg import AsyncConnection
 
+from sx_service.storage import ObjectInfo, ObjectStore
+
 from waddle_server.errors import SqlSandboxError
 from waddle_server.model import ColumnType
 from waddle_server.server.storage import (
     DATASET_NAME_RE,
-    ObjectInfo,
-    ObjectStore,
+    org_parquet_prefix,
     write_parquet,
 )
 from waddle_server.worker.compact import RUN_COLUMNS
@@ -62,13 +63,13 @@ class StagingCache:
         root.mkdir(parents=True, exist_ok=True)
 
     def fetch(self, store: ObjectStore, obj: ObjectInfo) -> Path:
-        digest = hashlib.sha256(f"{obj.key}@{obj.etag}".encode()).hexdigest()
+        digest = hashlib.sha256(f"{obj.ref.key}@{obj.etag}".encode()).hexdigest()
         path = self._root / digest
         if path.exists():
             path.touch()  # LRU recency
             return path
         tmp = self._root / f"{digest}.tmp{os.getpid()}"
-        tmp.write_bytes(store.get_bytes(obj.key))
+        tmp.write_bytes(store.get_bytes(obj.ref))
         tmp.replace(path)  # atomic under concurrent fetches of the same object
         self._prune()
         return path
@@ -207,20 +208,20 @@ async def _stage_org_data(
     ``orgs/{org_id}/parquet/`` is ever touched, and the child never sees a
     credential or a URL. With a cache, unchanged objects are hardlinks."""
     datasets: dict[str, list[Path]] = {}
-    prefix = f"orgs/{org_id}/parquet/"
+    prefix = org_parquet_prefix(org_id)
     for obj in store.list_objects(prefix):
-        dataset = obj.key[len(prefix) :].split("/", 1)[0]
+        dataset = obj.ref.key[len(prefix) :].split("/", 1)[0]
         # `runs` is always the fresher Postgres snapshot below; a name that
         # fails the dataset law never becomes a view (it would be spliced into
         # the child's CREATE VIEW statement).
         if dataset == "runs" or DATASET_NAME_RE.fullmatch(dataset) is None:
             continue
-        dest = scratch / dataset / obj.key.rsplit("/", 1)[-1]
+        dest = scratch / dataset / obj.ref.key.rsplit("/", 1)[-1]
         if cache is not None:
             _place(cache.fetch(store, obj), dest)
         else:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(store.get_bytes(obj.key))
+            dest.write_bytes(store.get_bytes(obj.ref))
         datasets.setdefault(dataset, []).append(dest)
 
     runs = await (

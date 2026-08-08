@@ -50,6 +50,7 @@ from sx_service.app import HealthOut, create_app
 from sx_service.db import make_pool
 from sx_service.logging import get_logger
 from sx_service.registry import PUBLIC_MUTATION, PUBLIC_READ, WADDLE
+from sx_service.storage import ObjectStore
 
 from waddle_server import reports, sqlbox
 from waddle_server.config import WaddleSettings
@@ -130,8 +131,8 @@ from waddle_server.server.schemas import (
 )
 from waddle_server.server.storage import (
     RESERVED_DATASETS,
-    ObjectStore,
     blob_key,
+    org_parquet_prefix,
     parquet_key,
     write_parquet,
 )
@@ -166,7 +167,7 @@ def build_app(
     cfg = settings or WaddleSettings()
     pool = make_pool(cfg.pg_dsn)
     store = metric_store or ch.MetricStore(cfg)
-    blobs = object_store or ObjectStore(cfg)
+    blobs = object_store or ObjectStore(cfg.object_store)
     client = auth_client or AuthClient(
         base_url=cfg.auth_url, service_key=cfg.auth_service_key, audience="waddle"
     )
@@ -1219,10 +1220,10 @@ def build_app(
         pr: WaddlePrincipal = Depends(principal),
     ) -> list[DatasetInfoOut]:
         require_role(pr, WaddleRole.READER)
-        prefix = f"orgs/{pr.org_id}/parquet/"
+        prefix = org_parquet_prefix(pr.org_id)
         counts: dict[str, int] = {}
-        for key in blobs.list_keys(prefix):
-            name = key[len(prefix) :].split("/", 1)[0]
+        for obj in blobs.list_objects(prefix):
+            name = obj.ref.key[len(prefix) :].split("/", 1)[0]
             counts[name] = counts.get(name, 0) + 1
         return [DatasetInfoOut(dataset=n, files=c) for n, c in sorted(counts.items())]
 
@@ -1238,7 +1239,7 @@ def build_app(
         targets: list[UploadTargetOut] = []
         for file in body.files:
             key = blob_key(pr.org_id, file.sha256)
-            already = blobs.head(key)
+            already = blobs.head(blobs.ref(key))
             targets.append(
                 UploadTargetOut(
                     logical_path=file.logical_path,
@@ -1277,7 +1278,7 @@ def build_app(
                     sha256=f.blob_sha256,
                     size_bytes=f.size_bytes,
                     media_type=f.media_type,
-                    download_url=blobs.presign_get(f.r2_key),
+                    download_url=blobs.presign_get(blobs.ref(f.r2_key)),
                 )
                 for f in files
             ],
@@ -1313,7 +1314,7 @@ def build_app(
             path = str(declared["logical_path"])
             size = int(str(declared["size_bytes"]))
             key = blob_key(pr.org_id, sha)
-            head = blobs.head(key)
+            head = blobs.head(blobs.ref(key))
             if head is None:
                 raise HTTPException(409, f"blob {sha[:12]}… was never uploaded")
             if head.size_bytes != size:

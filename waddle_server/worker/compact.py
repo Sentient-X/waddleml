@@ -28,10 +28,11 @@ from uuid import UUID
 
 import psycopg
 from sx_service.logging import configure_logging, get_logger
+from sx_service.storage import ObjectStore
 
 from waddle_server.config import WaddleSettings
 from waddle_server.server import artifacts, ch
-from waddle_server.server.storage import ObjectStore, parquet_key, write_parquet
+from waddle_server.server.storage import parquet_key, write_parquet
 
 log = get_logger(__name__)
 
@@ -85,7 +86,7 @@ RUN_COLUMNS = [
 class Compactor:
     def __init__(self, cfg: WaddleSettings) -> None:
         self._cfg = cfg
-        self._store = ObjectStore(cfg)
+        self._store = ObjectStore(cfg.object_store)
         self._ch = ch.MetricStore(cfg)
 
     async def sweep_once(self) -> None:
@@ -205,7 +206,9 @@ class Compactor:
             )
         ).fetchall()
         for sha256, r2_key, _size in rows:
-            actual = hashlib.sha256(self._store.get_bytes(r2_key)).hexdigest()
+            actual = hashlib.sha256(
+                self._store.get_bytes(self._store.ref(r2_key))
+            ).hexdigest()
             if actual != sha256:
                 log.error(
                     "artifact blob digest mismatch — investigate immediately",

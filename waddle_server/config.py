@@ -7,7 +7,9 @@ from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sx_contracts.secret import Secret
 from sx_service.registry import AUTH, AUTH_PUBLIC, TELEMETRY_INGEST
+from sx_service.storage import ObjectStoreConfig
 
 
 class WaddleSettings(BaseSettings):
@@ -31,7 +33,7 @@ class WaddleSettings(BaseSettings):
     # Object store: the waddle-owned bucket (R2 in prod, MinIO in dev).
     s3_endpoint: str = "http://127.0.0.1:9010"
     s3_access_key: str = "dev"
-    s3_secret_key: str = "dev12345"
+    s3_secret_key: Secret = Secret("dev12345")
     bucket: str = "sx-waddle"
     presign_ttl_s: int = 600
     # Dev/MinIO deployment job only (R2 is provisioned out-of-band).
@@ -78,3 +80,14 @@ class WaddleSettings(BaseSettings):
 
     # Built SPA to serve (the glued SPA-mount pattern); unset = API-only.
     ui_dist: Path | None = None
+
+    @property
+    def object_store(self) -> ObjectStoreConfig:
+        """The five facts `sx_service.storage` needs — and not the thirty it does not."""
+        return ObjectStoreConfig(
+            endpoint=self.s3_endpoint,
+            access_key=self.s3_access_key,
+            secret_key=self.s3_secret_key,
+            bucket=self.bucket,
+            presign_ttl_s=self.presign_ttl_s,
+        )

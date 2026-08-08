@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("fastapi")
 
-from waddle_server.server.storage import ObjectInfo  # noqa: E402
+from sx_service.buckets import ObjectRef  # noqa: E402
+from sx_service.storage import ObjectInfo  # noqa: E402
 from waddle_server.sqlbox import StagingCache  # noqa: E402
+
+WHEN = datetime(2026, 8, 8, tzinfo=UTC)
+
+
+def _listed(key: str, etag: str) -> ObjectInfo:
+    return ObjectInfo(ref=ObjectRef("sx-waddle", key), etag=etag, last_modified=WHEN)
 
 
 class _CountingStore:
@@ -17,15 +25,15 @@ class _CountingStore:
         self.blobs = blobs
         self.fetches: list[str] = []
 
-    def get_bytes(self, key: str) -> bytes:
-        self.fetches.append(key)
-        return self.blobs[key]
+    def get_bytes(self, ref: ObjectRef) -> bytes:
+        self.fetches.append(ref.key)
+        return self.blobs[ref.key]
 
 
 def test_unchanged_objects_download_once(tmp_path: Path) -> None:
     store = _CountingStore({"orgs/x/parquet/metrics/m.parquet": b"payload"})
     cache = StagingCache(tmp_path, max_bytes=1 << 20)
-    obj = ObjectInfo(key="orgs/x/parquet/metrics/m.parquet", etag="v1")
+    obj = _listed("orgs/x/parquet/metrics/m.parquet", "v1")
 
     first = cache.fetch(store, obj)  # type: ignore[arg-type]
     second = cache.fetch(store, obj)  # type: ignore[arg-type]
@@ -34,7 +42,7 @@ def test_unchanged_objects_download_once(tmp_path: Path) -> None:
 
     # A replaced snapshot (new ETag) refetches; the old blob stays until pruned.
     store.blobs["orgs/x/parquet/metrics/m.parquet"] = b"payload-2"
-    third = cache.fetch(store, ObjectInfo(key=obj.key, etag="v2"))  # type: ignore[arg-type]
+    third = cache.fetch(store, _listed(obj.ref.key, "v2"))  # type: ignore[arg-type]
     assert third != first and third.read_bytes() == b"payload-2"
     assert len(store.fetches) == 2
 
@@ -43,7 +51,7 @@ def test_prune_bounds_the_cache(tmp_path: Path) -> None:
     store = _CountingStore({f"k{i}": bytes(400) for i in range(8)})
     cache = StagingCache(tmp_path, max_bytes=1000)
     for i in range(8):
-        cache.fetch(store, ObjectInfo(key=f"k{i}", etag="e"))  # type: ignore[arg-type]
+        cache.fetch(store, _listed(f"k{i}", "e"))  # type: ignore[arg-type]
     kept = [p for p in tmp_path.iterdir() if p.is_file()]
     assert sum(p.stat().st_size for p in kept) <= 1000
     assert kept  # bounded, never emptied to zero by a single insert
