@@ -10,13 +10,14 @@ import { defineConfig } from "vite";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 import { PLATFORM_SURFACES } from "@sx/ui/platform.gen";
+import { sxObservability } from "@sx/observability/vite";
 
 // Port and API proxy come from the platform registry (sx_platform → platform.gen.ts).
 const surface = PLATFORM_SURFACES.find((s) => s.id === "autonomy-training");
 if (!surface) throw new Error("autonomy-training missing from @sx/ui platform.gen");
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [sxObservability({ service: "waddle-ui" }), react()],
   resolve: {
     alias: { "@": path.resolve(here, "./src") },
   },
